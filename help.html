@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#050709" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Skyshift" />
+    <title>Skyshift — Orientation</title>
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/ui.css" />
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; margin: 0; }
+
+      /* overflow-x: clip (not hidden) — hidden establishes a scroll
+         container on <body> that kills iOS inertial scroll in PWA mode. */
+      body {
+        min-height: 100dvh;
+        background: #050709;
+        color: var(--paper);
+        font-family: var(--font-display);
+        overflow-x: clip;
+        padding-bottom: 0;
+      }
+
+      #bg {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      .help-page {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        max-width: 520px;
+        margin: 0 auto;
+        padding:
+          0
+          max(24px, var(--safe-right))
+          64px
+          max(24px, var(--safe-left));
+        display: flex;
+        flex-direction: column;
+        gap: 40px;
+      }
+
+      /* Shared glass panel surface — see --glass-* tokens in ui.css. */
+      .surface-blur {
+        background: var(--glass-bg);
+        -webkit-backdrop-filter: var(--glass-blur);
+        backdrop-filter: var(--glass-blur);
+        box-shadow: var(--glass-edge);
+      }
+
+      /* ── Top-level section heading — the prominent "01 How it works"
+         treatment: big gold number, display face, flanked by a dashed
+         rule so each section anchors the page. ── */
+      .help-section-label {
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        margin: 0 0 18px;
+        padding-bottom: 10px;
+        border-bottom: 1px dashed var(--line-2);
+      }
+      .help-section-label .num {
+        font-family: var(--font-mono);
+        font-size: 22px;
+        font-weight: 700;
+        line-height: 1;
+        color: var(--active);
+        letter-spacing: -0.02em;
+      }
+      .help-section-label .label {
+        font-family: var(--font-display);
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: var(--paper);
+      }
+
+      /* ── Flow steps (trade / build / emigrate) — green settings-panel
+         hatch header with a letter key (A/B/C), matching the in-game
+         `.settings-section h3` look so the flow lands as "one step of
+         the game system" rather than a page-level heading. ── */
+      .flow-stack { display: flex; flex-direction: column; gap: 28px; }
+      .flow-step { display: flex; flex-direction: column; gap: 10px; }
+      .flow-step-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 2px;
+        padding: 8px 14px 9px;
+        background:
+          repeating-linear-gradient(43deg, color-mix(in srgb, var(--accent) 10%, transparent) 0 1px, transparent 1px 5px),
+          var(--ink-0);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .flow-step-head::before {
+        content: "»";
+        letter-spacing: 0;
+      }
+      .flow-step-head .flow-step-letter {
+        color: var(--active);
+      }
+      .flow-step-head .flow-step-title {
+        font: inherit;
+        color: inherit;
+        letter-spacing: inherit;
+      }
+      .flow-step-text {
+        font-size: 13.5px;
+        line-height: 1.6;
+        color: var(--paper-dim);
+      }
+      .flow-step-canvas {
+        position: relative;
+        height: 170px;
+        border: 1px solid var(--line-2);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .flow-step-canvas canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      /* ── HUD help cards ── */
+      .help-card-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+      .help-card {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 14px 16px;
+        border: 1px solid var(--line-2);
+        border-radius: 6px;
+      }
+      .help-card-icon {
+        width: 48px;
+        height: 48px;
+        flex: 0 0 48px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--paper);
+        border: 1px solid var(--line-2);
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.35);
+      }
+      .help-card-icon svg {
+        width: 22px;
+        height: 22px;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        fill: none;
+      }
+      .help-card-body {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+      }
+      .help-card-name {
+        font-family: var(--font-display);
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: var(--accent);
+      }
+      .help-card-hint {
+        font-size: 12.5px;
+        line-height: 1.45;
+        color: var(--paper-mute);
+      }
+    </style>
+  </head>
+  <body>
+
+    <canvas id="bg"></canvas>
+
+    <main class="help-page">
+      <header class="page-masthead">
+        <div class="page-masthead-topbar">
+          <a class="page-masthead-back" href="/">«<span class="num">00</span>Index</a>
+          <span class="page-masthead-label">BUREAU OF OPERATIONS</span>
+        </div>
+        <h1 class="page-masthead-title"><span class="page-masthead-brand">Skyshift</span> Orientation</h1>
+        <p class="page-masthead-sub">
+          Five nations share a cluster of sectors. Each one has what others
+          need, and needs what others have. Enjoy the universe as it evolves.
+        </p>
+      </header>
+
+      <section>
+        <h2 class="help-section-label">
+          <span class="num">01</span>
+          <span class="label">A day in the cluster</span>
+        </h2>
+        <div class="flow-stack">
+
+          <article class="flow-step">
+            <div class="flow-step-head">
+              <span class="flow-step-letter">A</span>
+              <h3 class="flow-step-title">Trade</h3>
+            </div>
+            <p class="flow-step-text">
+              Nations trade what they need most, from what they have most.
+              Each route is an answer to supply and demand, drawn between the
+              stations that need it most.
+            </p>
+            <div class="flow-step-canvas surface-blur"><canvas data-scene="trade"></canvas></div>
+          </article>
+
+          <article class="flow-step">
+            <div class="flow-step-head">
+              <span class="flow-step-letter">B</span>
+              <h3 class="flow-step-title">Build</h3>
+            </div>
+            <p class="flow-step-text">
+              Nations build new stations directly, or contract another nation
+              to do it. Traders ferry hulls to the new site — which shows up
+              with its own final-station icon, just emptier than the parent.
+            </p>
+            <div class="flow-step-canvas surface-blur"><canvas data-scene="build"></canvas></div>
+          </article>
+
+          <article class="flow-step">
+            <div class="flow-step-head">
+              <span class="flow-step-letter">C</span>
+              <h3 class="flow-step-title">Emigrate</h3>
+            </div>
+            <p class="flow-step-text">
+              When a cluster fills up, emigration happens via a Wayfair
+              Generational Ship. Nearby stations transfer their people
+              aboard, and once it departs, space opens up for the cluster
+              to keep growing.
+            </p>
+            <div class="flow-step-canvas surface-blur"><canvas data-scene="emigrate"></canvas></div>
+          </article>
+
+        </div>
+      </section>
+
+      <section>
+        <h2 class="help-section-label">
+          <span class="num">02</span>
+          <span class="label">Buttons, explained</span>
+        </h2>
+        <div class="help-card-grid">
+          <div class="help-card surface-blur">
+            <div class="help-card-icon" data-icon="zoom"></div>
+            <div class="help-card-body">
+              <span class="help-card-name">Zoom</span>
+              <span class="help-card-hint">In, out, or tap to cycle between presets (0.2×, 0.4×, 1.0×).</span>
+            </div>
+          </div>
+          <div class="help-card surface-blur">
+            <div class="help-card-icon" data-icon="controls"></div>
+            <div class="help-card-body">
+              <span class="help-card-name">More controls</span>
+              <span class="help-card-hint">Reveal the top-row toggles (view modes) above the dial.</span>
+            </div>
+          </div>
+          <div class="help-card surface-blur">
+            <div class="help-card-icon" data-icon="speed"></div>
+            <div class="help-card-body">
+              <span class="help-card-name">Time acceleration</span>
+              <span class="help-card-hint">Run at 1×, 2×, or 5×. Tap to cycle, or press 1 / 2 / 3.</span>
+            </div>
+          </div>
+          <div class="help-card surface-blur">
+            <div class="help-card-icon" data-icon="overview"></div>
+            <div class="help-card-body">
+              <span class="help-card-name">Overview</span>
+              <span class="help-card-hint">Zoom out to inspect the whole sector, paused in time.</span>
+            </div>
+          </div>
+          <div class="help-card surface-blur">
+            <div class="help-card-icon" data-icon="zones"></div>
+            <div class="help-card-body">
+              <span class="help-card-name">Zones</span>
+              <span class="help-card-hint">Highlight empty areas where a new cluster could grow.</span>
+            </div>
+          </div>
+          <div class="help-card surface-blur">
+            <div class="help-card-icon" data-icon="settings"></div>
+            <div class="help-card-body">
+              <span class="help-card-name">Settings</span>
+              <span class="help-card-hint">Audio, save controls, and map options.</span>
+            </div>
+          </div>
+          <div class="help-card surface-blur">
+            <div class="help-card-icon" data-icon="log"></div>
+            <div class="help-card-body">
+              <span class="help-card-name">Trade log</span>
+              <span class="help-card-hint">Recent deliveries on the selected ship, station, or route.</span>
+            </div>
+          </div>
+          <div class="help-card surface-blur">
+            <div class="help-card-icon" data-icon="lore"></div>
+            <div class="help-card-body">
+              <span class="help-card-name">Lore</span>
+              <span class="help-card-hint">Lore entry for the selected nation, ship, or station.</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/src/static-pages/help-entry.ts"></script>
+  </body>
+</html>

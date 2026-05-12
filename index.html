@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#050709" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Skyshift" />
+    <title>Skyshift</title>
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/ui.css" />
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; margin: 0; }
+
+      /* Override ui.css body — landing page has its own column layout
+         and doesn't want the global 120px footer pad. overflow-x: clip
+         (not hidden) keeps iOS inertial scroll on <html> intact. */
+      body {
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: #050709;
+        color: #e5ecff;
+        font-family: system-ui, sans-serif;
+        overflow-x: clip;
+        padding-bottom: 0;
+      }
+
+      #bg {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      .page {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+        min-height: 100dvh;
+        padding-left: var(--safe-left);
+        padding-right: var(--safe-right);
+      }
+
+      /* ── title ── */
+      .title-area {
+        text-align: center;
+        padding: max(44px, var(--safe-top)) 24px 0;
+      }
+
+      /* ── sector canvas ── */
+      .sector-area {
+        flex: 1;
+        width: 100%;
+        min-height: 180px;
+        max-height: 360px;
+        position: relative;
+      }
+      .sector-area canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .hud-btn[disabled] {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .landing-nav { padding: 16px 16px 32px; }
+    </style>
+  </head>
+  <body>
+
+    <canvas id="bg"></canvas>
+
+    <div class="page">
+      <div class="title-area">
+        <h1 class="landing-hero">Skyshift</h1>
+        <div class="landing-caption">
+          <div>// FIVE NATIONS <b>TRADE · BUILD · EMIGRATE</b></div>
+          <div class="codes">
+            <span style="color: #4CAF50;">BIO</span>
+            <span class="sep">·</span>
+            <span style="color: #0069B3;">HUB</span>
+            <span class="sep">·</span>
+            <span style="color: #B36100;">ORE</span>
+            <span class="sep">·</span>
+            <span style="color: #00F9FF;">SKY</span>
+            <span class="sep">·</span>
+            <span style="color: #E8C840;">FAR</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sector-area">
+        <canvas id="sector"></canvas>
+      </div>
+
+      <!-- Populated by the script below based on save-state: either two
+           Enter-universe buttons (first visit) or one Continue over two
+           smaller "Start new <map> universe" siblings (returning). -->
+      <div class="start-actions" data-role="start-actions"></div>
+
+      <nav class="landing-nav">
+        <div class="landing-nav-primary">
+          <a href="/help.html">// <span class="num">01</span> Orientation</a>
+          <a href="/lore.html">// <span class="num">02</span> Lore</a>
+        </div>
+        <div class="landing-nav-secondary">
+          <a href="/design.html">// UI Design</a>
+          <!-- TODO: add ?readonly or disable save when served online -->
+          <a href="/tools.html">// Tools</a>
+          <a href="https://github.com/rudidev08/skyshift">// GitHub</a>
+        </div>
+      </nav>
+    </div>
+
+    <script type="module" src="/src/static-pages/landing-entry.ts"></script>
+  </body>
+</html>

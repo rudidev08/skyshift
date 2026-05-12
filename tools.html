@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#050709" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Skyshift" />
+  <title>Tools — Skyshift</title>
+  <link rel="icon" href="/favicon.ico" sizes="32x32" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="stylesheet" href="/ui.css" />
+  <link rel="stylesheet" href="/ui-editor.css" />
+  <style>
+    /* =========================================================
+       Editor shell — reuses ui.css tokens. The editor is a tool,
+       not a dossier — utilitarian, but speaks the same visual
+       language as the game HUD and design-system showcase.
+       ========================================================= */
+
+    html, body {
+      height: 100dvh;
+      overflow: hidden;
+    }
+    body {
+      padding-bottom: 0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .editor-shell {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Tab bar ── segmented hud-segment--row language, flat mono caps */
+    .editor-tabs {
+      display: flex;
+      align-items: stretch;
+      padding: max(10px, var(--safe-top)) 20px 0;
+      background: var(--ink-1);
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+      gap: 0;
+    }
+    .editor-tab {
+      position: relative;
+      height: 40px;
+      padding: 0 22px;
+      border: none;
+      background: transparent;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--paper-mute);
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+    .editor-tab:hover { color: var(--paper-dim); }
+    .editor-tab.is-active {
+      color: var(--active);
+    }
+    .editor-tab.is-active::after {
+      content: "";
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      bottom: -1px;
+      height: 2px;
+      background: var(--active);
+    }
+
+    .editor-view {
+      display: none;
+      flex: 1;
+      min-height: 0;
+    }
+    .editor-view.is-active {
+      display: flex;
+      flex-direction: column;
+    }
+    #economy-editor-view.is-active {
+      overflow: auto;
+      padding: 0 32px 120px;
+    }
+    /* Step bar's chart + counts row stack to a non-trivial height once a run
+       captures frames; pin a generous min-height for the map and let the view
+       scroll on shorter viewports rather than crushing the canvas. */
+    #timelapse-editor-view.is-active {
+      overflow-y: auto;
+    }
+    #timelapse-editor-view .timelapse-surface {
+      min-height: 480px;
+    }
+
+    /* ── Read-only banner ── mono-caps note, dashed line-2 border,
+       active-gold label to match the design-system admonition feel. */
+    .readonly-banner {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 20px;
+      background:
+        repeating-linear-gradient(43deg, rgba(245, 194, 107, 0.04) 0 1px, transparent 1px 5px),
+        var(--ink-1);
+      border-bottom: 1px dashed var(--line-2);
+      color: var(--paper-dim);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+    }
+    .readonly-banner.is-visible { display: flex; }
+    .readonly-banner-label {
+      color: var(--active);
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+    .readonly-banner-label::before {
+      content: "// ";
+      color: var(--paper-mute);
+      font-weight: 500;
+    }
+
+    /* ═════════════════════════════════════════════════════════
+       ECONOMY EDITOR — reads like a design-system document.
+       Showcase headings, dashed dividers, id-card panels,
+       mono captions.
+       ═════════════════════════════════════════════════════════ */
+
+    /* Top toolbar — hatched band, serial-style mono caption, action buttons.
+       Mirrors the showcase-section header rhythm. */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 20px 0 14px;
+      margin-bottom: 12px;
+      border-bottom: 1px dashed var(--line-2);
+      flex-wrap: wrap;
+    }
+    .toolbar h1 {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--paper);
+      margin: 0 8px 0 0;
+      white-space: nowrap;
+    }
+    .toolbar h1 em {
+      font-style: normal;
+      color: var(--active);
+    }
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toolbar-group-note {
+      flex: 1 1 360px;
+      min-width: 260px;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    .toolbar-divider {
+      width: 1px;
+      align-self: stretch;
+      background: var(--line-2);
+      flex-shrink: 0;
+      margin: 2px 4px;
+    }
+    .toolbar-badge {
+      padding: 3px 8px;
+      border: 1px solid var(--active);
+      border-radius: 3px;
+      color: var(--active);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-weight: 700;
+      background: color-mix(in srgb, var(--active) 8%, transparent);
+    }
+    .toolbar-note {
+      color: var(--paper-mute);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      white-space: normal;
+    }
+
+    /* Economy panels — id-card language, but calmer: hatched ink gradient,
+       dashed-divider header (via .panel-header), no morse stripe by default
+       (it's a manifest register, not a dossier — use the stripe sparingly). */
+    .panel {
+      position: relative;
+      isolation: isolate;
+      background:
+        repeating-linear-gradient(43deg, rgba(245, 194, 107, 0.02) 0 1px, transparent 1px 5px),
+        repeating-linear-gradient(-43deg, rgba(79, 179, 184, 0.015) 0 1px, transparent 1px 7px),
+        linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
+      border: 1px solid var(--line-2);
+      border-radius: 6px;
+      padding: 0;
+      margin: 16px 0;
+      overflow: hidden;
+      box-shadow:
+        0 16px 40px rgba(0, 0, 0, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px 10px;
+      border-bottom: 2px dashed var(--line-2);
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    /* Panel heading — showcase-subhead style (mono caps, tracking 0.18em). */
+    h2 {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--paper);
+      white-space: nowrap;
+    }
+    h2::before {
+      content: "// ";
+      color: var(--paper-mute);
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+
+    /* Simulation panel — accent-green trim distinguishes it as "data/pulse"
+       rather than a static register. */
+    .panel-simulation {
+      border-color: color-mix(in srgb, var(--accent) 35%, var(--line-2));
+    }
+    .panel-simulation .panel-header h2 { color: var(--accent); }
+
+    /* ── Tables ── manifest register: sticky mono-caps headers, dashed row
+       dividers, tabular numeric cells in mono. */
+    table { border-collapse: collapse; width: 100%; }
+    th, td {
+      padding: 7px 14px;
+      text-align: left;
+      white-space: nowrap;
+      font-size: 12px;
+      vertical-align: middle;
+    }
+    th {
+      font-family: var(--font-mono);
+      color: var(--paper-mute);
+      font-weight: 500;
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      position: sticky;
+      top: 0;
+      background: var(--ink-1);
+      z-index: 1;
+      padding-top: 8px;
+      padding-bottom: 10px;
+      border-bottom: 1px dashed var(--line-2);
+    }
+    td {
+      color: var(--paper-dim);
+      border-bottom: 1px dashed var(--line);
+    }
+    tbody tr:hover > td,
+    table:not(.fleet-table) tr:not(.separator):not(.add-row):not(.ware-separator):hover > td {
+      background: rgba(245, 194, 107, 0.03);
+    }
+
+    .table-scroll {
+      overflow: auto;
+      padding: 0 20px 18px;
+    }
+    .table-scroll-stations { overflow-x: auto; }
+    .table-scroll-fleet { overflow-x: auto; }
+
+    .metric-table td.label-cell {
+      color: var(--paper);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .metric-table td.description-cell {
+      color: var(--paper-mute);
+      white-space: normal;
+      min-width: 420px;
+      font-size: 12px;
+      font-family: var(--font-display);
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .metric-table th.numeric-column,
+    .metric-table td.numeric-cell,
+    .fleet-table th.numeric-column,
+    .fleet-table td.numeric-cell {
+      text-align: right;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      color: var(--paper);
+    }
+    .input-cell input[type="number"] {
+      display: block;
+      margin-left: auto;
+      text-align: right;
+      width: 96px;
+    }
+    .input-cell input[type="number"].small { width: 68px; }
+    .calculated-cell {
+      color: var(--paper-dim);
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+    }
+
+    .station-grid .ware-cell {
+      text-align: center;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+      min-width: 52px;
+      padding: 3px 4px;
+    }
+    .station-grid .ware-header {
+      text-align: center;
+      min-width: 52px;
+      font-size: 9px;
+      padding: 4px 4px 8px;
+      letter-spacing: 0.08em;
+    }
+    .totals-label {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--paper-mute);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+    }
+    .totals-cell {
+      text-align: center;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+      color: var(--paper);
+    }
+
+    /* Scrollbars — use line tokens rather than hardcoded whites. */
+    .table-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .table-scroll::-webkit-scrollbar-track { background: transparent; }
+    .table-scroll::-webkit-scrollbar-thumb {
+      background: var(--line-2);
+      border-radius: 3px;
+    }
+    .table-scroll::-webkit-scrollbar-thumb:hover { background: var(--line-3); }
+    #economy-editor-view::-webkit-scrollbar { width: 8px; }
+    #economy-editor-view::-webkit-scrollbar-track { background: transparent; }
+    #economy-editor-view::-webkit-scrollbar-thumb {
+      background: var(--line-2);
+      border-radius: 4px;
+    }
+    #economy-editor-view::-webkit-scrollbar-thumb:hover { background: var(--line-3); }
+
+    /* ── Inputs ── match the .slot-row / .ware-dropdown-trigger idiom:
+       low-contrast surface, line-3 border, active-gold focus. */
+    input[type="number"], select {
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--paper);
+      border: 1px solid var(--line-3);
+      padding: 5px 9px;
+      width: 80px;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+      border-radius: 3px;
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+    }
+    input[type="number"]:hover, select:hover {
+      border-color: var(--paper-mute);
+    }
+    input[type="number"]:focus, select:focus {
+      border-color: var(--active);
+      outline: none;
+      background: rgba(245, 194, 107, 0.04);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--active) 18%, transparent);
+    }
+    input:disabled, select:disabled, button:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    input[type="number"].small { width: 55px; }
+    select {
+      width: auto;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      letter-spacing: 0.02em;
+    }
+
+    /* Changed-input treatment — re-tinted from the old muddy yellow to the
+       design system's --active gold. */
+    input.changed {
+      border-color: var(--active);
+      background: color-mix(in srgb, var(--active) 10%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--active) 24%, transparent);
+    }
+
+    /* ── Buttons ── default = hud-btn language. */
+    button {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--paper-dim);
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--line-2);
+      border-radius: 4px;
+      padding: 0 14px;
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.02),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+    }
+    button:hover {
+      border-color: var(--line-3);
+      color: var(--paper);
+    }
+    button:disabled:hover {
+      border-color: var(--line-2);
+      color: var(--paper-dim);
+    }
+
+    /* Primary — slot-confirm language (solid active, black text). */
+    .button-primary {
+      background: var(--active);
+      border-color: var(--active);
+      color: #000;
+      font-weight: 700;
+      box-shadow: none;
+    }
+    .button-primary:hover {
+      background: #ffd07a;
+      border-color: #ffd07a;
+      color: #000;
+    }
+    /* Action — accent-green (data/pulse). */
+    .button-action {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #000;
+      font-weight: 700;
+      box-shadow: none;
+    }
+    .button-action:hover {
+      background: #a6e4a5;
+      border-color: #a6e4a5;
+      color: #000;
+    }
+    /* Danger — err tokens. */
+    .button-danger {
+      color: var(--err);
+      border-color: var(--err-line);
+      background: rgba(0, 0, 0, 0.3);
+    }
+    .button-danger:hover {
+      background: var(--err-bg);
+      color: var(--err);
+      border-color: var(--err);
+    }
+
+    .remove-button {
+      background: none;
+      border: none;
+      color: var(--paper-mute);
+      cursor: pointer;
+      padding: 0 4px;
+      font-size: 14px;
+      line-height: 1;
+      height: auto;
+      border-radius: 0;
+      box-shadow: none;
+      letter-spacing: 0;
+    }
+    .remove-button:hover {
+      color: var(--err);
+      background: none;
+      border: none;
+      box-shadow: none;
+    }
+
+    .sim-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px 16px;
+    }
+    .sim-stale {
+      color: var(--active) !important;
+      font-style: normal;
+      font-family: var(--font-mono);
+      letter-spacing: 0.02em;
+    }
+    #simulation-status {
+      color: var(--paper-mute);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.02em;
+    }
+
+    .calculator-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--paper-dim);
+      letter-spacing: 0.02em;
+    }
+    .calculator-controls label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .calculator-note { color: var(--paper-mute); }
+    .calculator-unit { color: var(--paper-dim); }
+    .small-input { width: 58px !important; text-align: right; }
+
+    /* Role tints — map to design-system semantics. */
+    .role-output { color: var(--accent); }              /* produced → accent green */
+    .role-input  { color: var(--paper-dim); }
+    .role-consumed { color: var(--active); }            /* gold for the consumed-side entry */
+
+    .station-healthy  { color: var(--accent); }
+    .station-warning  { color: var(--active); }
+    .station-critical { color: var(--err); }
+    .bold {
+      font-weight: 700;
+      color: var(--active);
+    }
+    .dim { color: var(--paper-mute); }
+    .net-positive { color: var(--accent); }
+    .net-negative { color: var(--err); }
+
+    .ware-group-first td { border-top: 1px solid var(--line-2); }
+
+    .consumption-entry {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 2px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+    .consumption-label {
+      color: var(--paper-mute);
+      font-size: 11px;
+    }
+
+    .separator td { border-bottom: 2px solid var(--line-2); }
+
+    .ships-table td,
+    .fleet-table td { font-size: 12px; }
+    .ship-wares-row td {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--paper-mute);
+      letter-spacing: 0.02em;
+      padding-top: 0;
+      padding-bottom: 8px;
+      padding-left: 22px;
+      border-bottom: 1px dashed var(--line);
+    }
+    .add-row td { padding-top: 10px; }
+    .add-row select { margin-right: 4px; }
+
+    .station-panel-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+    }
+    .add-station-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .size-badge {
+      color: var(--paper-mute);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      margin-left: 4px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .fleet-table { width: max-content; min-width: 100%; }
+    .fleet-table th { font-size: 9px; }
+    .fleet-summary-note {
+      color: var(--paper-mute);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      padding: 0 20px 12px;
+      max-width: 1100px;
+      line-height: 1.55;
+    }
+    .panel-note {
+      color: var(--paper-mute);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      margin: 0;
+      max-width: 760px;
+      text-align: right;
+      line-height: 1.55;
+    }
+    .summary-row td {
+      border-top: 1px solid var(--line-2);
+      font-weight: 700;
+      color: var(--paper);
+    }
+    .sim-label {
+      color: var(--paper-dim);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    /* ═════════════════════════════════════════════════════════
+       MAP EDITOR — in-game HUD language.
+       Segmented mode picker, zoom dial, stack labels,
+       framed map surface, id-card overlay for selection.
+       ═════════════════════════════════════════════════════════ */
+
+    .map-editor-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 20px;
+      background: var(--ink-1);
+      border-bottom: 1px solid var(--line);
+      flex-wrap: wrap;
+    }
+
+    /* Stack column — segmented mode picker stacked above the preset selector. */
+    .map-editor-mode-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+    }
+
+    /* Preset picker — matches mode-button aesthetic (compact height,
+       mono caps label). The <label> wraps the caption + <select> so
+       clicking the caption focuses the picker. */
+    .map-editor-preset {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--paper-dim);
+    }
+    .map-editor-preset-select {
+      font: inherit;
+      letter-spacing: 0.08em;
+      color: var(--paper);
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--line-2);
+      border-radius: 4px;
+      padding: 0 8px;
+      height: 36px;
+      cursor: pointer;
+    }
+    .map-editor-preset-select:hover,
+    .map-editor-preset-select:focus {
+      border-color: var(--line-3);
+      outline: none;
+    }
+
+    /* Mode group = hud-segment: joined buttons sharing borders. Override
+       height so the toolbar stays compact (36px vs the HUD's default 44px). */
+    .map-editor-mode-group {
+      display: inline-flex;
+    }
+    .map-editor-mode-button {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--paper-dim);
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--line-2);
+      border-radius: 0;
+      padding: 0 14px;
+      height: 36px;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.02),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+    }
+    .map-editor-mode-button:first-child {
+      border-top-left-radius: 4px;
+      border-bottom-left-radius: 4px;
+    }
+    .map-editor-mode-button:last-child {
+      border-top-right-radius: 4px;
+      border-bottom-right-radius: 4px;
+    }
+    .map-editor-mode-button + .map-editor-mode-button {
+      margin-left: -1px;
+    }
+    .map-editor-mode-button:hover {
+      border-color: var(--line-3);
+      color: var(--paper);
+    }
+    .map-editor-mode-button.is-active {
+      position: relative;
+      z-index: 1;
+      color: var(--active);
+      border-color: var(--active);
+      background:
+        linear-gradient(180deg, rgba(245, 194, 107, 0.08), rgba(245, 194, 107, 0.02)),
+        rgba(0, 0, 0, 0.3);
+    }
+
+    .map-editor-status {
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .map-editor-status::before {
+      content: "// ";
+      color: var(--paper-mute);
+    }
+
+    /* Map surface — dark frame, 6px radius, subtle inset shadow. Don't fight
+       the canvas; the game renders into #game-container on top. */
+    .map-editor-surface {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      background: #000;
+      border: 1px solid var(--line-2);
+      border-radius: 6px;
+      margin: 16px 20px 20px;
+      touch-action: none;
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+        0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Editor hides gameplay-only chrome that the shared runtime still
+       wires — controls-toggle (we show zoom-dial only, no extra toggle),
+       lore/log drawers (lore/details aren't part of editor UX), and the
+       legacy #hud-icon img (replaced by the in-header id-seal). */
+    .map-editor-surface #controls-toggle { display: none; }
+    .map-editor-surface #lore-toggle,
+    .map-editor-surface #log-toggle,
+    .map-editor-surface #lore-box,
+    .map-editor-surface #details-box { display: none; }
+    .map-editor-surface #hud-icon { display: none; }
+
+    .map-editor-surface #game-container {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    /* ── Floating selection dossier ── reuses the .id-card HTML structure
+       from maps.html (same runtime bindings), positioned inside the map
+       surface. The card itself gets its full id-card treatment from
+       ui.css — we only position the container and constrain the card width. */
+    .map-editor-surface #overlay-info {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+      pointer-events: none;
+      z-index: 5;
+      max-width: calc(100% - 24px);
+    }
+    .map-editor-surface #overlay-info-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+    .map-editor-surface #overlay-info-card {
+      width: 300px;
+      pointer-events: auto;
+    }
+    .map-editor-surface #info-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex-shrink: 0;
+      pointer-events: auto;
+    }
+    .map-editor-surface #info-rail .hud-btn {
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      justify-content: center;
+    }
+
+    /* ── HUD bottom-left stack ── mirrors the live game HUD layout
+       (stack-items with mono captions). */
+    .map-editor-surface #hud-bar {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      align-items: flex-start;
+      max-width: calc(100% - 24px);
+      z-index: 10;
+    }
+    .map-editor-surface #hud-top-row {
+      flex-wrap: wrap;
+      max-width: 100%;
+    }
+
+    /* The editor HUD uses the ui.css .hud-btn / .zoom-dial unchanged — no
+       need to re-skin them here. Just suppress focus rings (no keyboard
+       navigation in the editor). */
+    .map-editor-surface .hud-btn:focus,
+    .map-editor-surface .speed-pill:focus,
+    .map-editor-surface .zoom-btn:focus,
+    .map-editor-surface .zoom-level:focus { outline: none; }
+
+    .timelapse-surface #timelapse-container {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+    /* Reuses the `.cargo-track` / `.cargo-fill` pair from ui.css (the same
+       primitive cargo bars use). Sizing is scoped here; fill color flips to
+       --active so the progress bar reads as the same activity-gold as the
+       Run button that started it. */
+    .timelapse-progress {
+      width: 120px;
+      height: 6px;
+      flex-shrink: 0;
+    }
+    .timelapse-progress .cargo-fill {
+      background: var(--active);
+      opacity: 1;
+    }
+    .timelapse-time-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: nowrap;
+    }
+    .timelapse-step-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 10px 20px;
+      border-bottom: 1px dashed var(--line-2);
+    }
+    /* Cap the control's width so its chart stops re-flowing as the per-nation
+       counts row grows during a run. Cap goes on the status-stack (the parent),
+       not the mount itself — `flex: 0 1 auto` on the parent + a percentage
+       width on the child resolves circularly through intrinsic sizing, leaving
+       the cap unenforced. The parent's `100%` resolves against its outer step
+       bar (a known-sized container), which breaks the loop. */
+    #timelapse-control-mount {
+      width: 100%;
+    }
+    /* Match the editor's toolbar button height (36px) — the live-game
+       `.hud-btn` defaults to 44px, which mismatches the 36px Run button and
+       the 36px selects sitting next to it. Step buttons inside the step-bar
+       keep the 44px HUD height. */
+    .timelapse-toolbar .hud-btn {
+      height: 36px;
+    }
+    /* `<button hidden>` defaults to `display: none` via the UA stylesheet, but
+       the page's author-level `button { display: inline-flex }` (line 426)
+       wins the cascade. Restore the intent so the timelapse Run/Pause toggle
+       only ever shows one button at a time. */
+    button[hidden] { display: none; }
+
+    .timelapse-status-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      flex: 0 1 auto;
+      min-width: 0;
+      /* Same `min(target, 100% - gutter)` shape as `--landing-action-width` in
+         ui.css. 100% here is the step-bar's content-box width — fills it on
+         phones, caps to 560px on wide editor surfaces (5 nation pills + 4
+         separators fit on one line at this width). */
+      width: min(560px, 100% - 40px);
+    }
+    .timelapse-time {
+      min-width: 140px;
+      max-width: 460px;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      color: var(--paper);
+      font-variant-numeric: tabular-nums;
+    }
+    /* Pre-run blurb is a full-sentence prompt; once the run kicks off the same
+       element holds a tabular `current/total` time, so we soften letter-spacing
+       and color when in the long-text mode for legibility. */
+    .timelapse-time.is-blurb {
+      letter-spacing: 0.02em;
+      color: var(--paper-mute);
+      font-family: var(--font-display);
+    }
+    /* Station-counts row + step bar styling moved to ui.css under
+       .stations-timelapse-* — shared with the live game's overview Log tab. */
+    .timelapse-zoom-dial {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      z-index: 10;
+    }
+    @media (max-width: 900px) {
+      .timelapse-step-bar {
+        padding: 8px 12px;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .timelapse-status-stack {
+        order: -1;
+        flex-basis: 100%;
+      }
+      .timelapse-time {
+        max-width: 100%;
+        min-width: 0;
+      }
+      .timelapse-zoom-dial {
+        bottom: max(12px, env(safe-area-inset-bottom));
+      }
+    }
+
+    @media (max-width: 900px) {
+      .editor-tabs { padding: 8px 12px 0; }
+      .map-editor-surface { margin: 12px; }
+      #economy-editor-view.is-active { padding: 0 16px 80px; }
+      .panel { margin: 12px 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="editor-shell">
+    <div id="readonly-banner" class="readonly-banner" role="status">
+      <span class="readonly-banner-label">Read-Only Mode</span>
+      <span>Editing and saving are available in local development only.</span>
+    </div>
+    <div class="editor-tabs" role="tablist" aria-label="Editor views">
+      <button
+        id="timelapse-editor-tab"
+        class="editor-tab is-active"
+        data-editor-tab="timelapse"
+        role="tab"
+        aria-selected="true"
+        aria-controls="timelapse-editor-view"
+      >Timelapse</button>
+      <button
+        id="map-editor-tab"
+        class="editor-tab"
+        data-editor-tab="map"
+        role="tab"
+        aria-selected="false"
+        aria-controls="map-editor-view"
+      >Map Editor</button>
+      <button
+        id="economy-editor-tab"
+        class="editor-tab"
+        data-editor-tab="economy"
+        role="tab"
+        aria-selected="false"
+        aria-controls="economy-editor-view"
+      >Economy Editor</button>
+    </div>
+
+    <section id="map-editor-view" class="editor-view" role="tabpanel" aria-labelledby="map-editor-tab" hidden>
+      <div class="map-editor-toolbar">
+        <div class="map-editor-mode-stack">
+          <div class="map-editor-mode-group" role="toolbar" aria-label="Map editor modes">
+            <button id="map-mode-view" class="map-editor-mode-button is-active" data-map-mode="view">View</button>
+            <button id="map-mode-select" class="map-editor-mode-button" data-map-mode="select">Select</button>
+            <button id="map-mode-move" class="map-editor-mode-button" data-map-mode="move" title="Move stations, nebulas, and zones">Move</button>
+          </div>
+          <label class="map-editor-preset" title="Seeds the editor with the chosen preset — switching discards in-editor edits.">
+            Preset
+            <select data-role="preset-picker" class="map-editor-preset-select"></select>
+          </label>
+        </div>
+        <div id="map-editor-status-text" class="map-editor-status"></div>
+      </div>
+      <div class="map-editor-surface">
+        <div id="game-container"></div>
+        <!-- WHAT: the map editor intentionally has no visible pause/speed
+             controls. Keep this shared HUD fragment hidden so future gameplay
+             HUD changes do not read as an editor regression. -->
+        <div id="speed-hud" class="speed-hud" hidden>
+          <div id="speed-hud-elapsed" class="speed-hud__elapsed">// elapsed <span class="num">00m:00s</span></div>
+          <div class="speed-hud__row">
+            <button id="speed-pause-btn" class="speed-pill speed-pill--icon" type="button" title="Pause">
+              <span class="speed-pill__icon"></span>
+            </button>
+            <button id="speed-cycle-btn" class="speed-pill speed-pill--cycle" type="button" title="Cycle speed">
+              <span class="speed-pill__icon"></span>
+              <span class="speed-pill__text">1×</span>
+            </button>
+          </div>
+        </div>
+        <div id="hud-bar">
+          <div class="stack-item">
+            <div class="zoom-dial">
+              <div id="controls-toggle" class="zoom-btn" title="Toggle controls"></div>
+              <div class="zoom-group">
+                <div id="zoom-out" class="zoom-btn" title="Zoom out"></div>
+                <div id="zoom-level" class="zoom-level" title="Cycle zoom preset"></div>
+                <div id="zoom-in" class="zoom-btn" title="Zoom in"></div>
+              </div>
+            </div>
+          </div>
+          <!-- WHAT: editor mode keeps the shared HUD limited to zone visibility.
+               It does not mount gameplay settings or the sector-grid toggle. -->
+          <div class="stack-item">
+            <div id="hud-top-row" class="row gap-xs">
+              <button id="zones-toggle" class="hud-btn hud-btn-icon" title="Zones"></button>
+            </div>
+          </div>
+        </div>
+        <!-- Selection dossier — reuses .id-card / .id-header language.
+             game-setup.ts (shared runtime) binds by ID: #overlay-info, #overlay-info-card,
+             #selected-object, #selected-type, #serial-code, #hud-seal,
+             #description, #status-band, #lore, #lore-title, #details-content,
+             #lore-toggle, #log-toggle. Structure matches index.html so the runtime
+             updates the same dossier shell in both the game and the editor. -->
+        <div id="overlay-info">
+          <div id="overlay-info-row">
+            <div id="overlay-info-card" class="id-card">
+              <div class="id-header">
+                <div class="id-title">
+                  <div id="selected-object" class="id-name"></div>
+                  <div id="selected-type" class="id-type"></div>
+                </div>
+                <div class="icon-code">
+                  <div id="hud-seal" class="id-seal"></div>
+                  <div id="serial-code" class="id-serial-code id-serial-code--stamp"></div>
+                </div>
+              </div>
+              <div id="description" class="cargo-grid"></div>
+              <div id="status-band" class="id-type-mrz id-status-band" hidden></div>
+            </div>
+            <!-- game-entry-hud.ts binds by ID (collapse/lore/log toggles).
+                 Editor hides lore + log via CSS but keeps the collapse toggle
+                 active so the dossier can fold down like the in-game HUD. -->
+            <div id="info-rail">
+              <button id="collapse-toggle" class="hud-btn hud-btn-icon" title="Collapse"></button>
+              <button id="lore-toggle" class="hud-btn hud-btn-icon" title="Lore"></button>
+              <button id="log-toggle" class="hud-btn hud-btn-icon" title="Trade log"></button>
+            </div>
+          </div>
+        </div>
+        <!-- Hidden legacy hud-icon — superseded by #hud-seal inside the
+             id-card header, but some paths still read document.getElementById
+             with a safe fallback, so keep the element in the tree. -->
+        <img id="hud-icon" hidden>
+        <!-- Lore / details drawers — gameplay chrome. Hidden in the editor
+             but the IDs (#lore-box, #lore, #lore-title, #details-box,
+             #details-content) are required by game-setup.ts bindings. -->
+        <div id="lore-box">
+          <div class="lore-card">
+            <div id="lore-title" class="lore-title"></div>
+            <div id="lore" class="lore-text"></div>
+          </div>
+        </div>
+        <div id="details-box">
+          <div class="log-panel">
+            <div id="details-content" class="log-panel-body"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="economy-editor-view" class="editor-view" role="tabpanel" aria-labelledby="economy-editor-tab" hidden>
+      <div id="app"></div>
+    </section>
+
+    <section id="timelapse-editor-view" class="editor-view is-active" role="tabpanel" aria-labelledby="timelapse-editor-tab">
+      <div class="map-editor-toolbar timelapse-toolbar">
+        <label class="map-editor-preset" title="Universe map to seed the simulation.">
+          Map
+          <select id="timelapse-preset" class="map-editor-preset-select">
+            <option value="settled">Settled</option>
+            <option value="frontier">Frontier</option>
+          </select>
+        </label>
+        <label class="map-editor-preset" title="How much sim time to fast-forward.">
+          Duration
+          <select id="timelapse-duration" class="map-editor-preset-select">
+            <option value="259200" selected>3d</option>
+            <option value="604800">7d</option>
+            <option value="1728000">20d</option>
+          </select>
+        </label>
+        <label class="map-editor-preset" title="Fraction of eligible stations that emigrate during the run.">
+          Stations to emigrate
+          <select id="timelapse-emigration" class="map-editor-preset-select">
+            <option value="none">None</option>
+            <option value="low">25%</option>
+            <option value="medium" selected>50%</option>
+            <option value="high">75%</option>
+          </select>
+        </label>
+        <button id="timelapse-run" class="button-primary" type="button">Run</button>
+        <button id="timelapse-pause" class="hud-btn" type="button" hidden>Pause</button>
+        <button id="timelapse-diagnostics" class="hud-btn" type="button" hidden title="Download the captured frames as JSON for debugging."><span>Diagnostics</span></button>
+        <button id="timelapse-reset" class="hud-btn" type="button" hidden title="Clear the captured run and re-show the Run button.">Reset</button>
+      </div>
+      <div class="timelapse-step-bar" role="toolbar" aria-label="Timelapse playback controls">
+        <div class="timelapse-status-stack">
+          <div class="timelapse-time-row">
+            <span id="timelapse-time" class="timelapse-time"></span>
+            <div id="timelapse-progress" class="cargo-track timelapse-progress" hidden>
+              <div id="timelapse-progress-fill" class="cargo-fill"></div>
+            </div>
+          </div>
+          <div id="timelapse-control-mount" hidden></div>
+        </div>
+      </div>
+      <div class="map-editor-surface timelapse-surface">
+        <div id="timelapse-container"></div>
+        <div class="timelapse-zoom-dial zoom-dial">
+          <div class="zoom-group">
+            <div id="timelapse-zoom-out" class="zoom-btn" title="Zoom out"></div>
+            <div id="timelapse-zoom-level" class="zoom-level" title="Cycle zoom preset"></div>
+            <div id="timelapse-zoom-in" class="zoom-btn" title="Zoom in"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script type="module" src="/src/editor/index.ts"></script>
+</body>
+</html>

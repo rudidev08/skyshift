@@ -1,0 +1,49 @@
+import type { SectorTemplate } from "./map-types";
+import * as sectorLore from "./strings-sectors";
+
+export const sectors: SectorTemplate[] = [
+  // Row 0
+  { id: "underleaf",     name: "Underleaf",     gridX: -2, gridY: 0, environment: "frontier",   lore: sectorLore.UNDERLEAF },
+  { id: "overgrowth",    name: "Overgrowth",    gridX: -1, gridY: 0, environment: "bio-nebula", lore: sectorLore.OVERGROWTH },
+  { id: "bright-towers", name: "Bright Towers", gridX:  0, gridY: 0, environment: "core",       lore: sectorLore.BRIGHT_TOWERS },
+  { id: "new-logic",     name: "New Logic",     gridX:  1, gridY: 0, environment: "core",       lore: sectorLore.NEW_LOGIC },
+  { id: "border-03",     name: "Border 03",     gridX:  2, gridY: 0, environment: "frontier",   lore: sectorLore.BORDER_03 },
+  { id: "border-05",     name: "Border 05",     gridX:  3, gridY: 0, environment: "frontier",   lore: sectorLore.BORDER_05 },
+  { id: "last-relay",    name: "Last Relay",    gridX:  4, gridY: 0, environment: "deep-space", lore: sectorLore.LAST_RELAY },
+
+  // Row 1
+  { id: "whisper-hold",  name: "Whisper Hold",  gridX: -2, gridY: 1, environment: "frontier",     lore: sectorLore.WHISPER_HOLD },
+  { id: "green-silence", name: "Green Silence", gridX: -1, gridY: 1, environment: "bio-nebula",   lore: sectorLore.GREEN_SILENCE },
+  { id: "abject-pride",  name: "Abject Pride",  gridX:  0, gridY: 1, environment: "core",         lore: sectorLore.ABJECT_PRIDE },
+  { id: "border-02",     name: "Border 02",     gridX:  1, gridY: 1, environment: "trade-lanes",  lore: sectorLore.BORDER_02 },
+  { id: "hearth",        name: "Hearth",        gridX:  2, gridY: 1, environment: "mineral-rich", lore: sectorLore.HEARTH },
+  { id: "cautious-trails", name: "Cautious Trails", gridX: 3, gridY: 1, environment: "frontier",  lore: sectorLore.CAUTIOUS_TRAILS },
+  { id: "blind-study",   name: "Blind Study",   gridX:  4, gridY: 1, environment: "deep-space",   lore: sectorLore.BLIND_STUDY },
+
+  // Row 2
+  { id: "older-furrow",    name: "Older Furrow",    gridX: -2, gridY: 2, environment: "frontier",     lore: sectorLore.OLDER_FURROW },
+  { id: "the-fallow",      name: "The Fallow",      gridX: -1, gridY: 2, environment: "bio-nebula",   lore: sectorLore.THE_FALLOW },
+  { id: "gap-of-calamity", name: "Gap of Calamity", gridX:  0, gridY: 2, environment: "mineral-rich", lore: sectorLore.GAP_OF_CALAMITY },
+  { id: "crossroads",      name: "Crossroads",      gridX:  1, gridY: 2, environment: "trade-lanes",  lore: sectorLore.CROSSROADS },
+  { id: "soil",            name: "Soil",            gridX:  2, gridY: 2, environment: "mineral-rich", lore: sectorLore.SOIL },
+  { id: "cold-theory",     name: "Cold Theory",     gridX:  3, gridY: 2, environment: "deep-space",   lore: sectorLore.COLD_THEORY },
+  { id: "thin-veil",       name: "Thin Veil",       gridX:  4, gridY: 2, environment: "deep-space",   lore: sectorLore.THIN_VEIL },
+
+  // Row 3
+  { id: "echo-hollow",     name: "Echo Hollow",     gridX: -2, gridY: 3, environment: "deep-space",   lore: sectorLore.ECHO_HOLLOW },
+  { id: "no-signal",       name: "No Signal",       gridX: -1, gridY: 3, environment: "hazardous",    lore: sectorLore.NO_SIGNAL },
+  { id: "dark",            name: "Dark",            gridX:  0, gridY: 3, environment: "hazardous",    lore: sectorLore.DARK },
+  { id: "pale-anchor",     name: "Pale Anchor",     gridX:  1, gridY: 3, environment: "frontier",     lore: sectorLore.PALE_ANCHOR },
+  { id: "void-of-silence", name: "Void of Silence", gridX:  2, gridY: 3, environment: "mineral-rich", lore: sectorLore.VOID_OF_SILENCE },
+  { id: "thin-edge",       name: "Thin Edge",       gridX:  3, gridY: 3, environment: "hazardous",    lore: sectorLore.THIN_EDGE },
+  { id: "not-here",        name: "Not Here",        gridX:  4, gridY: 3, environment: "deep-space",   lore: sectorLore.NOT_HERE },
+
+  // Row 4
+  { id: "pale-drift",          name: "Pale Drift",          gridX: -2, gridY: 4, environment: "deep-space",  lore: sectorLore.PALE_DRIFT },
+  { id: "old-frequency",       name: "Old Frequency",       gridX: -1, gridY: 4, environment: "frontier",    lore: sectorLore.OLD_FREQUENCY },
+  { id: "smooth-passage",      name: "Smooth Passage",      gridX:  0, gridY: 4, environment: "trade-lanes", lore: sectorLore.SMOOTH_PASSAGE },
+  { id: "void-of-safety",      name: "Void of Safety",      gridX:  1, gridY: 4, environment: "frontier",    lore: sectorLore.VOID_OF_SAFETY },
+  { id: "cartographers-rest",  name: "Cartographer's Rest", gridX:  2, gridY: 4, environment: "frontier",    lore: sectorLore.CARTOGRAPHERS_REST },
+  { id: "idle-spark",          name: "Idle Spark",          gridX:  3, gridY: 4, environment: "deep-space",  lore: sectorLore.IDLE_SPARK },
+  { id: "long-decimal",        name: "Long Decimal",        gridX:  4, gridY: 4, environment: "deep-space",  lore: sectorLore.LONG_DECIMAL },
+];

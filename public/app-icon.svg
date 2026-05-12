@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- iOS home-screen / PWA icon. iOS applies a squircle mask on top of this
+       PNG at render time — so the reticle sits well inside the visible area
+       with deliberate black padding all around. The plain favicon.svg (used
+       for browser tabs, which don't mask) keeps the tighter reticle.
+
+       Background: 4-unit dashed paper-line grid — reads as a projected HUD
+       overlay behind the reticle. Matches variant H in design.html §13.
+       Stroke + opacity tuned hot enough that the dashes register on a
+       phone home screen at 180×180 instead of vanishing into the black. -->
+  <defs>
+    <pattern id="appIconGrid" width="4" height="4" patternUnits="userSpaceOnUse">
+      <path d="M 4 0 L 0 0 0 4" fill="none" stroke="#d2dcf5" stroke-width="0.5" stroke-dasharray="0.6 0.6" opacity="0.85"/>
+    </pattern>
+  </defs>
+  <rect width="32" height="32" fill="#050709"/>
+  <rect width="32" height="32" fill="url(#appIconGrid)"/>
+  <g stroke="#f5c26b" fill="none" stroke-linecap="round">
+    <circle cx="16" cy="16" r="10" stroke-width="1.4"/>
+    <circle cx="16" cy="16" r="5.6" stroke-width="0.75"/>
+    <line x1="16" y1="9" x2="16" y2="23" stroke-width="0.75"/>
+    <line x1="9" y1="16" x2="23" y2="16" stroke-width="0.75"/>
+  </g>
+  <circle cx="16" cy="16" r="1.1" fill="#f5c26b"/>
+</svg>

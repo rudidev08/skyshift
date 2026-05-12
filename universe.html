@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#050709" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Skyshift" />
+    <title>Skyshift</title>
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/ui.css" />
+    <style>
+      /* Game page overrides: full-viewport canvas, no scrolling.
+         touch-action: none prevents mobile browsers from hijacking
+         vertical swipes for page scroll — all touch input goes to Phaser. */
+      html, body {
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        touch-action: none;
+        padding-bottom: 0;
+      }
+      #game-container {
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+
+      /* Top-left selection column: the id-card + info-rail sit side-by-side
+         so the rail's top aligns with the card's top. Mirrors the bottom-left
+         HUD stack. */
+      #overlay-info {
+        position: fixed;
+        /* max(8px, var(--safe-*)) keeps desktop/browser at 8px while pushing
+           HUD clear of iOS notches when launched full-canvas from home screen. */
+        top: max(8px, var(--safe-top));
+        left: max(8px, var(--safe-left));
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        align-items: flex-start;
+        z-index: 5;
+        pointer-events: none;
+      }
+      #overlay-info-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+      }
+      #overlay-info-card {
+        width: 300px;
+        pointer-events: auto;
+      }
+      #info-rail {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        pointer-events: auto;
+      }
+      #info-rail .hud-btn {
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        justify-content: center;
+      }
+      /* Lore / log buttons hide by default; game.ts adds .is-available
+         whenever the selection has lore / details of that type. */
+      #lore-toggle,
+      #log-toggle { display: none; }
+      #lore-toggle.is-available,
+      #log-toggle.is-available { display: flex; }
+      /* Collapsed state beats availability via higher specificity, so the
+         rail shows only the collapse toggle when the card is collapsed. */
+      #overlay-info-card.is-collapsed { width: auto; }
+      #info-rail.is-collapsed > :not(#collapse-toggle) { display: none; }
+
+      /* Lore / log drawers — blurred cards. JS positions them below the
+         id-card and toggles display: flex when open. */
+      #lore-box,
+      #details-box {
+        position: fixed;
+        left: 8px;
+        z-index: 5;
+        pointer-events: none;
+        display: none;
+        flex-direction: column;
+        gap: 6px;
+        align-items: stretch;
+      }
+      #lore-box { width: 300px; }
+      #details-box { width: 340px; }
+
+      /* HUD bar stacks toggle row → speed rack → zoom dial bottom-left,
+         each wrapped as a labeled stack-item. The extra gap accommodates
+         the `// NN · …` annotation that sits above every group. */
+      #hud-bar {
+        position: fixed;
+        bottom: max(8px, var(--safe-bottom));
+        left: max(8px, var(--safe-left));
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        align-items: flex-start;
+        z-index: 10;
+      }
+      /* The game has no keyboard-driven button navigation, so browser focus
+         rings on HUD buttons are misleading — suppress them across the HUD. */
+      .hud-btn:focus,
+      .speed-pill:focus,
+      .zoom-btn:focus,
+      .zoom-level:focus { outline: none; }
+
+      /* Loading screen — covers the top-left id-card slot while the scene
+         is booting. game.ts flips body.game-ready on the first update()
+         call, which fades the card out and the real HUD in. Shared
+         .loading-bar / .id-card.is-loading styles live in ui.css. */
+      #loading-screen {
+        position: fixed;
+        top: max(8px, var(--safe-top));
+        left: max(8px, var(--safe-left));
+        width: 300px;
+        z-index: 6;
+        pointer-events: none;
+        transition: opacity 450ms ease-out;
+      }
+      body.game-ready #loading-screen {
+        opacity: 0;
+      }
+      /* Hide the real top-left id-card and bottom-left HUD rack until the
+         first frame has rendered — avoids flashing empty chrome beside
+         the loading card. */
+      body:not(.game-ready) #overlay-info,
+      body:not(.game-ready) #hud-bar {
+        opacity: 0;
+      }
+      #overlay-info,
+      #hud-bar {
+        transition: opacity 450ms ease-out;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game-container"></div>
+
+    <div id="loading-screen">
+      <div class="id-card is-loading">
+        <div class="id-header">
+          <div class="id-title">
+            <div class="id-name">Skyshift</div>
+            <div class="id-type">Entering universe</div>
+          </div>
+        </div>
+        <div class="loading-bar loading-bar--hero"></div>
+        <div class="id-type-mrz id-status-band">// standby</div>
+      </div>
+    </div>
+    <div id="speed-hud" class="speed-hud" hidden>
+      <div id="speed-hud-elapsed" class="speed-hud__elapsed">// elapsed <span class="num">00m:00s</span></div>
+      <div class="speed-hud__row">
+        <button id="speed-pause-btn" class="speed-pill speed-pill--icon" type="button" title="Pause">
+          <span class="speed-pill__icon"></span>
+        </button>
+        <button id="speed-cycle-btn" class="speed-pill speed-pill--cycle" type="button" title="Cycle speed">
+          <span class="speed-pill__icon"></span>
+          <span class="speed-pill__text">1×</span>
+        </button>
+        <button id="speed-dev-20" class="speed-pill speed-pill--dev" type="button" data-dev-speed="20" title="Dev speed 20× (≈3 real min per game hour)" hidden>
+          <span class="speed-pill__text">20×</span>
+        </button>
+        <button id="speed-dev-60" class="speed-pill speed-pill--dev" type="button" data-dev-speed="60" title="Dev speed 60× (≈1 real min per game hour)" hidden>
+          <span class="speed-pill__text">60×</span>
+        </button>
+      </div>
+    </div>
+    <div id="hud-bar">
+      <div id="hud-top-row" class="stack-item">
+        <div class="row gap-xs">
+          <button id="zones-toggle" class="hud-btn hud-btn-icon" title="Zones (cycle with V)"></button>
+          <button id="overview-toggle" class="hud-btn hud-btn-icon" title="Overview (cycle with V)"></button>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="zoom-dial">
+          <div id="controls-toggle" class="zoom-btn" title="Toggle controls"></div>
+          <div class="zoom-group">
+            <div id="zoom-out" class="zoom-btn" title="Zoom out"></div>
+            <div id="zoom-level" class="zoom-level" title="Cycle zoom preset"></div>
+            <div id="zoom-in" class="zoom-btn" title="Zoom in"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="overlay-info">
+      <div id="overlay-info-row">
+        <div id="overlay-info-card" class="id-card">
+          <div class="id-header">
+            <div class="id-title">
+              <div id="selected-object" class="id-name"></div>
+              <div id="selected-type" class="id-type"></div>
+            </div>
+            <div class="icon-code">
+              <div id="hud-seal" class="id-seal"></div>
+              <div id="serial-code" class="id-serial-code id-serial-code--stamp"></div>
+            </div>
+          </div>
+          <div id="description" class="cargo-grid"></div>
+          <div id="status-band" class="id-type-mrz id-status-band" hidden></div>
+        </div>
+        <div id="info-rail">
+          <button id="collapse-toggle" class="hud-btn hud-btn-icon" title="Collapse"></button>
+          <button id="lore-toggle" class="hud-btn hud-btn-icon" title="Lore"></button>
+          <button id="log-toggle" class="hud-btn hud-btn-icon" title="Trade log"></button>
+        </div>
+      </div>
+    </div>
+
+    <div id="lore-box">
+      <div class="lore-card">
+        <div id="lore-title" class="lore-title"></div>
+        <div id="lore" class="lore-text"></div>
+      </div>
+    </div>
+
+    <div id="details-box">
+      <div class="log-panel">
+        <div id="details-content" class="log-panel-body"></div>
+      </div>
+    </div>
+
+    <div id="trade-route-overlay" class="trade-route-overlay" hidden></div>
+
+    <script type="module" src="/src/game-entry.ts"></script>
+  </body>
+</html>

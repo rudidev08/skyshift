@@ -1,0 +1,86 @@
+/* Design-page-only overrides and showcase primitives. Anything the
+ * live game uses belongs in ui.css. See design.html's <link> comment
+ * for why this is a separate stylesheet rather than an inline block. */
+
+body {
+    padding-bottom: 120px;
+}
+
+/* Stack-label is a design-reference primitive — kept here so it can
+   evolve without coupling to gameplay chrome in ui.css. */
+.stack-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--paper-mute);
+    letter-spacing: 0.02em;
+    padding-left: 2px;
+    text-transform: lowercase;
+}
+.stack-label .num {
+    font-weight: 700;
+}
+
+/* Showcase-only: flow the expanded ware dropdown inline so it doesn't
+   absolutely overlay the next showcase section. In-game the sidebar is
+   an overlay above the canvas, so absolute positioning is fine there. */
+.showcase-section .ware-dropdown.is-open .ware-dropdown-menu {
+    position: static;
+    margin-top: 4px;
+}
+
+/* Showcase-only backdrop for the landing-page variants — a dark radial
+   so the start buttons and nav render against the deep starfield they
+   live on in production rather than the pale showcase surface. */
+.landing-preview-stage {
+    width: 100%;
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 28px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    background: radial-gradient(
+        ellipse at center,
+        rgba(20, 26, 40, 0.8) 0%,
+        rgba(5, 7, 9, 0.95) 80%
+    );
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* Loading-state showcase backdrop — matches the in-game canvas so the
+   13 preview sits on the same dark surface as the live HUD. The loading
+   bar, hero modifier, and .id-card.is-loading modifiers themselves
+   live in ui.css. */
+.loading-stage {
+    min-height: 260px;
+    padding: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    background:
+        radial-gradient(circle at 25% 30%, rgba(79, 179, 184, 0.08), transparent 55%),
+        radial-gradient(circle at 80% 75%, rgba(245, 194, 107, 0.05), transparent 55%),
+        #050709;
+}
+.loading-stage--left {
+    place-items: center start;
+    padding-left: 32px;
+}
+
+/* Design page stays static — freeze the sweep at 35% of its 1.4s cycle
+   (1.4s × 0.35 ≈ -0.49s) via a negative delay, then pause. */
+.loading-bar::before {
+    animation-delay: -0.49s;
+    animation-play-state: paused;
+}
+
+/* Same no-animation rule for the pending/confirm pulsing dots — without
+   this the load-error showcase 12-G card would breathe in the design
+   page even though everything else around it is frozen. */
+.slot-pending {
+    animation: none;
+    opacity: 1;
+}
+

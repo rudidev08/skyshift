@@ -1,0 +1,39 @@
+{
+  "name": "skyshift",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "local": "vite --host",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "./run-tests.sh",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@fontsource-variable/space-grotesk": "^5.2.10",
+    "@vercel/analytics": "^2.0.1",
+    "lucide-static": "^1.7.0",
+    "phaser": "^4.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@humanwhocodes/config-array": "^0.13.0",
+    "@types/node": "^25.5.2",
+    "@typescript-eslint/eslint-plugin": "^8.58.0",
+    "@typescript-eslint/parser": "^8.58.0",
+    "@typescript-eslint/utils": "^8.58.0",
+    "canvas": "^3.2.2",
+    "eslint": "^10.2.0",
+    "globals": "^17.4.0",
+    "jiti": "^2.6.1",
+    "puppeteer": "^24.42.0",
+    "sharp": "^0.34.5",
+    "terser": "^5.46.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.0",
+    "vite": "^8.0.3"
+  }
+}

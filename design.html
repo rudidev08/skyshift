@@ -1,0 +1,2148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#050709" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Skyshift" />
+  <title>Skyshift — UI Design</title>
+  <link rel="icon" href="/favicon.ico" sizes="32x32" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="stylesheet" href="ui.css" />
+  <!-- Loaded AFTER ui.css so overrides win at equal specificity.
+       Vite's prod build moves processed <link>s after inline <style>,
+       so an inline block here would lose the cascade. -->
+  <link rel="stylesheet" href="ui-design.css" />
+  <script type="module">
+    import {
+      Grid2x2,
+      Volume2,
+      VolumeX,
+      CircleDashed,
+      CircleMinus,
+      CirclePlus,
+      CircleChevronUp,
+      CircleChevronDown,
+      CircleDot,
+      Cuboid,
+      Pause,
+      Book,
+      Logs,
+      ChevronUp,
+      ChevronDown,
+      Settings,
+      X,
+      Landmark,
+    } from "lucide-static";
+    import { seedhaul, tanker, trader, jumpship } from "/data/ships.ts";
+    import { bioNation, hubNation, oreNation, skyNation, farNation, wayNation } from "/data/nations.ts";
+    import { getShipHudIcon, getStationHudIcon, getSectorHudIcon } from "/src/render-hud-icon.ts";
+    import { morseBarGradient } from "/src/render-morse-bar.ts";
+
+    const icons = {
+      Grid2x2, Volume2, VolumeX, CircleDashed,
+      CircleMinus, CirclePlus, CircleChevronUp, CircleChevronDown,
+      CircleDot, Cuboid, Pause, Book, Logs, ChevronUp, ChevronDown, Settings, X,
+      Landmark,
+    };
+
+    for (const el of document.querySelectorAll("[data-icon]")) {
+      el.innerHTML = icons[el.dataset.icon] ?? "";
+    }
+
+    // Background seal uses the same builders the game uses — subtle variant
+    // omits the filled black disc and thins the ring, so the shape reads as a
+    // ghosted outline behind the id-card content. Seals are neutral gray;
+    // nation identity lives in the serial-code tint (--nation-accent).
+    const sealMeta = {
+      "ship-hub-trader":    { uri: getShipHudIcon(trader,   { subtle: true }), accent: hubNation.color },
+      "ship-bio-seedhaul":  { uri: getShipHudIcon(seedhaul, { subtle: true }), accent: bioNation.color },
+      "ship-ore-tanker":    { uri: getShipHudIcon(tanker,   { subtle: true }), accent: oreNation.color },
+      "ship-sky-jumpship":  { uri: getShipHudIcon(jumpship, { subtle: true }), accent: skyNation.color },
+      "ship-far-trader":    { uri: getShipHudIcon(trader,   { subtle: true }), accent: farNation.color },
+      "station-hub-forge":    { uri: getStationHudIcon("metal-forge",      { subtle: true }), accent: hubNation.color },
+      "station-hub-tech":     { uri: getStationHudIcon("tech-factory",     { subtle: true }), accent: hubNation.color },
+      "station-bio-farm":     { uri: getStationHudIcon("farm",             { subtle: true }), accent: bioNation.color },
+      "station-bio-medical":  { uri: getStationHudIcon("medical-lab",      { subtle: true }), accent: bioNation.color },
+      "station-ore-mine":     { uri: getStationHudIcon("mine",             { subtle: true }), accent: oreNation.color },
+      "station-sky-obs":      { uri: getStationHudIcon("observatory",      { subtle: true }), accent: skyNation.color },
+      "station-far-water":    { uri: getStationHudIcon("water-processing", { subtle: true }), accent: farNation.color },
+      "sector":             { uri: getSectorHudIcon({ subtle: true }), accent: null },
+      "station-way-generational-ship": { uri: getStationHudIcon("generational-ship", { subtle: true }), accent: wayNation.color },
+      // Nations panel — seal glyph is each nation's primary buildable station
+      // type (data/nations.ts — primaryBuildableStationTypeId).
+      // Accent stays on the card via inline --nation-accent, so we pass null here.
+      "nation-hub": { uri: getStationHudIcon(hubNation.primaryBuildableStationTypeId, { subtle: true }), accent: null },
+      "nation-bio": { uri: getStationHudIcon(bioNation.primaryBuildableStationTypeId, { subtle: true }), accent: null },
+      "nation-ore": { uri: getStationHudIcon(oreNation.primaryBuildableStationTypeId, { subtle: true }), accent: null },
+      "nation-sky": { uri: getStationHudIcon(skyNation.primaryBuildableStationTypeId, { subtle: true }), accent: null },
+      "nation-far": { uri: getStationHudIcon(farNation.primaryBuildableStationTypeId, { subtle: true }), accent: null },
+      // WAY's "primary blueprint" is the generational ship even though it
+      // doesn't actually run a build cycle — same lookup as the other nations.
+      "nation-way": { uri: getStationHudIcon(wayNation.primaryBuildableStationTypeId, { subtle: true }), accent: null },
+    };
+    for (const el of document.querySelectorAll("[data-seal]")) {
+      const meta = sealMeta[el.dataset.seal];
+      if (!meta) continue;
+      if (meta.uri) {
+        el.style.backgroundImage = `url("${meta.uri}")`;
+        el.closest(".id-card")?.style.setProperty("--id-icon", `url("${meta.uri}")`);
+      }
+      if (meta.accent) el.closest(".id-card")?.style.setProperty("--nation-accent", meta.accent);
+    }
+
+    // Top-stripe morse code: first 4 letters of each card's id-name.
+    for (const card of document.querySelectorAll(".id-card:not(.settings-modal)")) {
+      const name = card.querySelector(".id-name")?.textContent ?? "";
+      card.style.setProperty("--morse-bar", morseBarGradient(name));
+    }
+    // Nation cards reuse the same morse stripe, but tinted in the nation's
+    // accent color so the row of five reads as a stack of passports.
+    for (const card of document.querySelectorAll(".nation-card")) {
+      const name = card.querySelector(".id-name")?.textContent ?? "";
+      const accent = card.style.getPropertyValue("--nation-accent").trim() || "var(--paper-dim)";
+      card.style.setProperty("--morse-bar", morseBarGradient(name, { color: accent }));
+    }
+    // Settings dialog: 8 characters, darker color.
+    for (const card of document.querySelectorAll(".settings-modal")) {
+      const name = card.querySelector(".settings-head > span")?.textContent ?? "";
+      card.style.setProperty("--morse-bar", morseBarGradient(name, { letterCount: 8, color: "var(--paper-mute)" }));
+    }
+    // Overview sidebars (wares / nations / emigration / log): 3 characters,
+    // muted tint — matches the pattern applied live in src/ui-overview-trade-sidebar.ts.
+    for (const sidebar of document.querySelectorAll(".ware-sidebar")) {
+      const name = sidebar.querySelector(".ware-sidebar-head")?.textContent ?? "";
+      sidebar.style.setProperty("--morse-bar", morseBarGradient(name, { letterCount: 3, color: "var(--paper-mute)" }));
+    }
+    // Landing Enter-universe / Continue buttons — paint the morse stripe
+    // from the map's display name. In-app (index.html) uses data-morse-name
+    // since the Continue button's title slot says "Continue saved" rather
+    // than the map label; the showcase only has the title variant so
+    // data-map-name is enough here.
+    for (const btn of document.querySelectorAll(".start-btn--morse")) {
+      const name = btn.dataset.mapName ?? "";
+      btn.style.setProperty("--morse-bar", morseBarGradient(name));
+    }
+
+    // Stations Timelapse Log showcase — mount the live component against a
+    // hand-built history that ends at HUB 8 / BIO 12 / ORE 6 / SKY 5 / FAR 4
+    // and is scrubbed to day 10 (10d:00h). Each tuple is [hour, id, nationId, typeId].
+    {
+      const { createStationHistory } = await import("/src/sim-station-history.ts");
+      const { createStationsTimelapseControl } = await import("/src/ui-stations-timelapse-control.ts");
+      const HOUR = 3600;
+      const events = [
+        [0,   "hub-1",  "hub", "tech-factory"],
+        [0,   "bio-1",  "bio", "farm"],
+        [0,   "ore-1",  "ore", "mine"],
+        [0,   "sky-1",  "sky", "observatory"],
+        [0,   "far-1",  "far", "water-processing"],
+        [16,  "bio-2",  "bio", "farm"],
+        [40,  "sky-2",  "sky", "observatory"],
+        [56,  "ore-2",  "ore", "mine"],
+        [72,  "hub-2",  "hub", "tech-factory"],
+        [96,  "bio-3",  "bio", "farm"],
+        [112, "far-2",  "far", "water-processing"],
+        [128, "bio-4",  "bio", "farm"],
+        [152, "hub-3",  "hub", "tech-factory"],
+        [168, "ore-3",  "ore", "mine"],
+        [184, "bio-5",  "bio", "farm"],
+        [208, "sky-3",  "sky", "observatory"],
+        [224, "hub-4",  "hub", "tech-factory"],
+        [240, "bio-6",  "bio", "farm"],
+        [264, "ore-4",  "ore", "mine"],
+        [280, "bio-7",  "bio", "farm"],
+        [304, "hub-5",  "hub", "tech-factory"],
+        [320, "bio-8",  "bio", "farm"],
+        [336, "sky-4",  "sky", "observatory"],
+        [352, "far-3",  "far", "water-processing"],
+        [368, "ore-5",  "ore", "mine"],
+        [384, "hub-6",  "hub", "tech-factory"],
+        [400, "bio-9",  "bio", "farm"],
+        [408, "bio-10", "bio", "farm"],
+        [416, "sky-5",  "sky", "observatory"],
+        [432, "hub-7",  "hub", "tech-factory"],
+        [440, "bio-11", "bio", "farm"],
+        [448, "far-4",  "far", "water-processing"],
+        [456, "hub-8",  "hub", "tech-factory"],
+        [464, "ore-6",  "ore", "mine"],
+        [472, "bio-12", "bio", "farm"],
+      ];
+      const history = createStationHistory();
+      for (const [hour, id, nationId, typeId] of events) {
+        history.recordCreated(hour * HOUR, { id, position: { x: 0, y: 0 }, nationId, typeId, state: "operational" });
+      }
+      const mount = document.getElementById("design-stations-timelapse-mount");
+      if (mount) {
+        // Showcase frame head — title left, prominent dd:hh time right.
+        const frame = document.createElement("div");
+        frame.className = "stations-timelapse-frame";
+        const head = document.createElement("div");
+        head.className = "stations-timelapse-frame-head";
+        head.innerHTML = `<span>Stations Timelapse Log</span><span class="stations-timelapse-frame-time">10d:00h</span>`;
+        frame.appendChild(head);
+        mount.appendChild(frame);
+        const control = createStationsTimelapseControl({
+          parent: frame,
+          inlineStationsLabel: false,
+          onStep() { /* design page is static; ignore */ },
+          onScrubToTime() { /* ditto */ },
+        });
+        // 20-day chart slid up to "now" (= last event at 472h ≈ 19.7d), playhead at day 10.
+        control.update({ history, currentTime: 20 * 24 * HOUR, windowSeconds: 20 * 24 * HOUR, playheadTime: 240 * HOUR });
+      }
+    }
+  </script>
+</head>
+<body>
+
+<div class="showcase">
+
+  <header class="page-masthead">
+    <div class="page-masthead-topbar">
+      <a class="page-masthead-back" href="/">«<span class="num">00</span>Index</a>
+      <span class="page-masthead-label">BUREAU OF INTERFACE</span>
+    </div>
+    <h1 class="page-masthead-title"><span class="page-masthead-brand">Skyshift</span> UI Design</h1>
+    <p class="page-masthead-sub">Inspired by official documents with serial codes and stamps.</p>
+  </header>
+
+  <!-- ══ COLOR ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">01</span> &nbsp;Color</span>
+      <span class="mono caps">/ what each color is for</span>
+    </h2>
+
+    <div class="palette">
+      <div class="palette-group">Surfaces</div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--ink-0);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Base</span><span class="swatch-hex">#0a0d14</span></div>
+          <div class="swatch-use">Deepest background — the page, and the empty channel behind cargo bars.</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--ink-1);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Card · bottom</span><span class="swatch-hex">#11151f</span></div>
+          <div class="swatch-use">Bottom half of the ID card gradient — the deeper, settled side.</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--ink-2);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Card · top</span><span class="swatch-hex">#1a2030</span></div>
+          <div class="swatch-use">Top half of the ID card gradient — the lifted, cooler side.</div>
+        </div>
+      </div>
+
+      <div class="palette-group">Lines · dividers</div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--line);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Line · default</span><span class="swatch-hex">#d2dcf5 · 8%</span></div>
+          <div class="swatch-use">Faintest divider — for separations that should barely register.</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--line-2);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Line · strong</span><span class="swatch-hex">#d2dcf5 · 16%</span></div>
+          <div class="swatch-use">Default border for interactive pieces — buttons, racks, dials, cards.</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--line-3);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Line · emphatic</span><span class="swatch-hex">#d2dcf5 · 28%</span></div>
+          <div class="swatch-use">Hover edge — the border brightens to confirm something's interactive.</div>
+        </div>
+      </div>
+
+      <div class="palette-group">Foreground</div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--paper);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Paper</span><span class="swatch-hex">#e8e4d6</span></div>
+          <div class="swatch-use">Readable text, more important — names, headlines, primary values.</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--paper-dim);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Paper · dim</span><span class="swatch-hex">#b8b3a3</span></div>
+          <div class="swatch-use">Readable but less prominent — idle buttons, body copy, supporting data.</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--paper-mute);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Paper · mute</span><span class="swatch-hex">#7a7668</span></div>
+          <div class="swatch-use">Accent or decorative text, not important for gameplay — mostly group labels.</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--paper-faint);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Paper · faint</span><span class="swatch-hex">#524e44</span></div>
+          <div class="swatch-use">Structural texture — dialog morse bars and other marks that should barely register against the dark card surface.</div>
+        </div>
+      </div>
+      <div class="palette-group">Accent</div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--active);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Active · gold</span><span class="swatch-hex">#f5c26b</span></div>
+          <div class="swatch-use">User actions, high visibility, important text — active buttons, key values, codes.</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--accent);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name"><span>Accent · green</span><span class="swatch-hex">#87d186</span></div>
+          <div class="swatch-use">Informational, not interactive — status readouts like cargo fill and current log lines.</div>
+        </div>
+      </div>
+      <div class="palette-group">Semantic — alert states</div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--err-bg); border: 1px solid var(--err-line);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name" style="color: var(--err);"><span>Error</span><span class="swatch-hex">#f0b4b4</span></div>
+          <div class="swatch-use">Error toasts and inline failure messages — text, background, border.</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-chip" style="background: var(--ok-bg); border: 1px solid var(--ok-line);"></div>
+        <div class="swatch-body">
+          <div class="swatch-name" style="color: var(--accent);"><span>OK · success</span><span class="swatch-hex">#87d186</span></div>
+          <div class="swatch-use">Success toasts and confirmation messages — background and border. Text reuses --accent (green).</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ TYPOGRAPHY ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">02</span> &nbsp;Typography</span>
+      <span class="mono caps">/ what each size is for</span>
+    </h2>
+
+    <div class="hud-grid">
+      <div>
+        <div class="row-label">DISPLAY · SPACE GROTESK VARIABLE</div>
+        <div class="type-specimen">
+          <div class="type-sample" style="font-size: 34px; font-weight: 500; letter-spacing: -0.01em;">Skyshift</div>
+          <div class="swatch-code">34 / 500 · page hero — this showcase only, not in-game</div>
+          <div class="type-sample" style="font-size: 17px; font-weight: 600; letter-spacing: -0.01em;">Leafsong</div>
+          <div class="swatch-code">17 / 600 · primary object name — ship, station, or sector</div>
+          <div class="type-sample" style="font-size: 14px; font-weight: 600;">Seedhaul</div>
+          <div class="swatch-code">14 / 600 · lore drawer title</div>
+          <div class="type-sample" style="font-size: 12px; font-weight: 400; color: var(--paper-dim); line-height: 1.55;">Grown-hull pod vessel of the Bio-Annex.</div>
+          <div class="swatch-code">12 / 400 · body copy — lore text, descriptions</div>
+        </div>
+      </div>
+      <div>
+        <div class="row-label">MONO · JETBRAINS MONO VARIABLE</div>
+        <div class="type-specimen">
+          <div class="type-sample mono" style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent);">BIO-42</div>
+          <div class="swatch-code">11 / 700 · 0.08em · serial code on the ID card</div>
+          <div class="type-sample mono" style="font-size: 10px; color: var(--paper-mute);">// <span style="color: var(--accent); font-weight: 700;">04</span> · Seedhaul</div>
+          <div class="swatch-code">10 / 500 · structural labels — stack groups, cargo rows</div>
+          <div class="type-sample mono" style="font-size: 10px; color: var(--paper);">36.3k<span style="color: var(--paper-dim); margin-left: 4px;">/43.2k +5/s</span></div>
+          <div class="swatch-code">10 / 500 · cargo numbers — amount + rate</div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ══ BUTTONS ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">03</span> &nbsp;Buttons</span>
+      <span class="mono caps">/ icon toggles · default · active · soft</span>
+    </h2>
+
+    <p class="section-note">
+      Backdrop uses the shared glass tokens (<span class="mono">--glass-bg</span>, <span class="mono">--glass-blur</span>, <span class="mono">--glass-edge</span>) — see §00 Surfaces. Buttons sit over the live starfield, and the saturated blur is what gives them readable contrast while the backdrop color still reads through.
+    </p>
+
+    <div class="hud-grid">
+      <div>
+        <div class="row-label">DEFAULT</div>
+        <div class="row gap-xs">
+          <button class="hud-btn hud-btn-icon"><span data-icon="Grid2x2"></span></button>
+          <button class="hud-btn hud-btn-icon"><span data-icon="Volume2"></span></button>
+          <button class="hud-btn hud-btn-icon"><span data-icon="CircleDashed"></span></button>
+          <button class="hud-btn hud-btn-icon"><span data-icon="Book"></span></button>
+          <button class="hud-btn hud-btn-icon"><span data-icon="Logs"></span></button>
+        </div>
+      </div>
+      <div>
+        <div class="row-label">ACTIVE · IS-ON</div>
+        <div class="row gap-xs">
+          <button class="hud-btn hud-btn-icon is-on"><span data-icon="Grid2x2"></span></button>
+          <button class="hud-btn hud-btn-icon is-on"><span data-icon="Volume2"></span></button>
+          <button class="hud-btn hud-btn-icon is-on"><span data-icon="CircleDashed"></span></button>
+          <button class="hud-btn hud-btn-icon is-on"><span data-icon="Book"></span></button>
+          <button class="hud-btn hud-btn-icon is-on"><span data-icon="Logs"></span></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ CONTROLS ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">04</span> &nbsp;Controls</span>
+      <span class="mono caps">/ zoom dial</span>
+    </h2>
+
+    <p class="section-note">
+      Same glass recipe as the buttons (<span class="mono">--glass-bg</span> + <span class="mono">--glass-blur</span> + <span class="mono">--glass-edge</span>) — the dial is a single pill over the starfield.
+    </p>
+
+    <div class="hud-grid">
+      <div>
+        <div class="row-label">ZOOM DIAL</div>
+        <div class="zoom-dial">
+          <div class="zoom-btn" title="Toggle controls"><span data-icon="CircleChevronUp"></span></div>
+          <div class="zoom-group">
+            <div class="zoom-btn" title="Zoom out"><span data-icon="CircleMinus"></span></div>
+            <div class="zoom-level" title="Cycle zoom preset"><span>0.4×</span><span class="zoom-level-presets"><span class="dot"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></span></div>
+            <div class="zoom-btn" title="Zoom in"><span data-icon="CirclePlus"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ HUD CONTROLS ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">05</span> &nbsp;HUD Controls</span>
+      <span class="mono caps">/ bottom-left · every toggle · speed · zoom</span>
+    </h2>
+
+    <div class="hud-grid">
+
+      <div>
+        <div class="row-label">ZOOM</div>
+        <div class="zoom-dial">
+          <div class="zoom-btn" title="Toggle controls"><span data-icon="CircleChevronUp"></span></div>
+          <div class="zoom-group">
+            <div class="zoom-btn" title="Zoom out"><span data-icon="CircleMinus"></span></div>
+            <div class="zoom-level" title="Cycle zoom preset"><span>0.4×</span><span class="zoom-level-presets"><span class="dot"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></span></div>
+            <div class="zoom-btn" title="Zoom in"><span data-icon="CirclePlus"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="row-label">AUDIO · ON → OFF</div>
+        <div class="row gap-xs">
+          <button class="hud-btn hud-btn-icon is-on"><span data-icon="Volume2"></span></button>
+          <button class="hud-btn hud-btn-icon"><span data-icon="VolumeX"></span></button>
+        </div>
+      </div>
+
+      <div>
+        <div class="row-label">VIEW MODE · ZONES</div>
+        <div class="row gap-xs">
+          <button class="hud-btn hud-btn-icon is-on" title="Zones"><span data-icon="CircleDashed"></span></button>
+          <button class="hud-btn hud-btn-icon" title="Overview"><span data-icon="Cuboid"></span></button>
+        </div>
+      </div>
+
+      <div>
+        <div class="row-label">VIEW MODE · TRADE &amp; HEALTH</div>
+        <div class="row gap-xs">
+          <button class="hud-btn hud-btn-icon" title="Zones"><span data-icon="CircleDashed"></span></button>
+          <button class="hud-btn hud-btn-icon is-on" title="Overview"><span data-icon="Cuboid"></span></button>
+        </div>
+      </div>
+
+      <div>
+        <div class="row-label">VIEW MODE · BOTH OFF</div>
+        <div class="row gap-xs">
+          <button class="hud-btn hud-btn-icon" title="Zones"><span data-icon="CircleDashed"></span></button>
+          <button class="hud-btn hud-btn-icon" title="Overview"><span data-icon="Cuboid"></span></button>
+        </div>
+      </div>
+
+      <div>
+        <div class="row-label">HUD SEGMENT · SCROLLING</div>
+        <div class="hud-segment">
+          <button class="hud-btn is-on">Scrolling</button>
+          <button class="hud-btn">Always</button>
+          <button class="hud-btn">Never</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="row-label">HUD SEGMENT · ALWAYS</div>
+        <div class="hud-segment">
+          <button class="hud-btn">Scrolling</button>
+          <button class="hud-btn is-on">Always</button>
+          <button class="hud-btn">Never</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="row-label">HUD SEGMENT · NEVER</div>
+        <div class="hud-segment">
+          <button class="hud-btn">Scrolling</button>
+          <button class="hud-btn">Always</button>
+          <button class="hud-btn is-on">Never</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="row-label">SPEED HUD · 1× RUNNING</div>
+        <div class="speed-hud" style="position: static; align-items: flex-start;">
+          <div class="speed-hud__elapsed" style="text-align: left;">// elapsed <span class="num">00h:12m</span></div>
+          <div class="speed-hud__row">
+            <button class="speed-pill speed-pill--icon" type="button" title="Pause">
+              <span class="speed-pill__icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></span>
+            </button>
+            <button class="speed-pill speed-pill--cycle is-on" type="button" title="Cycle speed">
+              <span class="speed-pill__icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21"/></svg></span>
+              <span class="speed-pill__text">1×</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="row-label">SPEED HUD · 2× RUNNING</div>
+        <div class="speed-hud" style="position: static; align-items: flex-start;">
+          <div class="speed-hud__elapsed" style="text-align: left;">// elapsed <span class="num">00h:12m</span></div>
+          <div class="speed-hud__row">
+            <button class="speed-pill speed-pill--icon" type="button" title="Pause">
+              <span class="speed-pill__icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></span>
+            </button>
+            <button class="speed-pill speed-pill--cycle is-on" type="button" title="Cycle speed">
+              <span class="speed-pill__icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><polygon points="3 3 13 12 3 21"/><line x1="13" y1="3" x2="13" y2="21"/><line x1="19" y1="3" x2="19" y2="21"/></svg></span>
+              <span class="speed-pill__text">2×</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="row-label">SPEED HUD · 5× RUNNING</div>
+        <div class="speed-hud" style="position: static; align-items: flex-start;">
+          <div class="speed-hud__elapsed" style="text-align: left;">// elapsed <span class="num">00h:12m</span></div>
+          <div class="speed-hud__row">
+            <button class="speed-pill speed-pill--icon" type="button" title="Pause">
+              <span class="speed-pill__icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></span>
+            </button>
+            <button class="speed-pill speed-pill--cycle is-on" type="button" title="Cycle speed">
+              <span class="speed-pill__icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><polygon points="5 3 15 12 5 21"/><line x1="19" y1="3" x2="19" y2="21"/></svg></span>
+              <span class="speed-pill__text">5×</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="row-label">SPEED HUD · PAUSED</div>
+        <div class="speed-hud" style="position: static; align-items: flex-start;">
+          <div class="speed-hud__elapsed" style="text-align: left;">// elapsed <span class="num">00h:12m</span></div>
+          <div class="speed-hud__row">
+            <button class="speed-pill speed-pill--icon is-on" type="button" title="Resume">
+              <span class="speed-pill__icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></span>
+            </button>
+            <button class="speed-pill speed-pill--cycle" type="button" title="Cycle speed">
+              <span class="speed-pill__icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21"/></svg></span>
+              <span class="speed-pill__text">1×</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══ SELECTION PANEL ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">06</span> &nbsp;Selection</span>
+      <span class="mono caps">/ top-left ID card · sector · stations · ships</span>
+    </h2>
+
+    <p class="section-note">
+      Type and size live in a small mono subtitle (<span class="mono">.id-type</span>)
+      under the id-name where they're easy to read. Serial code and seal take the nation color;
+      body remains on the shared ink gradient.
+    </p>
+
+    <h3 class="showcase-subhead">Sector</h3>
+
+    <div class="hud-preview-grid">
+
+      <!-- 06-A · Sector with lore -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-A</span> &nbsp;SECTOR · WITH LORE</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Green Silence</div>
+                <div class="id-type">Sector · coords (-1,1)</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="sector"></div>
+                <div class="id-serial-code id-serial-code--stamp">SCT-GR</div>
+              </div>
+            </div>
+            <div class="cargo-grid cargo-grid--narrow-label">
+              <div class="cargo-note">
+                <span class="cargo-note-label" style="color: var(--accent);">Supports Stations</span>
+                <div class="cargo-note-value">Farm · Medical Lab<br>Water Processing · Habitat</div>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Environment: Bio Nebula</div>
+          </div>
+          <div class="lore-card">
+            <div class="lore-title">Green Silence</div>
+            <div class="lore-text">The Bio-Annex breadbasket. Vast grown-hull farms nest in the deeper branches of Palo Celestia, tended by crews who rarely speak to outsiders.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <h3 class="showcase-subhead">Stations</h3>
+
+    <div class="hud-preview-grid">
+
+      <!-- 06-B · HUB · metal-forge · producing -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-B</span> &nbsp;STATION · HUB</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Iron Gate</div>
+                <div class="id-type">Metal Forge · Large</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="station-hub-forge"></div>
+                <div class="id-serial-code id-serial-code--stamp">HUB-M</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-section">▲ Produces</div>
+              <div class="cargo-row">
+                <span class="cargo-label">Metal</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 71%;"></span></span>
+                <span class="cargo-stat">30.6k/43.2k<span class="cargo-rate">, <span class="pill-gold">+4/s</span></span></span>
+              </div>
+              <div class="cargo-section">▼ Consumes</div>
+              <div class="cargo-row">
+                <span class="cargo-label">Mineral</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 38%;"></span></span>
+                <span class="cargo-stat">32.8k/86.4k<span class="cargo-rate">, <span class="pill-cyan">−6/s</span></span><br><span class="cargo-reserve">Reserved −8.0k</span></span>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Producing</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06-C · BIO · farm · producing -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-C</span> &nbsp;STATION · BIO</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Bloomreach</div>
+                <div class="id-type">Farm · Large</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="station-bio-farm"></div>
+                <div class="id-serial-code id-serial-code--stamp">BIO-F</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-section">▲ Produces</div>
+              <div class="cargo-row">
+                <span class="cargo-label">Food</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 84%;"></span></span>
+                <span class="cargo-stat">36.3k/43.2k<span class="cargo-rate">, <span class="pill-gold">+5/s</span></span><br><span class="cargo-reserve">Inbound +2.1k</span></span>
+              </div>
+              <div class="cargo-section">▼ Consumes</div>
+              <div class="cargo-row">
+                <span class="cargo-label">Water</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 24%;"></span></span>
+                <span class="cargo-stat">20.7k/86.4k<span class="cargo-rate">, <span class="pill-cyan">−3/s</span></span></span>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Producing</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06-D · ORE · mine · producing -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-D</span> &nbsp;STATION · ORE</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Ironvein</div>
+                <div class="id-type">Mine · Large</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="station-ore-mine"></div>
+                <div class="id-serial-code id-serial-code--stamp">ORE-N</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-section">▲ Produces</div>
+              <div class="cargo-row">
+                <span class="cargo-label">Ice</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 54%;"></span></span>
+                <span class="cargo-stat">62.2k/115.2k<span class="cargo-rate">, <span class="pill-gold">+3/s</span></span></span>
+              </div>
+              <div class="cargo-row">
+                <span class="cargo-label">Mineral</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 78%;"></span></span>
+                <span class="cargo-stat">89.9k/115.2k<span class="cargo-rate">, <span class="pill-gold">+2/s</span></span></span>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Producing</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06-E · SKY · observatory · producing -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-E</span> &nbsp;STATION · SKY</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Faint Echo</div>
+                <div class="id-type">Observatory · Medium</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="station-sky-obs"></div>
+                <div class="id-serial-code id-serial-code--stamp">SKY-O</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-section">▲ Produces</div>
+              <div class="cargo-row">
+                <span class="cargo-label">Signal</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 66%;"></span></span>
+                <span class="cargo-stat">19.0k/28.8k<span class="cargo-rate">, <span class="pill-gold">+2/s</span></span></span>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Producing</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06-F · FAR · water-processing · producing -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-F</span> &nbsp;STATION · FAR</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Last Anchor</div>
+                <div class="id-type">Water Processing · Small</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="station-far-water"></div>
+                <div class="id-serial-code id-serial-code--stamp">FAR-W</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-section">▲ Produces</div>
+              <div class="cargo-row">
+                <span class="cargo-label">Water</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 42%;"></span></span>
+                <span class="cargo-stat">12.1k/28.8k<span class="cargo-rate">, <span class="pill-gold">+1/s</span></span></span>
+              </div>
+              <div class="cargo-section">▼ Consumes</div>
+              <div class="cargo-row">
+                <span class="cargo-label">Ice</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 18%;"></span></span>
+                <span class="cargo-stat">5.2k/28.8k<span class="cargo-rate">, <span class="pill-cyan">−2/s</span></span></span>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Producing</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06-G · HUB · tech-factory · state "building"
+           Inventory during build is just the construction wares (provisions + hulls);
+           the future type is still attached for name/subtitle/seal. -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-G</span> &nbsp;STATION · IN CONSTRUCTION</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Cold Theory</div>
+                <div class="id-type">Tech Factory · Medium</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="station-hub-tech"></div>
+                <div class="id-serial-code id-serial-code--stamp">HUB-Z</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-section">▼ Consumes</div>
+              <div class="cargo-row">
+                <span class="cargo-label">Provisions</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 48%;"></span></span>
+                <span class="cargo-stat">2.3k/4.8k<br><span class="cargo-reserve">Inbound +420</span></span>
+              </div>
+              <div class="cargo-row">
+                <span class="cargo-label">Hulls</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 65%;"></span></span>
+                <span class="cargo-stat">3.1k/4.8k</span>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">In Construction</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06-H · BIO · medical-lab · state "emigrating"
+           Wares are hidden once a station flips to emigrating — the player
+           can't interact with them anymore, and the station will be demolished
+           as soon as its homed ships reach the generational ship. The single
+           "Emigration" bar reports 1 - (stillDockedHomedShips / homedShipsAtTrigger). -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-H</span> &nbsp;STATION · EMIGRATING</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Spore Refuge</div>
+                <div class="id-type">Medical Lab · Medium</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="station-bio-medical"></div>
+                <div class="id-serial-code id-serial-code--stamp">BIO-L</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-row">
+                <span class="cargo-label">Emigration</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 60%;"></span></span>
+                <span class="cargo-stat">60%</span>
+              </div>
+              <div class="cargo-note">
+                <span class="cargo-note-label">Boarding</span>
+                <div class="cargo-note-value">Generational ship <span class="cargo-note-accent">Transitus</span></div>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Emigrating</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <h3 class="showcase-subhead">Ships</h3>
+
+    <div class="hud-preview-grid">
+
+      <!-- 06-I · HUB · trader · en route, 2 wares -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-I</span> &nbsp;SHIP · HUB · EN ROUTE</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Accord</div>
+                <div class="id-type">Trader</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="ship-hub-trader"></div>
+                <div class="id-serial-code id-serial-code--stamp">HUB-07</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-row">
+                <span class="cargo-label">Metal</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 62%;"></span></span>
+                <span class="cargo-stat">1.6k/2.5k</span>
+              </div>
+              <div class="cargo-row">
+                <span class="cargo-label">Tech</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 28%;"></span></span>
+                <span class="cargo-stat">700/2.5k</span>
+              </div>
+              <div class="cargo-note">
+                <span class="cargo-note-label">Route</span>
+                <div class="cargo-note-value"><b><span style="color: #0069B3;">HUB</span>&nbsp;Iron Gate</b> <span class="cargo-note-dim">to</span><br><b><span style="color: #0069B3;">HUB</span>&nbsp;Far Theorem</b></div>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Flying</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06-J · BIO · seedhaul · idle -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-J</span> &nbsp;SHIP · BIO · IDLE</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Leafsong</div>
+                <div class="id-type">Seedhaul</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="ship-bio-seedhaul"></div>
+                <div class="id-serial-code id-serial-code--stamp">BIO-42</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-row">
+                <span class="cargo-label">No Cargo</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 0%;"></span></span>
+                <span class="cargo-stat">0/4.0k</span>
+              </div>
+              <div class="cargo-note">
+                <span class="cargo-note-label">Status</span>
+                <div class="cargo-note-value"><span class="cargo-note-dim">Last trade 23s ago</span></div>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Looking for Traders</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06-K · ORE · tanker · en route -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-K</span> &nbsp;SHIP · ORE · EN ROUTE</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Grinder</div>
+                <div class="id-type">Tanker</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="ship-ore-tanker"></div>
+                <div class="id-serial-code id-serial-code--stamp">ORE-12</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-row">
+                <span class="cargo-label">Water</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 94%;"></span></span>
+                <span class="cargo-stat">9.4k/10.0k</span>
+              </div>
+              <div class="cargo-note">
+                <span class="cargo-note-label">Route</span>
+                <div class="cargo-note-value"><b><span style="color: #B36100;">ORE</span>&nbsp;Ironvein</b> <span class="cargo-note-dim">to</span><br><b><span style="color: #4CAF50;">BIO</span>&nbsp;Bloomreach</b></div>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Flying</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06-L · SKY · jumpship · en route, hyperdata -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-L</span> &nbsp;SHIP · SKY · EN ROUTE</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Wanderloft</div>
+                <div class="id-type">Jumpship</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="ship-sky-jumpship"></div>
+                <div class="id-serial-code id-serial-code--stamp">SKY-03</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-row">
+                <span class="cargo-label">Hyperdata</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 75%;"></span></span>
+                <span class="cargo-stat">1.5k/2.0k</span>
+              </div>
+              <div class="cargo-note">
+                <span class="cargo-note-label">Route</span>
+                <div class="cargo-note-value"><b><span style="color: #00F9FF;">SKY</span>&nbsp;Faint Echo</b> <span class="cargo-note-dim">to</span><br><b><span style="color: #00F9FF;">SKY</span>&nbsp;Drifthollow</b></div>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Flying</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06-M · FAR · trader · idle -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">06-M</span> &nbsp;SHIP · FAR · IDLE</div>
+        <div style="width: 280px; display: flex; flex-direction: column; gap: 6px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Pathfinder</div>
+                <div class="id-type">Trader</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="ship-far-trader"></div>
+                <div class="id-serial-code id-serial-code--stamp">FAR-19</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-row">
+                <span class="cargo-label">No Cargo</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 0%;"></span></span>
+                <span class="cargo-stat">0/2.5k</span>
+              </div>
+              <div class="cargo-note">
+                <span class="cargo-note-label">Status</span>
+                <div class="cargo-note-value"><span class="cargo-note-dim">Last trade 47s ago</span></div>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Looking for Traders</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══ OVERVIEW · STATIONS TIMELAPSE LOG ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">07</span> &nbsp;Stations Timelapse Log</span>
+      <span class="mono caps">/ overview log tab</span>
+    </h2>
+
+    <p class="section-note">
+      Fourth tab in the overview. The current sim time sits in the upper right (mono <span class="mono">dd:hh</span>); per-nation station counts mirror the editor's <span class="mono">tools/Timelapse</span> row. The <span class="mono">[−1d −8h −1h +1h +8h +1d]</span> step buttons scrub the map. The stacked bar chart shows per-nation counts in 8-hour slices over the last 20 game-days; a gold playhead marks the moment being viewed and bars after it dim. WAY is excluded from the totals — the gen-ship faction doesn't found stations the same way. Tapping a bar (or dragging across) snaps the playhead to that moment.
+    </p>
+
+    <div class="hud-preview-grid" style="grid-template-columns: 320px; gap: 40px; align-items: start;">
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">07-A</span> &nbsp;OVERVIEW · LOG · 20D ELAPSED · SCRUBBED TO 10D:00H</div>
+        <div class="trade-route-overlay" style="position: static; pointer-events: auto;">
+          <div class="ware-sidebar-wrap ware-sidebar-wrap--wide" style="position: static;">
+            <div class="hud-segment hud-segment--row">
+              <button class="hud-btn">Trading</button>
+              <button class="hud-btn">Nations</button>
+              <button class="hud-btn">Emigration</button>
+              <button class="hud-btn is-on">Log</button>
+            </div>
+            <div id="design-stations-timelapse-mount"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ OVERVIEW · NATIONS ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">08</span> &nbsp;Overview - nations</span>
+      <span class="mono caps">/ NW1 pane · nations tab</span>
+    </h2>
+
+    <h3 class="showcase-subhead">Pane layout</h3>
+
+    <!-- 07-A · Active pane: 300px wide (1.5× the wares sidebar), morse stripe at
+         top, five-tab nation strip above the visible card. Player cycles which
+         nation is visible by clicking a tab; the active tab inherits the nation
+         accent color. -->
+    <div class="hud-preview-grid" style="grid-template-columns: 1fr; margin-bottom: 32px;">
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">08-A</span> &nbsp;NATIONS PANE · LAYOUT (HUB ACTIVE)</div>
+        <div class="trade-route-overlay" style="position: static; pointer-events: auto;">
+          <div class="ware-sidebar-wrap ware-sidebar-wrap--wide" style="position: static;">
+            <div class="hud-segment hud-segment--row">
+              <button class="hud-btn">Trading</button>
+              <button class="hud-btn is-on">Nations</button>
+              <button class="hud-btn">Emigration</button>
+              <button class="hud-btn">Log</button>
+            </div>
+            <div class="nations-pane">
+              <div class="hud-segment hud-segment--row nation-tabs">
+                <button class="hud-btn is-on" style="--nation-accent: #0069B3;">HUB</button>
+                <button class="hud-btn" style="--nation-accent: #4CAF50;">BIO</button>
+                <button class="hud-btn" style="--nation-accent: #B36100;">ORE</button>
+                <button class="hud-btn" style="--nation-accent: #00F9FF;">SKY</button>
+                <button class="hud-btn" style="--nation-accent: #E8C840;">FAR</button>
+                <button class="hud-btn" style="--nation-accent: #808080;">WAY</button>
+              </div>
+              <div class="nations-pane-cards">
+                <div class="nation-card" style="--nation-accent: #0069B3;">
+                  <div class="id-header">
+                    <div class="id-title">
+                      <div class="id-name">Hub-Cluster Alliance</div>
+                      <div class="nation-desire"><b>grows</b> core systems</div>
+                    </div>
+                    <div class="icon-code">
+                      <div class="id-seal" data-seal="nation-hub"></div>
+                      <div class="id-serial-code id-serial-code--stamp">HUB</div>
+                    </div>
+                  </div>
+                  <div class="nation-stats">Tech factories: <span class="pill-cyan">3</span><span class="sep">·</span>Stations: <span class="pill-gold">8</span></div>
+                  <div class="nation-foot"><span class="label">Builds stations</span><span class="items">tech-factory · water-processing · shipyard</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="showcase-subhead">Card states reference</h3>
+
+    <!-- 07-B · Card variants in a single column for designer reference. Each
+         row is one nation, idle (no cargo-grid). The actual game shows only
+         one card at a time — see 07-A for the active-pane layout. -->
+    <div class="hud-preview-grid" style="grid-template-columns: 1fr; margin-bottom: 32px;">
+
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">08-B</span> &nbsp;NATION CARDS · IDLE STATES</div>
+        <div style="width: 280px;">
+
+          <div class="nation-card" style="--nation-accent: #0069B3;">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Hub-Cluster Alliance</div>
+                <div class="nation-desire"><b>grows</b> core systems</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="nation-hub"></div>
+                <div class="id-serial-code id-serial-code--stamp">HUB</div>
+              </div>
+            </div>
+            <div class="nation-stats">Tech factories: <span class="pill-cyan">3</span><span class="sep">·</span>Stations: <span class="pill-gold">8</span></div>
+            <div class="nation-foot"><span class="label">Builds stations</span><span class="items">tech-factory · water-processing · shipyard</span></div>
+          </div>
+
+          <div class="nation-card" style="--nation-accent: #4CAF50;">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Bio-Annex</div>
+                <div class="nation-desire"><b>cultivates</b> bio-prosperity</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="nation-bio"></div>
+                <div class="id-serial-code id-serial-code--stamp">BIO</div>
+              </div>
+            </div>
+            <div class="nation-stats">Farms: <span class="pill-cyan">3</span><span class="sep">·</span>Stations: <span class="pill-gold">6</span></div>
+            <div class="nation-foot"><span class="label">Builds stations</span><span class="items">farm · medical-lab · habitat</span></div>
+          </div>
+
+          <div class="nation-card" style="--nation-accent: #B36100;">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">20th Mining Fleet</div>
+                <div class="nation-desire"><b>mines</b> asteroid veins</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="nation-ore"></div>
+                <div class="id-serial-code id-serial-code--stamp">ORE</div>
+              </div>
+            </div>
+            <div class="nation-stats">Mines: <span class="pill-cyan">3</span><span class="sep">·</span>Stations: <span class="pill-gold">7</span></div>
+            <div class="nation-foot"><span class="label">Builds stations</span><span class="items">mine · metal-forge</span></div>
+          </div>
+
+          <div class="nation-card" style="--nation-accent: #00F9FF;">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Skyshift Cooperative</div>
+                <div class="nation-desire"><b>explores</b> deep space</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="nation-sky"></div>
+                <div class="id-serial-code id-serial-code--stamp">SKY</div>
+              </div>
+            </div>
+            <div class="nation-stats">Archives: <span class="pill-cyan">2</span><span class="sep">·</span>Stations: <span class="pill-gold">4</span></div>
+            <div class="nation-foot"><span class="label">Builds stations</span><span class="items">archives</span></div>
+          </div>
+
+          <div class="nation-card" style="--nation-accent: #E8C840;">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Farshift Collective</div>
+                <div class="nation-desire"><b>scatters</b> frontier outposts</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="nation-far"></div>
+                <div class="id-serial-code id-serial-code--stamp">FAR</div>
+              </div>
+            </div>
+            <div class="nation-stats">Observatories: <span class="pill-cyan">2</span><span class="sep">·</span>Stations: <span class="pill-gold">3</span></div>
+            <div class="nation-foot"><span class="label">Builds stations</span><span class="items">observatory</span></div>
+          </div>
+
+          <!-- WAY · generational-ship carrier; doesn't run a build cycle but
+               rides along on the tab strip so the player can inspect it.
+               Activity area cycles through three states — see 07-C for the variants. -->
+          <div class="nation-card" style="--nation-accent: #808080;">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Wayfarer-Ark Transitus</div>
+                <div class="nation-desire"><b>transports</b> communities</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="nation-way"></div>
+                <div class="id-serial-code id-serial-code--stamp">WAY</div>
+              </div>
+            </div>
+            <div class="nation-stats">Generational Ships: <span class="pill-cyan">1</span><span class="sep">·</span>Stations: <span class="pill-gold">1</span></div>
+            <div class="nation-foot"><span class="label">Builds stations</span><span class="items">none</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 07-C · Active states — building nations show "Building station at"
+           with sector + type + progress. WAY cycles through three generational-ship
+           states in the activity area. -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">08-C</span> &nbsp;NATION CARDS · ACTIVE STATES</div>
+        <div style="width: 280px;">
+
+          <!-- HUB · building at 45% — sector · station-type · progress -->
+          <div class="nation-card" style="--nation-accent: #0069B3;">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Hub-Cluster Alliance</div>
+                <div class="nation-desire"><b>grows</b> core systems</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="nation-hub"></div>
+                <div class="id-serial-code id-serial-code--stamp">HUB</div>
+              </div>
+            </div>
+            <div class="nation-stats">Tech factories: <span class="pill-cyan">3</span><span class="sep">·</span>Stations: <span class="pill-gold">8</span></div>
+            <div class="nation-foot"><span class="label">Builds stations</span><span class="items">tech-factory · water-processing · shipyard</span></div>
+            <div class="cargo-grid">
+              <div class="cargo-row">
+                <span class="cargo-label">Building station at</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 45%;"></span></span>
+                <span class="cargo-stat">Iron Gate &middot; tech-factory &middot; 45%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- WAY · arriving — no generational ship in the world, cooldown progress -->
+          <div class="nation-card" style="--nation-accent: #808080;">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Wayfarer-Ark Transitus</div>
+                <div class="nation-desire"><b>transports</b> communities</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="nation-way"></div>
+                <div class="id-serial-code id-serial-code--stamp">WAY</div>
+              </div>
+            </div>
+            <div class="nation-stats">Generational Ships: <span class="pill-cyan">0</span><span class="sep">·</span>Stations: <span class="pill-gold">0</span></div>
+            <div class="nation-foot"><span class="label">Builds stations</span><span class="items">none</span></div>
+            <div class="cargo-grid">
+              <div class="cargo-row">
+                <span class="cargo-label">Generational ship status</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 52%;"></span></span>
+                <span class="cargo-stat">Arriving &middot; 1:26:04</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- WAY · shore leave — generational ship docked, no event in flight -->
+          <div class="nation-card" style="--nation-accent: #808080;">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Wayfarer-Ark Transitus</div>
+                <div class="nation-desire"><b>transports</b> communities</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="nation-way"></div>
+                <div class="id-serial-code id-serial-code--stamp">WAY</div>
+              </div>
+            </div>
+            <div class="nation-stats">Generational Ships: <span class="pill-cyan">1</span><span class="sep">·</span>Stations: <span class="pill-gold">1</span></div>
+            <div class="nation-foot"><span class="label">Builds stations</span><span class="items">none</span></div>
+            <div class="cargo-grid">
+              <div class="cargo-note">
+                <span class="cargo-note-label">Generational ship status</span>
+                <div class="cargo-note-value">
+                  &bull; Crew enjoying shore leave<br>
+                  &bull; Waiting for emigration
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- WAY · emigration in progress — event active, ships inbound -->
+          <div class="nation-card" style="--nation-accent: #808080;">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Wayfarer-Ark Transitus</div>
+                <div class="nation-desire"><b>transports</b> communities</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="nation-way"></div>
+                <div class="id-serial-code id-serial-code--stamp">WAY</div>
+              </div>
+            </div>
+            <div class="nation-stats">Generational Ships: <span class="pill-cyan">1</span><span class="sep">·</span>Stations: <span class="pill-gold">1</span></div>
+            <div class="nation-foot"><span class="label">Builds stations</span><span class="items">none</span></div>
+            <div class="cargo-grid">
+              <div class="cargo-note">
+                <span class="cargo-note-label">Generational ship status</span>
+                <div class="cargo-note-value">Emigration in progress</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 07-D · Contract display on requester's nation card -->
+    <div class="hud-preview-grid" style="grid-template-columns: 1fr;">
+
+      <!-- 07-D · SKY contracting BIO for habitat -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">08-D</span> &nbsp;CONTRACT &middot; BUILDING VIA CONTRACT</div>
+        <div style="width: 280px;">
+          <div class="stack-label">// SKY contracting BIO * habitat</div>
+          <div class="nation-card" style="--nation-accent: #00F9FF;">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Skyshift Cooperative</div>
+                <div class="nation-desire"><b>explores</b> deep space</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="nation-sky"></div>
+                <div class="id-serial-code id-serial-code--stamp">SKY</div>
+              </div>
+            </div>
+            <div class="nation-stats">Archives: <span class="pill-cyan">2</span><span class="sep">·</span>Stations: <span class="pill-gold">4</span></div>
+            <div class="nation-foot"><span class="label">Builds stations</span><span class="items">archives</span></div>
+            <div class="cargo-grid">
+              <div class="cargo-row">
+                <span class="cargo-label">Building via contract with BIO</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 45%;"></span></span>
+                <span class="cargo-stat">Drifthollow &middot; habitat &middot; 45%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </section>
+
+  <!-- ══ OVERVIEW · WARES ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">09</span> &nbsp;Overview - wares</span>
+      <span class="mono caps">/ overview sidebar · wares tab</span>
+    </h2>
+
+    <div class="hud-preview-grid" style="grid-template-columns: 200px; gap: 40px; align-items: start;">
+
+      <!-- 08-A · Default state: no ware selected, last 20m baseline -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">09-A</span> &nbsp;OVERVIEW · DEFAULT · NO WARE</div>
+        <div class="trade-route-overlay" style="position: static; pointer-events: auto;">
+          <div class="ware-sidebar-wrap" style="position: static;">
+            <div class="hud-segment hud-segment--row">
+              <button class="hud-btn is-on">Trading</button>
+              <button class="hud-btn">Nations</button>
+              <button class="hud-btn">Emigration</button>
+              <button class="hud-btn">Log</button>
+            </div>
+            <div class="ware-sidebar">
+              <div class="ware-sidebar-head">Overview</div>
+              <div class="ware-dropdown">
+                <div class="ware-section-label ware-section-label--split">
+                  <span>Wares</span><span>Shipments</span>
+                </div>
+                <button class="ware-dropdown-trigger" type="button">
+                  <span class="ware-prefix">//</span>
+                  <span class="ware-label">None</span>
+                  <span class="ware-count" hidden></span>
+                  <span class="ware-dropdown-chevron"><span data-icon="ChevronDown"></span></span>
+                </button>
+              </div>
+              <div class="ware-section ware-modes-section">
+                <div class="ware-section-label">Shipments in last</div>
+                <div class="hud-segment hud-segment--row ware-modes">
+                  <button class="hud-btn ware-mode is-on" type="button">20m</button>
+                  <button class="hud-btn ware-mode" type="button">1h</button>
+                  <button class="hud-btn ware-mode" type="button">2h</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 08-B · Dropdown open, Metal selected -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">09-B</span> &nbsp;OVERVIEW · DROPDOWN OPEN</div>
+        <div class="trade-route-overlay" style="position: static; pointer-events: auto;">
+          <div class="ware-sidebar-wrap" style="position: static;">
+            <div class="hud-segment hud-segment--row">
+              <button class="hud-btn is-on">Trading</button>
+              <button class="hud-btn">Nations</button>
+              <button class="hud-btn">Emigration</button>
+              <button class="hud-btn">Log</button>
+            </div>
+            <div class="ware-sidebar">
+              <div class="ware-sidebar-head">Overview</div>
+              <div class="ware-dropdown is-open">
+                <div class="ware-section-label ware-section-label--split">
+                  <span>Wares</span><span>Shipments</span>
+                </div>
+                <button class="ware-dropdown-trigger" type="button">
+                  <span class="ware-prefix">//</span>
+                  <span class="ware-label">Metal</span>
+                  <span class="ware-count">12.4k</span>
+                  <span class="ware-dropdown-chevron"><span data-icon="ChevronDown"></span></span>
+                </button>
+                <div class="ware-dropdown-menu">
+                  <div class="ware-item">
+                    <span class="ware-prefix">//</span>
+                    <span class="ware-label">None</span>
+                    <span class="ware-count" hidden></span>
+                  </div>
+                  <div class="ware-item is-selected">
+                    <span class="ware-prefix">//</span>
+                    <span class="ware-label">Metal</span>
+                    <span class="ware-count">12.4k</span>
+                  </div>
+                  <div class="ware-item">
+                    <span class="ware-prefix">//</span>
+                    <span class="ware-label">Food</span>
+                    <span class="ware-count">8.7k</span>
+                  </div>
+                  <div class="ware-item">
+                    <span class="ware-prefix">//</span>
+                    <span class="ware-label">Water</span>
+                    <span class="ware-count">6.1k</span>
+                  </div>
+                  <div class="ware-item">
+                    <span class="ware-prefix">//</span>
+                    <span class="ware-label">Ice</span>
+                    <span class="ware-count">3.9k</span>
+                  </div>
+                  <div class="ware-item">
+                    <span class="ware-prefix">//</span>
+                    <span class="ware-label">Mineral</span>
+                    <span class="ware-count">2.7k</span>
+                  </div>
+                  <div class="ware-item">
+                    <span class="ware-prefix">//</span>
+                    <span class="ware-label">Hyperdata</span>
+                    <span class="ware-count">0.8k</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ware-section ware-modes-section">
+                <div class="ware-section-label">Shipments in last</div>
+                <div class="hud-segment hud-segment--row ware-modes">
+                  <button class="hud-btn ware-mode is-on" type="button">20m</button>
+                  <button class="hud-btn ware-mode" type="button">1h</button>
+                  <button class="hud-btn ware-mode" type="button">2h</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </section>
+
+  <!-- ══ OVERVIEW · EMIGRATION ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">10</span> &nbsp;Overview - emigration</span>
+      <span class="mono caps">/ NW1 pane · emigration tab</span>
+    </h2>
+
+    <div style="margin-bottom: 20px; max-width: 300px;">
+      <div class="hud-segment hud-segment--row">
+        <button class="hud-btn">Trading</button>
+        <button class="hud-btn">Nations</button>
+        <button class="hud-btn is-on">Emigration</button>
+        <button class="hud-btn">Log</button>
+      </div>
+    </div>
+
+    <h3 class="showcase-subhead">Generational ship dossier</h3>
+
+    <!-- 09-A/B · Generational-ship dossiers (selected generational ship in NW1) -->
+    <div class="hud-preview-grid" style="grid-template-columns: 1fr;">
+
+      <!-- 09-A · Taking It Easy (idle generational ship between events) -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">10-A</span> &nbsp;GENERATIONAL SHIP · TAKING IT EASY (WAY)</div>
+        <div style="width: 300px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Transitus</div>
+                <div class="id-type">Wayfarer-Ark</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="station-way-generational-ship"></div>
+                <div class="id-serial-code id-serial-code--stamp">WAY-01</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <div class="cargo-note">
+                <span class="cargo-note-label">Ship status</span>
+                <div class="cargo-note-value">Waiting for emigration</div>
+              </div>
+              <div class="cargo-note">
+                <span class="cargo-note-label">Crew status</span>
+                <div class="cargo-note-value">Enjoying shore leave</div>
+              </div>
+              <div class="cargo-note">
+                <span class="cargo-note-label">Destination</span>
+                <div class="cargo-note-value"><span class="cargo-note-accent">The Long Drift</span></div>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Taking It Easy</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 09-B · Preparing to Jump (same generational ship as 09-A, later phase of the event) -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">10-B</span> &nbsp;GENERATIONAL SHIP · PREPARING TO JUMP</div>
+        <div style="width: 300px;">
+          <div class="id-card">
+            <div class="id-header">
+              <div class="id-title">
+                <div class="id-name">Transitus</div>
+                <div class="id-type">Wayfarer-Ark</div>
+              </div>
+              <div class="icon-code">
+                <div class="id-seal" data-seal="station-way-generational-ship"></div>
+                <div class="id-serial-code id-serial-code--stamp">WAY-01</div>
+              </div>
+            </div>
+            <div class="cargo-grid">
+              <!-- Destination promoted to a prominent heading at the top of the body.
+                   Override cargo-note's natural footer-border treatment. -->
+              <div class="cargo-note" style="border-top: none; padding-top: 0; margin-top: 0; padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px dashed var(--line);">
+                <span class="cargo-note-label">Destination</span>
+                <div class="cargo-note-value">
+                  <span class="cargo-note-accent">The Long Drift</span>
+                </div>
+              </div>
+              <div class="cargo-row">
+                <span class="cargo-label">Departure</span>
+                <span class="cargo-track"><span class="cargo-fill" style="width: 92%;"></span></span>
+                <span class="cargo-stat">T &minus; 42s</span>
+              </div>
+              <div class="cargo-note">
+                <span class="cargo-note-label">Passengers</span>
+                <div class="cargo-note-value">8,400 aboard<br><span class="cargo-note-dim">from 3 stations total</span></div>
+              </div>
+            </div>
+            <div class="id-type-mrz id-status-band">Preparing to Jump</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <h3 class="showcase-subhead">Emigration controls</h3>
+
+    <!-- 09-C/D · Emigration controls, two mode variants side-by-side (stack on narrow viewports) -->
+    <div class="hud-preview-grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 300px)); max-width: 620px;">
+
+      <!-- 09-C · Auto mode (50% threshold, manual button disabled) -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">10-C</span> &nbsp;EMIGRATION CONTROLS · AUTO</div>
+        <div class="trade-route-overlay" style="position: static; pointer-events: auto;">
+          <div class="ware-sidebar-wrap" style="position: static;">
+            <div class="ware-sidebar">
+              <div class="ware-sidebar-head">Emigration</div>
+              <div class="ware-sidebar-blurb">Stations send their crew to the generational ship, which emigrates beyond the charts — freeing sectors for new settlement.</div>
+
+              <!-- Mode selector (Auto / Manual) -->
+              <div class="ware-section">
+                <div class="ware-section-label ware-section-label--settings">» Mode</div>
+                <div class="hud-segment hud-segment--row">
+                  <button class="hud-btn is-on">Auto</button>
+                  <button class="hud-btn">Manual</button>
+                </div>
+                <div style="font-family: var(--font-mono); font-size: 10px; line-height: 1.5; color: var(--paper-dim); margin-top: 8px;">Emigration triggers automatically once a vast majority of sectors are populated.</div>
+              </div>
+
+              <!-- Stations to emigrate (25% / 50% / 75%) -->
+              <div class="ware-section">
+                <div class="ware-section-label ware-section-label--settings">» Share</div>
+                <div class="hud-segment hud-segment--row">
+                  <button class="hud-btn">25%</button>
+                  <button class="hud-btn is-on">50%</button>
+                  <button class="hud-btn">75%</button>
+                </div>
+                <div style="font-family: var(--font-mono); font-size: 10px; line-height: 1.5; color: var(--paper-dim); margin-top: 8px;">Percentage of stations that will start emigrating out of the cluster.</div>
+              </div>
+
+              <!-- Auto mode hides the Trigger section entirely -->
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 09-D · Manual mode (75% threshold, button ready to fire) -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">10-D</span> &nbsp;EMIGRATION CONTROLS · MANUAL</div>
+        <div class="trade-route-overlay" style="position: static; pointer-events: auto;">
+          <div class="ware-sidebar-wrap" style="position: static;">
+            <div class="ware-sidebar">
+              <div class="ware-sidebar-head">Emigration</div>
+              <div class="ware-sidebar-blurb">Stations send their crew to the generational ship, which emigrates beyond the charts — freeing sectors for new settlement.</div>
+
+              <!-- Mode selector (Auto / Manual) -->
+              <div class="ware-section">
+                <div class="ware-section-label ware-section-label--settings">» Mode</div>
+                <div class="hud-segment hud-segment--row">
+                  <button class="hud-btn">Auto</button>
+                  <button class="hud-btn is-on">Manual</button>
+                </div>
+                <div style="font-family: var(--font-mono); font-size: 10px; line-height: 1.5; color: var(--paper-dim); margin-top: 8px;">Emigration only triggers when you start it yourself.</div>
+              </div>
+
+              <!-- Stations to emigrate (25% / 50% / 75%) -->
+              <div class="ware-section">
+                <div class="ware-section-label ware-section-label--settings">» Share</div>
+                <div class="hud-segment hud-segment--row">
+                  <button class="hud-btn">25%</button>
+                  <button class="hud-btn">50%</button>
+                  <button class="hud-btn is-on">75%</button>
+                </div>
+                <div style="font-family: var(--font-mono); font-size: 10px; line-height: 1.5; color: var(--paper-dim); margin-top: 8px;">Percentage of stations that will start emigrating out of the cluster.</div>
+              </div>
+
+              <!-- Manual trigger · button ready to fire -->
+              <div class="ware-section">
+                <div class="ware-section-label ware-section-label--settings">» Trigger</div>
+                <button class="hud-btn is-on" style="width: 100%; justify-content: center; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;">Start emigration</button>
+                <div style="font-family: var(--font-mono); font-size: 10px; line-height: 1.5; color: var(--paper-dim); margin-top: 10px;">Encourage station population to board generational ship and emigrate to another cluster.</div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+
+  </section>
+
+  <!-- ══ LORE & LOG ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">11</span> &nbsp;Lore &amp; Log</span>
+      <span class="mono caps">/ collapse · lore · log</span>
+    </h2>
+
+    <div style="color: var(--paper-dim); font-size: 13px; line-height: 1.55; max-width: 720px; margin-bottom: 20px;">
+      Three icon toggles outside the card's right edge. <span class="mono" style="color: var(--paper);">ChevronUp</span> is always visible and collapses the card to a title-only strip; the other two hide with it. <span class="mono" style="color: var(--paper);">Book</span> opens the lore drawer, <span class="mono" style="color: var(--paper);">Logs</span> opens the trade log — either, both, or neither, and each hides itself when the selection has no info of that type.
+    </div>
+
+    <div class="hud-preview-grid">
+
+      <!-- Lore open, log closed -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">11-A</span> &nbsp;LORE OPEN · LOG CLOSED</div>
+        <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px;">
+          <div style="display: flex; align-items: flex-start; gap: 6px;">
+            <div class="id-card" style="width: 300px;">
+              <div class="id-header">
+                <div class="id-title">
+                  <div class="id-name">Leafsong</div>
+                  <div class="id-type">Seedhaul</div>
+                </div>
+                <div class="icon-code">
+                  <div class="id-seal" data-seal="ship-bio-seedhaul"></div>
+                  <div class="id-serial-code id-serial-code--stamp">BIO-42</div>
+                </div>
+              </div>
+              <div class="cargo-grid">
+                <div class="cargo-row">
+                  <span class="cargo-label">Food</span>
+                  <span class="cargo-track"><span class="cargo-fill" style="width: 48%;"></span></span>
+                  <span class="cargo-stat">1.9k/4.0k</span>
+                </div>
+                <div class="cargo-row">
+                  <span class="cargo-label">Medicine</span>
+                  <span class="cargo-track"><span class="cargo-fill" style="width: 22%;"></span></span>
+                  <span class="cargo-stat">880/4.0k</span>
+                </div>
+              </div>
+              <div class="id-type-mrz id-status-band">Flying</div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <button class="hud-btn hud-btn-icon" style="width: 40px; height: 40px;" title="Collapse"><span data-icon="ChevronUp"></span></button>
+              <button class="hud-btn hud-btn-icon is-on" style="width: 40px; height: 40px;" title="Lore"><span data-icon="Book"></span></button>
+              <button class="hud-btn hud-btn-icon" style="width: 40px; height: 40px;" title="Trade log"><span data-icon="Logs"></span></button>
+            </div>
+          </div>
+          <div class="lore-card" style="width: 300px;">
+            <div class="lore-title">Seedhaul</div>
+            <div class="lore-text">Grown-hull pod vessel of the Bio-Annex. Drifts between stations nested in the Palo Celestia tree nebula.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Both open -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">11-B</span> &nbsp;BOTH OPEN</div>
+        <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px;">
+          <div style="display: flex; align-items: flex-start; gap: 6px;">
+            <div class="id-card" style="width: 300px;">
+              <div class="id-header">
+                <div class="id-title">
+                  <div class="id-name">Leafsong</div>
+                  <div class="id-type">Seedhaul</div>
+                </div>
+                <div class="icon-code">
+                  <div class="id-seal" data-seal="ship-bio-seedhaul"></div>
+                  <div class="id-serial-code id-serial-code--stamp">BIO-42</div>
+                </div>
+              </div>
+              <div class="cargo-grid">
+                <div class="cargo-row">
+                  <span class="cargo-label">Food</span>
+                  <span class="cargo-track"><span class="cargo-fill" style="width: 48%;"></span></span>
+                  <span class="cargo-stat">1.9k/4.0k</span>
+                </div>
+                <div class="cargo-row">
+                  <span class="cargo-label">Medicine</span>
+                  <span class="cargo-track"><span class="cargo-fill" style="width: 22%;"></span></span>
+                  <span class="cargo-stat">880/4.0k</span>
+                </div>
+              </div>
+              <div class="id-type-mrz id-status-band">Flying</div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <button class="hud-btn hud-btn-icon" style="width: 40px; height: 40px;" title="Collapse"><span data-icon="ChevronUp"></span></button>
+              <button class="hud-btn hud-btn-icon is-on" style="width: 40px; height: 40px;" title="Lore"><span data-icon="Book"></span></button>
+              <button class="hud-btn hud-btn-icon is-on" style="width: 40px; height: 40px;" title="Trade log"><span data-icon="Logs"></span></button>
+            </div>
+          </div>
+          <div class="lore-card" style="width: 300px;">
+            <div class="lore-title">Seedhaul</div>
+            <div class="lore-text">Grown-hull pod vessel of the Bio-Annex. Drifts between stations nested in the Palo Celestia tree nebula.</div>
+          </div>
+          <div class="log-panel" style="width: 300px;">
+            <div class="log-panel-body">
+              <div><span class="is-label">Selling:</span> Food</div>
+              <div><span class="is-label">From:</span> BIO Bloomreach 84% (36.3k/43.2k)</div>
+              <div><span class="is-label">To:</span> HUB Drifthollow 12% (1.7k/14.4k)</div>
+              <div><span class="is-current">▸ Fly: Bloomreach → Drifthollow</span></div>
+              <div><span class="is-blocked">&nbsp;&nbsp;Deliver: 4.0k food</span></div>
+              <div class="log-foot">Default behavior: <span class="text-accent">trade</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Collapsed -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">11-C</span> &nbsp;COLLAPSED · title only</div>
+        <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px;">
+          <div style="display: flex; align-items: flex-start; gap: 6px;">
+            <div class="id-card is-collapsed">
+              <div class="id-header">
+                <div class="id-title">
+                  <div class="id-name">Leafsong</div>
+                  <div class="id-type">Seedhaul</div>
+                </div>
+                <div class="icon-code">
+                  <div class="id-seal" data-seal="ship-bio-seedhaul"></div>
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <button class="hud-btn hud-btn-icon" style="width: 40px; height: 40px;" title="Expand"><span data-icon="ChevronDown"></span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══ SHIP LOG ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">12</span> &nbsp;Ship log</span>
+      <span class="mono caps">/ debug log · faction tint · emphasis rules</span>
+    </h2>
+
+    <div class="section-note">
+      Three stacked treatments break the dense log into scannable chunks without adding height:
+      <b>dashed rule</b> between ware groups echoes the id-card divider;
+      <b>faction-tinted code</b> (BIO · HUB · ORE · FAR) lets the eye group rows by nation at a glance;
+      <b>focal + mute</b> keeps the ware name and percentage in paper while dropping parenthetical
+      inventory to paper-mute and the trailing reason to paper-dim italic.
+      Compact footprint is preserved — numbers use the k formatter (38.7k vs 38,652).
+    </div>
+
+    <div class="hud-preview-grid" style="grid-template-columns: 1fr;">
+
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">12-A</span> &nbsp;SHIP LOG · ACTIVE HAULER · MULTI-LEG</div>
+        <div style="width: 330px;">
+          <div class="log-panel">
+            <div class="log-panel-body">
+              <div><span class="is-label">Selling:</span> Medicine</div>
+              <div><span class="is-label">From:</span> HUB Last Resolve 82.3% filled (28.9k/35.2k)</div>
+              <div><span class="is-label">To:</span> BIO Bloomreach 22.4% filled (7.9k/35.2k)</div>
+              <div><span class="is-label">Bonus:</span> Provisions (8.1k on ship)</div>
+              <div><span class="is-current">▸ Fly: Last Resolve to Bloomreach</span></div>
+              <div><span class="is-blocked">&nbsp;&nbsp;Dock: Bloomreach</span></div>
+              <div><span class="is-blocked">&nbsp;&nbsp;Deliver: 28.9k medicine</span></div>
+              <div><span class="is-blocked">&nbsp;&nbsp;Load: 8.1k provisions</span></div>
+              <div><span class="is-blocked">&nbsp;&nbsp;Fly: Bloomreach to Last Resolve</span></div>
+              <div><span class="is-blocked">&nbsp;&nbsp;Dock: Last Resolve</span></div>
+              <div><span class="is-blocked">&nbsp;&nbsp;Deliver: 8.1k provisions</span></div>
+              <div><span class="is-blocked">&nbsp;&nbsp;Orbit: Last Resolve</span></div>
+              <div class="log-foot">Default behavior: <span class="text-accent">trade</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">12-B</span> &nbsp;SHIP LOG · IDLE TRADER</div>
+        <div style="width: 330px;">
+          <div class="log-panel">
+            <div class="log-panel-body">
+              <div class="log-head">Trader wants to fill at least 20.7% of cargo space</div>
+              <div class="log-group">
+                <div><span class="log-ware">Water</span> <span class="log-dim">(sell):</span> <span class="log-num">44.7%</span> <span class="log-dim">(38.7k)</span><span class="log-tail">, no destination needs it, 3 most eligible:</span></div>
+                <div class="log-sub">&nbsp;· <span style="color:#4CAF50">BIO</span> <span class="log-ware">Bloomreach:</span> <span class="log-num">60.6%</span> (38.4k +14.0k in)</div>
+                <div class="log-sub">&nbsp;· <span style="color:#0069B3">HUB</span> <span class="log-ware">Far Theorem:</span> <span class="log-num">60.4%</span> (34.8k)</div>
+                <div class="log-sub">&nbsp;· <span style="color:#0069B3">HUB</span> <span class="log-ware">Last Resolve:</span> <span class="log-num">49.3%</span> (28.4k)</div>
+              </div>
+              <div class="log-group">
+                <div><span class="log-ware">Ice</span> <span class="log-dim">(buy):</span> <span class="log-num">56.5%</span> <span class="log-dim">(87.5k +10.0k in)</span><span class="log-tail">, no producer has surplus, 3 most eligible:</span></div>
+                <div class="log-sub">&nbsp;· <span style="color:#B36100">ORE</span> <span class="log-ware">Dustrock:</span> <span class="log-num">48.4%</span> (83.6k)</div>
+                <div class="log-sub">&nbsp;· <span style="color:#B36100">ORE</span> <span class="log-ware">Ironvein:</span> <span class="log-num">43.6%</span> (50.3k -10.0k out)</div>
+                <div class="log-sub">&nbsp;· <span style="color:#B36100">ORE</span> <span class="log-ware">Deepvein:</span> <span class="log-num">41.6%</span> (71.9k)</div>
+              </div>
+              <div class="log-foot">Default behavior: <span class="text-accent">trade</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══ LANDING PAGE ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">13</span> &nbsp;Landing page</span>
+      <span class="mono caps">/ index.html · cover · ledger · dossier · register</span>
+    </h2>
+
+    <p class="section-note">
+      The cover page reuses the in-game passport vocabulary above the starfield — mono-caps straps, the <span class="mono">.id-card</span> chassis. The only piece unique to this surface is the gradient wordmark; everything else is HUD register applied at landing scale.
+    </p>
+
+    <div class="hud-preview-grid" style="grid-template-columns: 1fr;">
+
+      <!-- Hero -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">13-A</span> &nbsp;HERO · gradient wordmark</div>
+        <h1 class="landing-hero">Skyshift</h1>
+      </div>
+
+      <!-- Landing caption -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">13-B</span> &nbsp;LANDING CAPTION · hero register</div>
+        <div class="landing-caption">
+          <div>// FIVE NATIONS <b>TRADE · BUILD · EMIGRATE</b></div>
+          <div class="codes">
+            <span style="color: #4CAF50;">BIO</span>
+            <span class="sep">·</span>
+            <span style="color: #0069B3;">HUB</span>
+            <span class="sep">·</span>
+            <span style="color: #B36100;">ORE</span>
+            <span class="sep">·</span>
+            <span style="color: #00F9FF;">SKY</span>
+            <span class="sep">·</span>
+            <span style="color: #E8C840;">FAR</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Start actions · first visit (no save) -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">13-C</span> &nbsp;START ACTIONS · FIRST VISIT · two Enter-universe buttons, Settled featured in gold</div>
+        <div class="landing-preview-stage">
+          <div class="start-actions">
+            <div class="start-primary-row">
+              <button type="button" class="hud-btn start-btn start-btn--morse is-on" data-map-name="Settled">
+                <span class="start-btn-sub">Enter universe</span>
+                <span class="start-btn-title">Settled</span>
+                <span class="start-btn-note">Balanced and vibrant economy.</span>
+              </button>
+              <button type="button" class="hud-btn start-btn start-btn--morse" data-map-name="Frontier">
+                <span class="start-btn-sub">Enter universe</span>
+                <span class="start-btn-title">Frontier</span>
+                <span class="start-btn-note">Early days, nations just getting started.</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Start actions · returning (save exists) -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">13-C2</span> &nbsp;START ACTIONS · RETURNING · prominent Continue over small "Start new" pair</div>
+        <div class="landing-preview-stage">
+          <div class="start-actions">
+            <button type="button" class="hud-btn is-on start-btn start-continue start-btn--morse" data-map-name="Settled">
+              <span class="start-btn-title">Continue saved</span>
+              <span class="continue-date">Settled · 2026-04-13 23:50</span>
+            </button>
+            <div class="start-subactions">
+              <button type="button" class="hud-btn">Start new Settled universe</button>
+              <button type="button" class="hud-btn">Start new Frontier universe</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings panel -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">13-D</span> &nbsp;SETTINGS PANEL · audio + savegame slots</div>
+        <div class="settings-modal id-card">
+            <div class="settings-head">
+              <span>Settings</span>
+              <button class="settings-close hud-btn hud-btn-icon" aria-label="Close"><span data-icon="X"></span></button>
+            </div>
+            <div class="settings-section">
+              <h3>» View</h3>
+              <div class="settings-row">
+                <span class="settings-row-label">Show sector grid</span>
+                <div class="hud-segment">
+                  <button class="hud-btn is-on">Scrolling</button>
+                  <button class="hud-btn">Always</button>
+                  <button class="hud-btn">Never</button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-section">
+              <h3>» Audio</h3>
+              <div class="settings-row">
+                <span class="settings-row-label">Announce station and ship names</span>
+                <button class="hud-btn is-on" aria-pressed="true"><span data-icon="Volume2"></span><span>On</span></button>
+              </div>
+            </div>
+            <div class="settings-section">
+              <h3>» Browser Savegame</h3>
+              <div class="slot-list">
+                <button type="button" class="slot-row">
+                  <span class="slot-num slot-num--manual">M1</span>
+                  <span class="slot-label">Manual</span>
+                  <span class="slot-time"><span class="slot-time-date">2026-04-13</span><span class="slot-time-time">23:42</span></span>
+                </button>
+                <button type="button" class="slot-row is-selected">
+                  <span class="slot-num slot-num--manual">M2</span>
+                  <span class="slot-label">Manual</span>
+                  <span class="slot-time"><span class="slot-time-date">2026-04-13</span><span class="slot-time-time">23:50</span></span>
+                </button>
+                <button type="button" class="slot-row">
+                  <span class="slot-num is-empty">M3</span>
+                  <span class="slot-label">Manual</span>
+                  <span class="slot-time"><span class="slot-time-empty">Empty</span></span>
+                </button>
+                <button type="button" class="slot-row">
+                  <span class="slot-num slot-num--auto">A1</span>
+                  <span class="slot-label">Auto</span>
+                  <span class="slot-time"><span class="slot-time-date">2026-04-13</span><span class="slot-time-time">23:44</span></span>
+                </button>
+              </div>
+              <div class="slot-action-bar">
+                <button class="hud-btn">Overwrite</button>
+                <button class="hud-btn">Load</button>
+              </div>
+            </div>
+            <div class="settings-section">
+              <h3>» File Savegame</h3>
+              <div class="settings-actions">
+                <button class="hud-btn">Download</button>
+                <button class="hud-btn">Restore</button>
+              </div>
+            </div>
+        </div>
+      </div>
+
+      <!-- Toast — unified top-center notification, reuses .id-card chrome. -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">12-T</span> &nbsp;TOAST · unified top-center notification · neutral and .toast--ok variants</div>
+        <div style="position: relative; min-height: 120px;">
+          <div class="toast-root" style="position: static; transform: none;">
+            <div class="toast-item id-card">Saved.</div>
+            <div class="toast-item id-card toast--ok">Exported.</div>
+            <div class="toast-item id-card">This save is from a different build of Skyshift and can't be loaded.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Landing nav -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">13-E</span> &nbsp;LANDING NAV · two-tier · prominent Orientation + Lore over dim utility links</div>
+        <nav class="landing-nav" style="align-self: flex-start;">
+          <div class="landing-nav-primary">
+            <a>// <span class="num">01</span> Orientation</a>
+            <a>// <span class="num">02</span> Lore</a>
+          </div>
+          <div class="landing-nav-secondary">
+            <a>// UI Design</a>
+            <a>// Editor</a>
+            <a>// GitHub</a>
+          </div>
+        </nav>
+      </div>
+
+      <!-- Load error -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">13-F</span> &nbsp;LOAD ERROR · shown by /universe or /start/:preset when the route can't boot</div>
+        <main class="load-error__panel" style="align-self: flex-start;">
+          <p class="load-error__eyebrow">Load error</p>
+          <h1 class="load-error__title">Can't load universe</h1>
+          <p class="load-error__detail">Save file is not a Skyshift save.</p>
+          <details class="load-error__diagnostic" open>
+            <summary>Show details</summary>
+            <pre class="load-error__diagnostic-body">Missing or invalid field: emigrationManager.emigrantLaunchState</pre>
+          </details>
+          <div class="load-error__actions">
+            <button type="button" class="hud-btn">Back to landing</button>
+            <button type="button" class="hud-btn hud-btn--danger">Clear saves</button>
+          </div>
+        </main>
+      </div>
+
+      <!-- Load error · pending step (1500ms pulsing dots after first Clear-saves click) -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">13-G</span> &nbsp;LOAD ERROR · CLEAR-SAVES PENDING · 1.5s pulse before the destructive confirm appears</div>
+        <main class="load-error__panel" style="align-self: flex-start;">
+          <p class="load-error__eyebrow">Load error</p>
+          <h1 class="load-error__title">Can't load universe</h1>
+          <p class="load-error__detail">Save file is not a Skyshift save.</p>
+          <div class="load-error__actions">
+            <span class="slot-pending">···</span>
+          </div>
+        </main>
+      </div>
+
+      <!-- Load error · confirm step (full-red button + cancel-X) -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">13-H</span> &nbsp;LOAD ERROR · CLEAR-SAVES CONFIRM · full-red button wipes every slot, X cancels back to idle</div>
+        <main class="load-error__panel" style="align-self: flex-start;">
+          <p class="load-error__eyebrow">Load error</p>
+          <h1 class="load-error__title">Can't load universe</h1>
+          <p class="load-error__detail">Save file is not a Skyshift save.</p>
+          <div class="load-error__actions">
+            <button type="button" class="hud-btn slot-confirm slot-confirm--danger">Confirm clear all saves?</button>
+            <button type="button" class="hud-btn hud-btn-icon" aria-label="Cancel"><span data-icon="X"></span></button>
+          </div>
+        </main>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══ LOADING ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">14</span> &nbsp;Loading</span>
+      <span class="mono caps">/ route click → first Game.update()</span>
+    </h2>
+
+    <p class="section-note">
+      Placeholder id-card covers the top-left slot between route click and the first rendered frame. The sweeping gold bar carries the wait; the rest of the chassis matches the real passport so the transition to the first selection reads as the same card filling in. <span class="mono">body.game-ready</span> (set in <span class="mono">Game.update()</span>) fades this card out and the real HUD in.
+    </p>
+
+    <div class="hud-preview-grid">
+
+      <!-- 13 · ID-card placeholder -->
+      <div class="hud-preview">
+        <div class="hud-preview-label"><span class="num">14</span> &nbsp;ID-CARD PLACEHOLDER · top-left chassis, pulsing bar is the hero element</div>
+        <div class="loading-stage loading-stage--left">
+          <div style="width: 300px; display: flex; flex-direction: column; gap: 6px;">
+            <div class="id-card is-loading">
+              <div class="id-header">
+                <div class="id-title">
+                  <div class="id-name">Skyshift</div>
+                  <div class="id-type">Entering universe</div>
+                </div>
+              </div>
+              <div class="loading-bar loading-bar--hero"></div>
+              <div class="id-type-mrz id-status-band">// standby</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══ PAGE MASTHEAD ══ -->
+  <section class="showcase-section">
+    <h2>
+      <span><span class="num">15</span> &nbsp;Page masthead</span>
+      <span class="mono caps">/ help · lore · design — shared title · subtitle · return</span>
+    </h2>
+
+    <div class="hud-preview">
+      <div class="hud-preview-label"><span class="num">14-A</span> &nbsp;LEDGER · applied live above and on help, lore, design</div>
+      <header class="page-masthead" style="margin-bottom: 0; padding-top: 0;">
+        <div class="page-masthead-topbar">
+          <a class="page-masthead-back" href="/">«<span class="num">00</span>Index</a>
+          <span class="page-masthead-label">BUREAU OF CARTOGRAPHY</span>
+        </div>
+        <h1 class="page-masthead-title"><span class="page-masthead-brand">Skyshift</span> Lore</h1>
+        <p class="page-masthead-sub">An atlas of the settled universe — nations, ships, wares, stations, sectors.</p>
+      </header>
+    </div>
+  </section>
+
+</div>
+
+</body>
+</html>

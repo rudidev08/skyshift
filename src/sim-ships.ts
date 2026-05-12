@@ -1,0 +1,156 @@
+import type { Station } from "./sim-station-types";
+import type { ShipTypeId } from "../data/ship-types";
+import type { ShipTemplate } from "../data/ship-types";
+import type { WareId } from "../data/ware-types";
+import type { Nation } from "./sim-nation";
+import type { ShipSnapshot } from "./sim-save-types";
+import { shipCountBySize } from "../data/stations";
+import { getShipTemplate } from "./sim-ship-template";
+import { isStationUnderConstruction } from "./sim-station";
+import { getWareTemplate } from "./sim-ware-template";
+import type { NamePool } from "./sim-name-pool";
+
+/** Generate a unique nation-prefixed ship code (e.g. "BIO-042") that doesn't
+ *  appear in `takenShipIds`. Random pick first — keeps codes shuffled when the
+ *  pool is sparse — then a deterministic 000..999 scan if random gave up.
+ *  Throws when the 1000-slot pool is full; codes are released back to the pool
+ *  whenever a ship leaves the roster, so this only fires when 1000 ships of
+ *  one nation are simultaneously alive. */
+function generateUniqueShipCode(nationCode: string, takenShipIds: ReadonlySet<string>): string {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const code = `${nationCode}-${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`;
+    if (!takenShipIds.has(code)) return code;
+  }
+  for (let i = 0; i < 1000; i++) {
+    const code = `${nationCode}-${String(i).padStart(3, "0")}`;
+    if (!takenShipIds.has(code)) return code;
+  }
+  throw new Error(`Ship code pool exhausted for nation ${nationCode}: 1000 ships alive`);
+}
+
+/** Runtime ship — sim-authoritative state only. Orbit angle, speed, radius are
+ *  render-owned (see {@link ShipVisualBundle}). In-flight is derived: read
+ *  via tradeManager.isShipInFlight(tradeShip) or `tradeShip.flight !== null`. */
+export interface Ship {
+  id: string;
+  shipTypeId: ShipTypeId;
+  shipName: string;
+  station: Station;
+}
+
+/** Ship type for a nation. Throws for nations with no primary fleet (WAY) —
+ *  guard at the call site (only nations that spawn ships should call this). */
+export function getNationShipTemplate(nation: Nation): ShipTemplate {
+  if (!nation.shipTypeId) {
+    throw new Error(`Nation ${nation.id} has no primary ship type`);
+  }
+  return getShipTemplate(nation.shipTypeId);
+}
+
+export interface CreateStationShipsOptions {
+  /** Keep editor/report force-spawn behavior even when a station cannot trade. */
+  ignoreCargoCompatibility?: boolean;
+  /** Override the nation's default ship type — for build-site trader fleets
+   *  that need a different ship type than the nation's default. */
+  shipTypeOverride?: ShipTypeId;
+}
+
+/** Does the ship's `allowedWares` overlap with the station's trade needs?
+ *  Operational stations: produced output + production inputs. Build sites:
+ *  the construction wares in `station.build.waresRequired`. Gates
+ *  `createStationShips` from spawning a fleet that can't trade for its home. */
+function canShipCarryAnyWareThatStationUses(station: Station, shipTemplate: ShipTemplate): boolean {
+  const allowedWares = new Set(shipTemplate.allowedWares);
+
+  // A build site's only trade-relevant wares are its construction inputs;
+  // the operational set isn't trade-relevant until the building → producing
+  // flip respawns the regular fleet (see sim-lifecycle.ts onFlip handler).
+  if (isStationUnderConstruction(station)) {
+    const requiredWareIds = Object.keys(station.build.waresRequired) as WareId[];
+    for (const wareId of requiredWareIds) {
+      if (allowedWares.has(wareId)) return true;
+    }
+    return false;
+  }
+
+  // Sink wares have no output slot — trade-relevant wares are real outputs
+  // plus every input the station needs replenished.
+  for (const producedWareId of station.stationType.produces) {
+    const producedWare = getWareTemplate(producedWareId);
+    if (producedWare.productionOutput > 0 && allowedWares.has(producedWareId)) {
+      return true;
+    }
+    for (const input of producedWare.productionInputs) {
+      if (allowedWares.has(input.wareId)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+export interface CreateStationShipsInput {
+  station: Station;
+  /** Ship IDs already in use across the simulation; consecutive calls in a
+   *  fleet-spawn loop must add each returned ship's id to their own set so the
+   *  next call sees it. */
+  takenShipIds: ReadonlySet<string>;
+  namePool: NamePool;
+  options?: CreateStationShipsOptions;
+}
+
+/** Create the station's default fleet. */
+export function createStationShips(input: CreateStationShipsInput): Ship[] {
+  const { station, takenShipIds, namePool, options } = input;
+  const shipTypeId = options?.shipTypeOverride ?? station.nation.shipTypeId;
+  if (!shipTypeId) return [];
+  const shipTemplate = getShipTemplate(shipTypeId);
+  if (
+    !options?.ignoreCargoCompatibility &&
+    !canShipCarryAnyWareThatStationUses(station, shipTemplate)
+  ) {
+    return [];
+  }
+
+  const nationCode = station.nation.codeName;
+  const count = shipCountBySize[station.size] ?? 1;
+  const ships: Ship[] = [];
+  // Local copy so the helper can detect collisions across its own loop without
+  // mutating the caller-provided set.
+  const reservedShipIds = new Set(takenShipIds);
+
+  for (let i = 0; i < count; i++) {
+    const id = generateUniqueShipCode(nationCode, reservedShipIds);
+    reservedShipIds.add(id);
+    const shipName = namePool.claimShipName(station.nation);
+    ships.push({ id, shipTypeId, shipName, station });
+  }
+
+  return ships;
+}
+
+/** Serialize a ship. Parent station referenced by id; orbit visuals are
+ *  render-owned and not persisted. `inFlight` is derived — caller passes it
+ *  in (typically from `tradeManager.isShipInFlight(tradeShip)`). */
+export function shipToSnapshot(ship: Ship, inFlight: boolean): ShipSnapshot {
+  return {
+    id: ship.id,
+    stationId: ship.station.id,
+    shipTypeId: ship.shipTypeId,
+    shipName: ship.shipName,
+    inFlight,
+  };
+}
+
+/** Reconstruct a ship from a snapshot. Caller resolves `station` from `snapshot.stationId` (see applySnapshot in src/ui-savegame-manager.ts).
+ *  `snapshot.inFlight` is intentionally ignored — the truth is rebuilt by
+ *  `tradeManager.restoreFromSnapshot` from each trade ship's `flight` field. */
+export function shipFromSnapshot(snapshot: ShipSnapshot, station: Station): Ship {
+  return {
+    id: snapshot.id,
+    station,
+    shipTypeId: snapshot.shipTypeId as ShipTypeId,
+    shipName: snapshot.shipName,
+  };
+}

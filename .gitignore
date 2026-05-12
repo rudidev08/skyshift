@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+.DS_Store
+.env
+.claude/projects
+.opencode
+.codex
+**/worktrees/
+*.local.*
+*.local/

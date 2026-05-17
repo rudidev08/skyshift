@@ -596,6 +596,25 @@ test("dispose followed by snapshot rehydration on a fresh sim restores trade tim
   }
   assertTrue(expectedInFlightCount > 0, "warmup left at least one ship in flight before snapshot");
 
+  // Capture each ship's homeStationId + cargo so the round-trip assertion can
+  // pin the per-ship scalar/Map fields, not just counts. homeStationId drives
+  // the byHomeStationId index (emigration's per-station departure gate) and
+  // recordRouteDeliveryFromTransfer's fromStationId derivation; cargo drives
+  // every withdrawal/deposit a reloaded ship runs.
+  const expectedHomeByShipId = new Map<string, string>();
+  const expectedCargoByShipId = new Map<string, Array<[string, number]>>();
+  for (const tradeShip of original.tradeManager.tradeShips) {
+    expectedHomeByShipId.set(tradeShip.orbitingShipId, tradeShip.homeStationId);
+    expectedCargoByShipId.set(
+      tradeShip.orbitingShipId,
+      [...tradeShip.cargoAmountByWareId.entries()].sort(([a], [b]) => a.localeCompare(b)),
+    );
+  }
+  // At least one warmed ship is carrying cargo, so the cargo-fidelity check
+  // below isn't vacuously satisfied by empty Maps.
+  const shipsWithCargo = [...expectedCargoByShipId.values()].filter((entries) => entries.length > 0);
+  assertTrue(shipsWithCargo.length > 0, "warmup left at least one ship carrying cargo before snapshot");
+
   // Snapshot context for tradeShipFromSnapshot — needs id→game-object maps.
   const stationsById = new Map(original.stations.map((station) => [station.id, station]));
   const shipsById = new Map(original.ships.map((ship) => [ship.id, ship]));
@@ -632,6 +651,37 @@ test("dispose followed by snapshot rehydration on a fresh sim restores trade tim
     expectedInFlightCount,
     "isShipInFlight count restored across snapshot rehydration",
   );
+
+  // Pin per-ship homeStationId across the round trip. A tradeShipToSnapshot
+  // or tradeShipFromSnapshot mutation that wrote orbitingShipId/shipId into
+  // homeStationId would leave counts/tradeTime green but misindex every ship
+  // in byHomeStationId (emigration's departure gate goes blind) and misroute
+  // recordRouteDeliveryFromTransfer's fromStationId.
+  for (const tradeShip of replay.tradeManager.tradeShips) {
+    assertEqual(
+      tradeShip.homeStationId,
+      expectedHomeByShipId.get(tradeShip.orbitingShipId),
+      `homeStationId restored for ${tradeShip.orbitingShipId}`,
+    );
+  }
+  // Pin per-ship cargo contents across the round trip. A tradeShipFromSnapshot
+  // mutation that swapped the cargo Map's [wareId, amount] key/value would
+  // leave the roster intact but corrupt every reloaded ship's cargo — wrong
+  // wares, wrong quantities delivered on the next deposit.
+  for (const tradeShip of replay.tradeManager.tradeShips) {
+    const restoredCargo = [...tradeShip.cargoAmountByWareId.entries()].sort(([a], [b]) =>
+      a.localeCompare(b),
+    );
+    const expectedCargo = assertNotUndefined(
+      expectedCargoByShipId.get(tradeShip.orbitingShipId),
+      `expected cargo captured for ${tradeShip.orbitingShipId}`,
+    );
+    assertEqual(
+      JSON.stringify(restoredCargo),
+      JSON.stringify(expectedCargo),
+      `cargo Map entries restored for ${tradeShip.orbitingShipId}`,
+    );
+  }
 
   replay.dispose();
 });

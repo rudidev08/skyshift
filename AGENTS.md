@@ -23,13 +23,6 @@
 - `npm run build` — production Vite build. Run when changes span many modules or touch HTML/CSS/entry files.
 - `npm run dev` is available for manual browser testing; it doesn't exit on its own, so only run it in the background when you need to verify UI.
 
-## Git
-
-- **No repo- or branch-state-changing git operations without explicit, per-request user permission — none happen by default.** This covers branch creation/switch (`checkout`/`switch`/`branch`), worktrees (including the `EnterWorktree` tool), `merge`, `rebase`, `reset`, `revert`, `stash`, `cherry-pick`, and `tag`. It overrides any skill or session default that steers toward branches or worktrees (e.g. subagent-driven-development, using-git-worktrees, finishing-a-development-branch, background-job isolation): do the work in the existing checkout on the current branch (normally `main`). If a skill's workflow assumes a branch/worktree, flag the conflict and proceed on the current branch instead of creating one. Read-only inspection (`git status` / `log` / `diff` / `show`) is always fine. Staging, committing, and pushing are additionally governed by the rules below.
-- Explicit user approval is required before staging or committing only when either (a) the current branch is `main` or `stable`, or (b) Claude is initiating the commit without the user asking. On any other branch, when the user has asked for a commit, proceed without a confirmation step.
-- **Invoking the `/commit` or `/stable` skill counts as that explicit approval**, including for direct-to-main and direct-to-stable commits and for the push that follows. The skill invocation is itself the user's instruction to commit (and, for `/stable`, to push to the stable branch). No additional "confirm direct-to-main" prompt is needed — proceed once the commit message has been shown and accepted per the one-confirmation-step rule below.
-- When approval is required: **exactly one confirmation step**, not two. Draft the commit message, show it once, and commit on approval. If the diff mixes unrelated work or something looks unusual, fold that callout into the same approval request so the user can confirm or redirect in a single reply — don't ask a scope/style clarifying question first and then re-ask for approval afterward.
-
 ## Code Style
 
 - Entity type naming — two kinds of `data/` type, distinguished by how the runtime relates to it:

@@ -1,9 +1,8 @@
-export function getTimePauseButtonTitle(paused: boolean, keyboardShortcutsEnabled: boolean): string {
+export function getSpeedPauseButtonTitle(paused: boolean, keyboardShortcutsEnabled: boolean): string {
   const action = paused ? "Resume" : "Pause";
   return keyboardShortcutsEnabled ? `${action} (Space)` : action;
 }
 
-export function getTimeAccelerationCycleButtonTitle(keyboardShortcutsEnabled: boolean): string {
-  // Single HUD button cycles speed presets, so the tooltip lists all three keyboard shortcuts.
+export function getSpeedCycleButtonTitle(keyboardShortcutsEnabled: boolean): string {
   return keyboardShortcutsEnabled ? "Cycle speed (1/2/3)" : "Cycle speed";
 }

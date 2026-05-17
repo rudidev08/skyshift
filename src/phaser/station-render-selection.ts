@@ -13,9 +13,9 @@ import { escapeHtml } from "../util-html-escape";
 import type { StationGenerationalShipBuild } from "../sim-station-types";
 
 // Reusable position for getMapPosition — only one station selected at a time.
-const stationMapPositionScratch = { x: 0, y: 0 };
+const selectedStationPosition = { x: 0, y: 0 };
 
-/** Cached per stationType.id — station types are static for process lifetime, so this never invalidates. */
+// Cached per stationType.id — station types are static for process lifetime, so this never invalidates.
 const producedWareIdsByStationTypeId = new Map<string, Set<string>>();
 
 function getProducedWareIdsForStationType(stationType: Station["stationType"]): Set<string> {
@@ -31,7 +31,7 @@ function getProducedWareIdsForStationType(stationType: Station["stationType"]): 
   return set;
 }
 
-function buildGenerationalShipDescriptionHtml(build: StationGenerationalShipBuild | null): string {
+function buildGenerationalShipDescription(build: StationGenerationalShipBuild | null): string {
   if (build) {
     const fraction = Math.max(0, Math.min(1, build.arrivalFraction));
     const percent = Math.floor(fraction * 100);
@@ -48,7 +48,7 @@ function buildGenerationalShipDescriptionHtml(build: StationGenerationalShipBuil
       </div>
       <div class="cargo-note">
         <span class="cargo-note-label">Passengers</span>
-        <div class="cargo-note-value">inbound<br><span class="cargo-note-dim">from ${build.stationCount} station${build.stationCount === 1 ? "" : "s"} total</span></div>
+        <div class="cargo-note-value">inbound<br><span class="cargo-note-dim">from ${build.emigratingStationCount} station${build.emigratingStationCount === 1 ? "" : "s"} total</span></div>
       </div>
     `;
   }
@@ -69,7 +69,7 @@ function buildGenerationalShipDescriptionHtml(build: StationGenerationalShipBuil
   `;
 }
 
-function buildEmigratingDescriptionHtml(emigration: Station["emigrationEvent"]): string {
+function buildEmigratingDescription(emigration: Station["emigrationEvent"]): string {
   const fraction = emigration ? emigration.progressFraction : 0;
   const percent = Math.max(0, Math.min(100, Math.floor(fraction * 100)));
   const destinationName = emigration?.destinationName ? escapeHtml(emigration.destinationName) : "—";
@@ -86,7 +86,7 @@ function buildEmigratingDescriptionHtml(emigration: Station["emigrationEvent"]):
   `;
 }
 
-function buildProducingDescriptionHtml(station: Station): string {
+function buildProducingDescription(station: Station): string {
   const perSecond = 1 / economyConfig.simulationIntervalSeconds;
 
   // Net signed rate per ware: positive = produced, negative = consumed.
@@ -134,20 +134,37 @@ function buildProducingDescriptionHtml(station: Station): string {
   return sections.join("");
 }
 
+function buildStationSelectionLabel(input: {
+  station: Station;
+  stackLabel: string;
+  description: string;
+  statusLabel: string;
+}) {
+  const { station, stackLabel, description, statusLabel } = input;
+  return {
+    iconUri: getStationHudIcon(station.stationType.id),
+    stackLabel,
+    name: station.name,
+    serialCode: station.id,
+    description,
+    loreTypeName: `Station Type: ${station.stationType.name}`,
+    lore: station.stationType.lore,
+    hasDetails: false,
+    accentColor: station.nation.color,
+    statusLabel,
+  };
+}
+
 export class StationSelectionTarget implements SelectionTarget {
   readonly kind = "station" as const;
   constructor(readonly station: Station) {}
 
   enterSelected() {
-    announceStation(
-      this.station.name!,
-      this.station.stationType.name,
-      this.station.nation,
-    );
+    announceStation(this.station.name, this.station.stationType.name, this.station.nation);
   }
 
-  exitSelected() {
-  }
+  // Stations don't need teardown — selection auto-clears on bundle unregister.
+  exitSelected() {}
 
   isActive() {
     // Selection auto-clears on bundle unregister, so isActive never has to return false here.
@@ -164,57 +181,37 @@ export class StationSelectionTarget implements SelectionTarget {
 
     if (stationType.id === "generational-ship") {
       const build = station.generationalShipBuild;
-      const statusLabel = build ? "Boarding in Progress" : "Shore Leave";
-      return {
-        iconUri: getStationHudIcon(stationType.id),
+      return buildStationSelectionLabel({
+        station,
         stackLabel: station.nation.shortName,
-        name: station.name!,
-        serialCode: station.id,
-        description: buildGenerationalShipDescriptionHtml(build),
-        loreTypeName: `Station Type: ${stationType.name}`,
-        lore: stationType.lore,
-        hasDetails: false,
-        accentColor: station.nation.color,
-        statusLabel,
-      };
+        description: buildGenerationalShipDescription(build),
+        statusLabel: build ? "Boarding in Progress" : "Shore Leave",
+      });
     }
 
     const sizeLabel = longNameBySize[station.size];
     const state = station.state ?? "producing";
 
     if (state === "emigrating") {
-      return {
-        iconUri: getStationHudIcon(stationType.id),
+      return buildStationSelectionLabel({
+        station,
         stackLabel: `${stationType.name} · ${sizeLabel}`,
-        name: station.name!,
-        serialCode: station.id,
-        description: buildEmigratingDescriptionHtml(station.emigrationEvent),
-        loreTypeName: `Station Type: ${stationType.name}`,
-        lore: stationType.lore,
-        hasDetails: false,
-        accentColor: station.nation.color,
+        description: buildEmigratingDescription(station.emigrationEvent),
         statusLabel: "Emigrating",
-      };
+      });
     }
 
-    const statusLabel = state === "building" ? "In Construction" : "Producing";
-    return {
-      iconUri: getStationHudIcon(stationType.id),
+    return buildStationSelectionLabel({
+      station,
       stackLabel: `${stationType.name} · ${sizeLabel}`,
-      name: station.name!,
-      serialCode: station.id,
-      description: buildProducingDescriptionHtml(station),
-      loreTypeName: `Station Type: ${stationType.name}`,
-      lore: stationType.lore,
-      hasDetails: false,
-      accentColor: station.nation.color,
-      statusLabel,
-    };
+      description: buildProducingDescription(station),
+      statusLabel: state === "building" ? "In Construction" : "Producing",
+    });
   }
 
   getMapPosition() {
-    stationMapPositionScratch.x = this.station.x;
-    stationMapPositionScratch.y = this.station.y;
-    return stationMapPositionScratch;
+    selectedStationPosition.x = this.station.x;
+    selectedStationPosition.y = this.station.y;
+    return selectedStationPosition;
   }
 }

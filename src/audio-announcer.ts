@@ -20,13 +20,13 @@ const preloadKeys = new Set<string>();
 let assetsResolved = false;
 
 let audioContext: AudioContext | null = null;
-const decodedBuffers = new Map<string, AudioBuffer>();
+const audioBufferByKey = new Map<string, AudioBuffer>();
 const activeSources: AudioBufferSourceNode[] = [];
 let preloadStarted = false;
-let playbackGeneration = 0;
+let currentSequenceId = 0;
 
-function isCurrentSequence(sequenceGeneration: number): boolean {
-  return audioEnabled && sequenceGeneration === playbackGeneration;
+function isStillCurrentSequence(capturedSequenceId: number): boolean {
+  return audioEnabled && capturedSequenceId === currentSequenceId;
 }
 
 function registerPreloadKey(audioKey: string) {
@@ -43,15 +43,16 @@ function registerPreloadKey(audioKey: string) {
 }
 
 /** Build the preload key set from bundled WAV URLs. Runs once on first opt-in. */
-function resolveAudioAssets() {
+function registerBundledAudioUrls() {
   if (assetsResolved) return;
   assetsResolved = true;
 
   // import.meta.glob with eager:true returns string URLs only; no network/decode until loadAudioBufferForKey runs.
-  const audioFileUrls = import.meta.glob(
-    "./assets/voices/*.wav",
-    { eager: true, query: "?url", import: "default" },
-  ) as Record<string, string>;
+  const audioFileUrls = import.meta.glob("./assets/voices/*.wav", {
+    eager: true,
+    query: "?url",
+    import: "default",
+  }) as Record<string, string>;
 
   for (const [path, url] of Object.entries(audioFileUrls)) {
     const key = path.split("/").pop()!.replace(".wav", "");
@@ -65,7 +66,7 @@ function resolveAudioAssets() {
   // Lazy preset import keeps presets out of the core bundle. Settled covers
   // the union of names across presets today (Frontier is a subset).
   import("../data/map-preset-settled").then(({ settledPreset }) => {
-    for (const key of collectVoiceKeysFromMapStations(settledPreset.stations)) {
+    for (const key of collectVoiceKeysFromMapStations(settledPreset.presetStations)) {
       registerPreloadKey(key);
     }
   });
@@ -78,11 +79,10 @@ function ensureAudioContext(): AudioContext {
 
 /** Map a display name to clip keys. "Accord II" splits into base + suffix
  *  so both clips play; unsuffixed names return one key. */
-function resolveNameKeys(displayName: string): string[] {
+function splitNameIntoVoiceKeys(displayName: string): string[] {
   const fullKey = nameToVoiceKey(displayName);
   if (audioUrlByKey.has(fullKey)) return [fullKey];
 
-  // Split suffixed names ("Accord II", "Leafsong Alpha") into base + suffix.
   const lastSpaceIndex = displayName.lastIndexOf(" ");
   if (lastSpaceIndex > 0) {
     const baseName = displayName.substring(0, lastSpaceIndex);
@@ -105,7 +105,7 @@ function resolveNameKeys(displayName: string): string[] {
 
 /** Fetch, decode, and cache an AudioBuffer for the given key. */
 async function loadAudioBufferForKey(key: string): Promise<AudioBuffer | null> {
-  const cached = decodedBuffers.get(key);
+  const cached = audioBufferByKey.get(key);
   if (cached) return cached;
 
   const url = audioUrlByKey.get(key);
@@ -116,7 +116,7 @@ async function loadAudioBufferForKey(key: string): Promise<AudioBuffer | null> {
     const response = await fetch(url);
     const data = await response.arrayBuffer();
     const buffer = await context.decodeAudioData(data);
-    decodedBuffers.set(key, buffer);
+    audioBufferByKey.set(key, buffer);
     return buffer;
   } catch {
     return null;
@@ -134,41 +134,45 @@ function startBackgroundPreload() {
 
 /** Cancel the previous announcement's audio — both clips already playing and
  *  clips a still-loading playSequence is about to start. */
-function stopAnnouncement() {
+function cancelInFlightSequence() {
   // User clicked a new selection (or toggled audio off) while playSequence
   // was still awaiting buffer loads. The bumped counter makes the in-flight
   // sequence bail before it schedules anything — otherwise stale clips would
   // play on top of the new sequence, since we can't stop sources we haven't
   // created yet.
-  playbackGeneration++;
+  currentSequenceId++;
   for (const source of activeSources) {
-    try { source.stop(); } catch { /* already ended */ }
+    try {
+      source.stop();
+    } catch {
+      /* already ended */
+    }
   }
   activeSources.length = 0;
 }
 
 /** Play phrase groups back-to-back, separated by short pauses for sentence rhythm. */
 async function playSequence(phrases: string[][]): Promise<void> {
-  stopAnnouncement();
-  const sequenceGeneration = playbackGeneration;
+  cancelInFlightSequence();
+  const capturedSequenceId = currentSequenceId;
   startBackgroundPreload();
 
   const allKeys = phrases.flat();
   await Promise.all(allKeys.map(loadAudioBufferForKey));
-  if (!isCurrentSequence(sequenceGeneration)) return;
+  if (!isStillCurrentSequence(capturedSequenceId)) return;
 
   const context = ensureAudioContext();
   if (context.state === "suspended") await context.resume();
-  if (!isCurrentSequence(sequenceGeneration)) return;
+  if (!isStillCurrentSequence(capturedSequenceId)) return;
 
   // Use the AudioContext clock for sample-accurate timing.
   let when = context.currentTime + 0.05;
   const phraseGap = 0.15;
 
   for (let phraseIndex = 0; phraseIndex < phrases.length; phraseIndex++) {
-    if (!isCurrentSequence(sequenceGeneration)) return;
+    if (!isStillCurrentSequence(capturedSequenceId)) return;
     for (const key of phrases[phraseIndex]) {
-      const buffer = decodedBuffers.get(key);
+      const buffer = audioBufferByKey.get(key);
       if (!buffer) continue;
 
       const source = context.createBufferSource();
@@ -188,7 +192,7 @@ async function playSequence(phrases: string[][]): Promise<void> {
 /** Opt in. First call resolves asset URLs and starts background preloading. */
 export function enableAudio(): void {
   audioEnabled = true;
-  resolveAudioAssets();
+  registerBundledAudioUrls();
   startBackgroundPreload();
 }
 
@@ -196,7 +200,7 @@ export function enableAudio(): void {
 export function disableAudio(): void {
   audioEnabled = false;
   preloadStarted = false;
-  stopAnnouncement();
+  cancelInFlightSequence();
 }
 
 export function isAudioEnabled(): boolean {
@@ -213,7 +217,7 @@ export function announceStation(name: string, stationTypeName: string, nation: N
 
   playSequence([
     [nameToVoiceKey(nation.shortName)],
-    resolveNameKeys(name),
+    splitNameIntoVoiceKeys(name),
     [nameToVoiceKey(stationTypeName)],
   ]);
 }
@@ -224,7 +228,7 @@ export function announceShip(name: string, shipTypeName: string, nation: Nation)
 
   playSequence([
     [nameToVoiceKey(nation.shortName)],
-    resolveNameKeys(name),
+    splitNameIntoVoiceKeys(name),
     [nameToVoiceKey(shipTypeName)],
   ]);
 }
@@ -235,7 +239,7 @@ export function announceStationZone(sectorName: string, suffix: string): void {
 
   playSequence([
     [nameToVoiceKey("Unclaimed")],
-    resolveNameKeys(sectorName),
-    resolveNameKeys(suffix),
+    splitNameIntoVoiceKeys(sectorName),
+    splitNameIntoVoiceKeys(suffix),
   ]);
 }

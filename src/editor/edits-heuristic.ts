@@ -1,20 +1,22 @@
-import type { StationPlacement } from "../../data/station-types";
+import type { PlacedStation } from "../../data/station-types";
 import type { Nebula } from "../../data/map-types";
 
 export interface EditComparison {
-  stations: { current: readonly StationPlacement[]; baseline: readonly StationPlacement[] };
+  stations: { current: readonly PlacedStation[]; baseline: readonly PlacedStation[] };
   nebulas: { current: readonly Nebula[]; baseline: readonly Nebula[] };
 }
 
 /** True when editor state diverges from the preset baseline. Stations match by id; nebulas match by index since they have no stable id. */
 export function hasUnsavedEdits(comparison: EditComparison): boolean {
-  return stationsDifferFromBaseline(comparison.stations.current, comparison.stations.baseline)
-    || nebulasDifferFromBaseline(comparison.nebulas.current, comparison.nebulas.baseline);
+  return (
+    stationsDifferFromBaseline(comparison.stations.current, comparison.stations.baseline) ||
+    nebulasDifferFromBaseline(comparison.nebulas.current, comparison.nebulas.baseline)
+  );
 }
 
 function stationsDifferFromBaseline(
-  stations: readonly StationPlacement[],
-  baselineStations: readonly StationPlacement[],
+  stations: readonly PlacedStation[],
+  baselineStations: readonly PlacedStation[],
 ): boolean {
   if (stations.length !== baselineStations.length) return true;
 
@@ -29,10 +31,7 @@ function stationsDifferFromBaseline(
   return false;
 }
 
-function nebulasDifferFromBaseline(
-  nebulas: readonly Nebula[],
-  baselineNebulas: readonly Nebula[],
-): boolean {
+function nebulasDifferFromBaseline(nebulas: readonly Nebula[], baselineNebulas: readonly Nebula[]): boolean {
   if (nebulas.length !== baselineNebulas.length) return true;
 
   for (let i = 0; i < nebulas.length; i++) {

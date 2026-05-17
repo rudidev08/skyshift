@@ -3,33 +3,30 @@
 // Headless runner for the Timelapse tab. Phaser-free.
 //
 // Drives Simulation.tick(0.5s) every fast tick, accumulates a 5s budget for
-// Simulation.tickDynamics(accumulated) to mirror src/game-loop.ts's cadence,
-// captures lightweight frames every 20 sim-minutes, and emits callbacks via
-// setTimeout chunks so the UI stays responsive without depending on
-// requestAnimationFrame (which Chromium throttles aggressively in headless
-// mode and on backgrounded tabs).
+// Simulation.slowSimulationTick(accumulated) to mirror src/game-loop.ts's cadence,
+// captures a per-station summary frame (position, nation, type, build state — no
+// inventory or ships) every sim-hour, and emits callbacks via setTimeout chunks so
+// the UI stays responsive without depending on requestAnimationFrame (which
+// Chromium throttles aggressively in headless mode and on backgrounded tabs).
 
 import type { Simulation } from "../sim-lifecycle";
 import { createSimulation } from "../sim-lifecycle";
-import { createMapFromTemplate } from "../sim-map-builder";
+import { createMapFromTemplate } from "../sim-map-create";
 import { economyConfig } from "../../data/economy-config";
 import type { GameMap } from "../sim-map-types";
 import { map } from "../../data/map";
-import { presetById } from "../util-map-preset";
-import type { Intensity } from "../sim-emigration-types";
+import { getPresetById } from "../util-map-preset";
+import type { EmigrationIntensity } from "../sim-emigration-types";
 import type { TimelapseFrame, TimelapseStation } from "../sim-timelapse-state";
-import {
-  captureDiagnosticsFrame,
-  type DiagnosticsFrame,
-} from "./timelapse-diagnostics";
+import { captureDiagnosticsFrame, type DiagnosticsFrame } from "./timelapse-diagnostics";
 
-/** Resolves a preset by id and builds its `GameMap` with `simulationWarmup: 0`
- *  so the timelapse preview/run starts from the authored state, not pre-ticked.
+/** Resolves a preset by id and builds its `GameMap` with `simulationWarmupSeconds: 0`
+ *  so the timelapse preview/run starts from the initial state, not pre-ticked.
  *  Returns null when the id doesn't resolve. */
 export function buildPresetMap(presetId: string): GameMap | null {
-  const preset = presetById(presetId);
+  const preset = getPresetById(presetId);
   if (!preset) return null;
-  return createMapFromTemplate(map, { ...preset, simulationWarmup: 0 });
+  return createMapFromTemplate(map, { ...preset, simulationWarmupSeconds: 0 });
 }
 
 /** Read the simulation's current station list into a render-only `TimelapseFrame`. */
@@ -47,16 +44,16 @@ export function captureFrame(simulation: Simulation, simSeconds: number): Timela
   return { simSeconds, stations };
 }
 
-/** Per src/game-loop.ts — slow tick fires every ~5 sim-seconds with the accumulated delta. */
-const DYNAMICS_TICK_INTERVAL_SECONDS = 5;
+// Per src/game-loop.ts — slow tick fires every ~5 sim-seconds with the accumulated delta.
+const SLOW_SIMULATION_TICK_INTERVAL_SECONDS = 5;
 
-/** Frame capture cadence — matches the smallest step button (1 sim-hour). */
+// Frame capture cadence — matches the smallest step button (1 sim-hour).
 const FRAME_INTERVAL_SECONDS = 60 * 60;
 
-/** Sim-seconds budget per chunk. Tunable; ~100 sim-seconds keeps each chunk well under 16ms wall time so the UI stays responsive. */
+// Sim-seconds budget per chunk — ~100 keeps each chunk well under 16ms wall time so the UI stays responsive.
 const CHUNK_INTERVAL_SECONDS = 100;
 
-/** ms between chunks. 0 = next macrotask; lets paint + event handlers run between work bursts. */
+// ms between chunks. 0 = next macrotask; lets paint + event handlers run between work bursts.
 const CHUNK_GAP_MS = 0;
 
 export interface TimelapseRunCallbacks {
@@ -76,11 +73,11 @@ export interface TimelapseRunCallbacks {
 /** Cancels the run, stops further callbacks, and disposes the underlying simulation. Safe to call more than once. */
 export type CancelTimelapseRun = () => void;
 
-/** Timelapse-only widening of `Intensity` with a "none" sentinel that
- *  disables auto-trigger entirely (mode → manual). The base `Intensity`
+/** Timelapse-only widening of `EmigrationIntensity` with a "none" sentinel that
+ *  disables auto-trigger entirely (mode → manual). The base `EmigrationIntensity`
  *  union has no zero-fraction value because it represents the strength of
  *  an event that *is* firing; "none" means "don't fire at all". */
-export type TimelapseEmigrationSetting = "none" | Intensity;
+export type TimelapseEmigrationSetting = "none" | EmigrationIntensity;
 
 export interface TimelapseRunOptions {
   presetId: string;
@@ -130,23 +127,20 @@ export function startTimelapseRun(
   let cancelled = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   let ticksElapsed = 0;
-  let dynamicsAccumulator = 0;
+  let slowSimulationAccumulator = 0;
 
   // Frame 0 = preset state before any tick.
   callbacks.onFrameCaptured(captureFrame(simulation, 0));
   callbacks.onDiagnosticsFrameCaptured(captureDiagnosticsFrame(simulation, 0));
 
-  function tickChunk() {
-    if (cancelled) return;
-
-    const target = Math.min(ticksElapsed + ticksPerChunk, totalTicks);
-    while (ticksElapsed < target) {
+  function advanceTicksUntilTarget(targetTick: number) {
+    while (ticksElapsed < targetTick) {
       simulation.tick(tickInterval);
       ticksElapsed++;
-      dynamicsAccumulator += tickInterval;
-      if (dynamicsAccumulator >= DYNAMICS_TICK_INTERVAL_SECONDS) {
-        simulation.tickDynamics(dynamicsAccumulator);
-        dynamicsAccumulator = 0;
+      slowSimulationAccumulator += tickInterval;
+      if (slowSimulationAccumulator >= SLOW_SIMULATION_TICK_INTERVAL_SECONDS) {
+        simulation.slowSimulationTick(slowSimulationAccumulator);
+        slowSimulationAccumulator = 0;
       }
       if (ticksElapsed % ticksPerFrame === 0) {
         const simSeconds = ticksElapsed * tickInterval;
@@ -154,18 +148,21 @@ export function startTimelapseRun(
         callbacks.onDiagnosticsFrameCaptured(captureDiagnosticsFrame(simulation, simSeconds));
       }
     }
+  }
 
+  function runNextChunk() {
+    if (cancelled) return;
+    advanceTicksUntilTarget(Math.min(ticksElapsed + ticksPerChunk, totalTicks));
     callbacks.onProgress(ticksElapsed / totalTicks);
     callbacks.onLivePreview(captureFrame(simulation, ticksElapsed * tickInterval));
-
     if (ticksElapsed < totalTicks) {
-      timeoutHandle = setTimeout(tickChunk, CHUNK_GAP_MS);
+      timeoutHandle = setTimeout(runNextChunk, CHUNK_GAP_MS);
     } else {
       callbacks.onComplete();
     }
   }
 
-  timeoutHandle = setTimeout(tickChunk, CHUNK_GAP_MS);
+  timeoutHandle = setTimeout(runNextChunk, CHUNK_GAP_MS);
 
   return () => {
     if (cancelled) return;

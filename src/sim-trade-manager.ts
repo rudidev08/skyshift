@@ -14,11 +14,13 @@
 // don't chase the same shortage.
 //
 // Cluster shape: this module owns the `TradeManager` class, active-trade-ship
-// registry, observer arrays, the per-tick `tickTrade` loop, and snapshot
-// capture/restore. Sibling files split read-only decision logic
-// (sim-trade-decision), queue construction + per-action mutations + the
-// action-dispatch loop (sim-trade-queue), the reservation lifecycle
-// (sim-trade-reservation), and HUD formatters (sim-trade-log). The
+// registry, observer arrays, the per-tick `tickTrade` loop, and the manager's
+// own module-level snapshot (tradeTime + scheduled timers). Sibling files
+// split read-only decision logic (sim-trade-decision), queue construction +
+// per-action mutations + the action-dispatch loop (sim-trade-queue), the
+// reservation lifecycle (sim-trade-reservation), the TradeShip/reservation/
+// action save codec (sim-trade-save-snapshot), and HUD formatters
+// (sim-trade-log). The
 // sim-trade-types.ts leaf holds the substrate every sibling shares (TradeShip
 // type, TradeTransferEvent, getTotalCargo). Resolvers and the trade clock
 // are instance methods on TradeManager; siblings receive the manager as an
@@ -26,43 +28,26 @@
 // file at runtime, so there is no circular import.
 
 import { economyConfig } from "../data/economy-config";
-import { getInventorySlot, type Station } from "./sim-station";
+import { type Station } from "./sim-station";
 import { clearReservations } from "./sim-trade-reservation";
 import { stationCodeNameLabel } from "./sim-station-template";
 import { type Ship } from "./sim-ships";
-import { getShipTemplate } from "./sim-ship-template";
-import {
-  tickFlightData,
-  createSurfaceEndpoint, createOrbitEndpoint,
-} from "./sim-travel";
+import { getShipTypeTemplate } from "./sim-ship-template";
+import { tickFlightData, createSurfaceEndpoint, createOrbitEndpoint, type FlightData } from "./sim-travel";
 import type { ShipAction } from "./sim-travel-types";
 import {
   findRoundTradeTrip,
   getPossibleTradeRoutes,
   getShipTransportableWares,
-  getOrRefreshTradedRoutes,
+  getTradedRoutes,
   getTradedWares,
 } from "./sim-trade-decision";
 import { advanceQueue, appendActionsToShip, randomTradeDelay, startTrip } from "./sim-trade-queue";
 import type { WareId } from "../data/ware-types";
-import type { TradeReservation } from "./sim-trade-types";
-import type {
-  TradeShipSnapshot,
-  TradeModuleSnapshot,
-  ShipActionSnapshot,
-  ReservationSnapshot,
-} from "./sim-save-types";
+import type { TradeManagerSnapshot } from "./sim-save-types";
 import { createTradeRouteStatistics, type RouteStats } from "./sim-trade-route-statistics";
 import { WareStationIndex } from "./sim-ware-station-index";
-import {
-  type TradeShip,
-  type TradeTransferEvent,
-} from "./sim-trade-types";
-import { shipFlyActionToSnapshot, shipFlyActionFromSnapshot } from "./sim-ship-action-fly";
-import { shipWaitActionToSnapshot, shipWaitActionFromSnapshot } from "./sim-ship-action-wait";
-import { shipCargoWithdrawalActionToSnapshot, shipCargoWithdrawalActionFromSnapshot } from "./sim-ship-action-cargo-withdrawal";
-import { shipCargoDepositActionToSnapshot, shipCargoDepositActionFromSnapshot } from "./sim-ship-action-cargo-deposit";
-import { shipDecommissionActionToSnapshot, shipDecommissionActionFromSnapshot } from "./sim-ship-action-decommission";
+import { type TradeShip, type TradeTransferEvent } from "./sim-trade-types";
 
 /** The narrow trade-system surface emigration depends on. EmigrationManager
  *  takes a `TradePort` instead of the full TradeManager so its tests can
@@ -74,6 +59,7 @@ export interface TradePort {
   findTradeShip(orbitingShip: Ship): TradeShip | undefined;
   appendActionsToShip(ship: TradeShip, actions: ShipAction[]): void;
   addShipDecommissionObserver(observer: (event: DecommissionEvent) => void): () => void;
+  clearTradeRouteHistory(): void;
 }
 
 /** Fired when a trade ship's queue terminates with a decommission action. */
@@ -101,15 +87,23 @@ export class TradeManager {
   readonly activeTradeShips = new ActiveTradeShips();
   private _tradeTime = 0;
   /** Current trade-clock time in seconds since simulation start. */
-  get tradeTime(): number { return this._tradeTime; }
-  /** Roster of trade ships. Read-only view; mutate via enrollShip / deregisterShip. */
-  get tradeShips(): readonly TradeShip[] { return this.activeTradeShips.all(); }
+  get tradeTime(): number {
+    return this._tradeTime;
+  }
+  /** Roster of trade ships. Read-only view; mutate via registerShip / deregisterShip. */
+  get tradeShips(): readonly TradeShip[] {
+    return this.activeTradeShips.all();
+  }
   /** Advance the trade clock by `delta` seconds. Called by `tickTrade`
    *  each tick — external code should not call this directly. */
-  advanceTradeTime(delta: number): void { this._tradeTime += delta; }
+  advanceTradeTime(delta: number): void {
+    this._tradeTime += delta;
+  }
   /** Set the trade clock absolutely. Used at init (0) and by snapshot
-   *  rehydration — external code should not call this directly. */
-  setTradeTime(value: number): void { this._tradeTime = value; }
+   *  restore — external code should not call this directly. */
+  setTradeTime(value: number): void {
+    this._tradeTime = value;
+  }
   /** Reused buffer — refilled each tickTrade() to keep per-tick allocation at zero. */
   private readonly completedFlights: TradeShip[] = [];
   readonly tradeTransferObservers: Array<(event: TradeTransferEvent) => void> = [];
@@ -120,9 +114,9 @@ export class TradeManager {
    *  reading after another observer has removed the ship still see stable
    *  values — observer order doesn't matter. */
   readonly decommissionObservers: ((event: DecommissionEvent) => void)[] = [];
-  /** Cache route stats per overview window — each window length (last hour, last 6 hours, etc.)
-   *  gets its own entry. Retention is bounded by tradeRouteHistoryRetentionSeconds (sized in
-   *  data/economy-config.ts to cover the overview's longest window). */
+  /** Trade-route delivery history. Retention is bounded by
+   *  tradeRouteHistoryRetentionSeconds (data/economy-config.ts); the overview
+   *  reads a fixed 2h window and an emigration event clears it. */
   readonly tradeRouteStats = createTradeRouteStatistics({
     windowSeconds: economyConfig.tradeRouteHistoryRetentionSeconds,
     cacheRefreshSeconds: economyConfig.tradeRouteCacheRefreshSeconds,
@@ -171,12 +165,12 @@ export class TradeManager {
     return ship;
   }
 
-  seedInitialTradeFleet(ships: Ship[], staggerDuration?: number): void {
+  seedInitialTradeShips(ships: Ship[], staggerDuration?: number): void {
     seedInitialTradeShips(this, ships, staggerDuration);
   }
 
-  enrollShip(orbitingShip: Ship, homeStation: Station, scheduleDelay: number = 0): TradeShip {
-    return enrollShipAsTradeShip(this, orbitingShip, homeStation, scheduleDelay);
+  registerShip(orbitingShip: Ship, homeStation: Station, scheduleDelay: number = 0): TradeShip {
+    return registerShipAsTradeShip(this, orbitingShip, homeStation, scheduleDelay);
   }
 
   deregisterShip(orbitingShip: Ship): void {
@@ -195,12 +189,12 @@ export class TradeManager {
     return this.activeTradeShips.findByShipId(orbitingShip.id);
   }
 
-  toSnapshot(): TradeModuleSnapshot {
-    return tradeModuleToSnapshot(this);
+  toSnapshot(): TradeManagerSnapshot {
+    return tradeManagerToSnapshot(this);
   }
 
-  restoreFromSnapshot(snapshot: TradeModuleSnapshot, tradeShipsByShipId: Map<string, TradeShip>): void {
-    restoreTradeModuleFromSnapshot(this, snapshot, tradeShipsByShipId);
+  restoreFromSnapshot(snapshot: TradeManagerSnapshot, tradeShipsByShipId: Map<string, TradeShip>): void {
+    tradeManagerFromSnapshot(this, snapshot, tradeShipsByShipId);
   }
 
   /** Rebuild the producer/consumer index from a station roster. Call after
@@ -228,20 +222,19 @@ export class TradeManager {
     appendActionsToShip(ship, actions, this);
   }
 
+  /** Subscribe to cargo transfers — fires after every ship↔station withdrawal
+   *  or deposit (`TradeTransferEvent`). The route-stats recorder uses this to
+   *  build the overview trade-history. Returns an unsubscribe. */
   addTradeTransferObserver(observer: (event: TradeTransferEvent) => void): () => void {
-    this.tradeTransferObservers.push(observer);
-    return () => {
-      const observerIndex = this.tradeTransferObservers.indexOf(observer);
-      if (observerIndex >= 0) this.tradeTransferObservers.splice(observerIndex, 1);
-    };
+    return subscribeObserver(this.tradeTransferObservers, observer);
   }
 
+  /** Subscribe to ship decommissions — fires when a trade ship's queue ends in
+   *  a decommission action (e.g. an emigration ferry reaching the generational
+   *  ship). EmigrationManager uses this to count arrivals for the WAY jump.
+   *  Returns an unsubscribe. */
   addShipDecommissionObserver(observer: (event: DecommissionEvent) => void): () => void {
-    this.decommissionObservers.push(observer);
-    return () => {
-      const observerIndex = this.decommissionObservers.indexOf(observer);
-      if (observerIndex >= 0) this.decommissionObservers.splice(observerIndex, 1);
-    };
+    return subscribeObserver(this.decommissionObservers, observer);
   }
 
   // Overview-mode route queries — read by the overview window, not by trade decisions.
@@ -253,21 +246,34 @@ export class TradeManager {
     return getPossibleTradeRoutes(this);
   }
 
-  getOrRefreshTradedRoutes(now: number, windowSeconds: number): RouteStats[] {
-    return getOrRefreshTradedRoutes(this, now, windowSeconds);
+  getTradedRoutes(now: number, windowSeconds: number): RouteStats[] {
+    return getTradedRoutes(this, now, windowSeconds);
   }
 
   getTradedWares(now: number, windowSeconds: number): WareId[] {
     return getTradedWares(this, now, windowSeconds);
   }
 
+  /** Wipe all trade-route delivery history and the per-window route cache. */
+  clearTradeRouteHistory(): void {
+    this.tradeRouteStats.clear();
+    this.routesCacheByWindow.clear();
+  }
+
+  /** Forget every trade ship + timer, zero the trade clock, and drop all
+   *  route-delivery history + its query cache. Used by dispose() (teardown)
+   *  and seedInitialTradeShips() (clean slate before enrolling ships). */
+  resetTradeRuntimeState(): void {
+    this.activeTradeShips.clear();
+    this.setTradeTime(0);
+    this.tradeRouteStats.clear();
+    this.routesCacheByWindow.clear();
+  }
+
   /** Tear down the manager — clear roster, timers, route stats, and route
    *  cache. Safe to call more than once. */
   dispose(): void {
-    this.activeTradeShips.clear();
-    this._tradeTime = 0;
-    this.tradeRouteStats.clear();
-    this.routesCacheByWindow.clear();
+    this.resetTradeRuntimeState();
   }
 
   /** Schedule a wake-up `delay` seconds from now. Wrapper around the
@@ -278,7 +284,16 @@ export class TradeManager {
   }
 }
 
-// --- Active trade-ship registry ---
+/** Register `observer` and return an unsubscribe that removes it. Shared by
+ *  the trade-transfer and decommission observer registrations. */
+function subscribeObserver<T>(observers: T[], observer: T): () => void {
+  observers.push(observer);
+  return () => {
+    const observerIndex = observers.indexOf(observer);
+    if (observerIndex >= 0) observers.splice(observerIndex, 1);
+  };
+}
+
 // Single owner of roster + Ship→TradeShip lookup + home-station index + timer
 // queue + flight set. Every add/remove/update goes through one place so the
 // consistency invariants are local.
@@ -302,7 +317,7 @@ class ActiveTradeShips {
 
   /** Register a trade ship. Assumes no existing entry — callers check via
    *  `find` first. Seeds the flight set from `tradeShip.flight` so save-load
-   *  rehydration doesn't need a separate pass. */
+   *  restore doesn't need a separate pass. */
   add(tradeShip: TradeShip): void {
     this.roster.push(tradeShip);
     this.byOrbitingShipId.set(tradeShip.orbitingShipId, tradeShip);
@@ -324,17 +339,31 @@ class ActiveTradeShips {
     return tradeShip;
   }
 
-  all(): readonly TradeShip[] { return this.roster; }
-  findByShipId(orbitingShipId: string): TradeShip | undefined { return this.byOrbitingShipId.get(orbitingShipId); }
-  hasShipId(orbitingShipId: string): boolean { return this.byOrbitingShipId.has(orbitingShipId); }
+  all(): readonly TradeShip[] {
+    return this.roster;
+  }
+  findByShipId(orbitingShipId: string): TradeShip | undefined {
+    return this.byOrbitingShipId.get(orbitingShipId);
+  }
+  hasShipId(orbitingShipId: string): boolean {
+    return this.byOrbitingShipId.has(orbitingShipId);
+  }
   getByHomeStationId(homeStationId: string): ReadonlySet<TradeShip> {
     return this.byHomeStationId.get(homeStationId) ?? EMPTY_TRADE_SHIP_SET;
   }
 
-  setInFlight(tradeShip: TradeShip): void { this.flying.add(tradeShip); }
-  clearFlight(tradeShip: TradeShip): void { this.flying.delete(tradeShip); }
-  isInFlight(tradeShip: TradeShip): boolean { return this.flying.has(tradeShip); }
-  inFlightIterator(): ReadonlySet<TradeShip> { return this.flying; }
+  setInFlight(tradeShip: TradeShip): void {
+    this.flying.add(tradeShip);
+  }
+  clearFlight(tradeShip: TradeShip): void {
+    this.flying.delete(tradeShip);
+  }
+  isInFlight(tradeShip: TradeShip): boolean {
+    return this.flying.has(tradeShip);
+  }
+  inFlightIterator(): ReadonlySet<TradeShip> {
+    return this.flying;
+  }
 
   /** Schedule a wake-up at absolute sim time `fireTime`. Sorted insert so the
    *  earliest timer fires first. */
@@ -382,7 +411,7 @@ class ActiveTradeShips {
     this.timerQueue.sort((a, b) => a.fireTime - b.fireTime);
   }
 
-  /** Wipe everything. Used at init and at save-load before rehydration. */
+  /** Wipe everything. Used at init and at save-load before restore. */
   clear(): void {
     this.roster.length = 0;
     this.byOrbitingShipId.clear();
@@ -411,17 +440,20 @@ class ActiveTradeShips {
 
 /** Wrap all orbiting ships into trade ships. Ships start grounded and take off
  *  into orbit. Resets trade clock, route stats, and route cache before enrolling. */
-export function seedInitialTradeShips(
-  manager: TradeManager,
-  ships: Ship[],
-  staggerDuration?: number,
-): void {
-  manager.activeTradeShips.clear();
-  manager.setTradeTime(0);
-  manager.tradeRouteStats.clear();
-  manager.routesCacheByWindow.clear();
+function seedInitialTradeShips(manager: TradeManager, ships: Ship[], staggerDuration?: number): void {
+  manager.resetTradeRuntimeState();
 
-  // Shuffle so the staggered launch spreads across the map.
+  const eligible = shuffleShipsForStaggeredLaunch(ships);
+  const totalStagger = staggerDuration ?? economyConfig.defaultInitialStaggerDurationSeconds;
+  const staggerInterval = eligible.length > 1 ? totalStagger / eligible.length : 0;
+
+  for (let i = 0; i < eligible.length; i++) {
+    registerShipAsTradeShip(manager, eligible[i].ship, eligible[i].station, i * staggerInterval);
+  }
+}
+
+/** Shuffle so the staggered launch spreads across the map instead of firing all of one nation's ships first. */
+function shuffleShipsForStaggeredLaunch(ships: Ship[]): { ship: Ship; station: Station }[] {
   const eligible: { ship: Ship; station: Station }[] = [];
   for (const orbitingShip of ships) {
     eligible.push({ ship: orbitingShip, station: orbitingShip.station });
@@ -430,15 +462,7 @@ export function seedInitialTradeShips(
     const j = Math.floor(Math.random() * (i + 1));
     [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
   }
-
-  const totalStagger = staggerDuration ?? economyConfig.initialStaggerDurationDefaultSeconds;
-  const staggerInterval = eligible.length > 1
-    ? totalStagger / eligible.length
-    : 0;
-
-  for (let i = 0; i < eligible.length; i++) {
-    enrollShipAsTradeShip(manager, eligible[i].ship, eligible[i].station, i * staggerInterval);
-  }
+  return eligible;
 }
 
 /** Wrap an orbiting ship into a TradeShip and schedule its first wake-up.
@@ -447,7 +471,7 @@ export function seedInitialTradeShips(
  *
  *  Callers pass the live Ship + Station for convenience; internally the
  *  TradeShip only stores ids so it stays snapshot-serializable. */
-export function enrollShipAsTradeShip(
+function registerShipAsTradeShip(
   manager: TradeManager,
   orbitingShip: Ship,
   homeStation: Station,
@@ -459,23 +483,25 @@ export function enrollShipAsTradeShip(
     orbitingShipId: orbitingShip.id,
     homeStationId: homeStation.id,
     // Initial deploy flight surface→orbit; fires after `scheduleDelay`.
-    actionQueue: [{
-      type: "fly",
-      origin: createSurfaceEndpoint(homeStation),
-      originStation: homeStation,
-      destination: createOrbitEndpoint(homeStation),
-      destinationStation: homeStation,
-      travelMode: "local",
-      deploying: true,
-      label: `Deploying to ${stationCodeNameLabel(homeStation)}`,
-    }],
+    actionQueue: [
+      {
+        type: "fly",
+        origin: createSurfaceEndpoint(homeStation),
+        originStation: homeStation,
+        destination: createOrbitEndpoint(homeStation),
+        destinationStation: homeStation,
+        travelMode: "local",
+        deploying: true,
+        label: `Deploying to ${stationCodeNameLabel(homeStation)}`,
+      },
+    ],
     flight: null,
     targetStationId: null,
     tradeDirection: null,
     cargoAmountByWareId: new Map(),
     reservations: [],
-    lastHeading: null,
-    idleStartTime: 0,
+    lastFlightHeadingRadians: null,
+    idleSinceTradeTime: 0,
   };
   manager.activeTradeShips.add(tradeShip);
   manager.scheduleTimer(tradeShip, scheduleDelay);
@@ -491,12 +517,16 @@ function recordRouteDeliveryFromTransfer(event: TradeTransferEvent, manager: Tra
   if (!orbitingShip) return;
   const toStation = event.station;
   const homeStationId = event.ship.homeStationId;
-  const fromStationId = toStation.id === homeStationId
-    ? event.ship.targetStationId
-    : homeStationId;
+  const fromStationId = toStation.id === homeStationId ? event.ship.targetStationId : homeStationId;
   const toStationId = toStation.id;
   if (!fromStationId || !toStationId || fromStationId === toStationId) return;
-  const capacity = getShipTemplate(orbitingShip.shipTypeId).cargoCapacity;
+  // Skip emigrating or already-removed endpoints. An emigration clears
+  // history; these in-flight deliveries would otherwise redraw the departing
+  // stations as ghost routes in the overview.
+  if (toStation.state === "emigrating") return;
+  const fromStation = manager.stationResolver(fromStationId);
+  if (!fromStation || fromStation.state === "emigrating") return;
+  const capacity = getShipTypeTemplate(orbitingShip.shipTypeId).cargoCapacity;
   manager.tradeRouteStats.recordDelivery({
     time: manager.tradeTime,
     fromStationId,
@@ -532,6 +562,21 @@ function processDueTradeTimers(manager: TradeManager): void {
   });
 }
 
+/** Straight-line origin→destination heading seeds the next departure's smooth
+ *  turn lerp. Skipped when either endpoint is gone (emigration ferry from a
+ *  demolished home): a decommissioning ship never departs again, and the
+ *  field stays at its previous value for any other ship that survives. */
+function recordDepartureHeadingForNextLeg(ship: TradeShip, flight: FlightData, manager: TradeManager): void {
+  const originStation = manager.stationResolver(flight.origin.stationId);
+  const destinationStation = manager.stationResolver(flight.destination.stationId);
+  if (originStation && destinationStation) {
+    ship.lastFlightHeadingRadians = Math.atan2(
+      destinationStation.y - originStation.y,
+      destinationStation.x - originStation.x,
+    );
+  }
+}
+
 /** Advance active flights and handle completions. Reuses the manager's
  *  scratch buffer so the per-tick allocation stays at zero. */
 function completeFinishedTradeFlights(manager: TradeManager, deltaSeconds: number): void {
@@ -540,18 +585,7 @@ function completeFinishedTradeFlights(manager: TradeManager, deltaSeconds: numbe
     const flight = ship.flight!;
     const done = tickFlightData(flight, deltaSeconds);
     if (done) {
-      // Straight-line origin→destination heading is the sim's stand-in for the
-      // bezier tangent at progress=1. The render-side curve tangent diverges
-      // by curveAngle, but lastHeading only seeds the next departure's smooth
-      // turn lerp — the bezier math itself is render-only. Skip the update
-      // when either endpoint is gone (emigration ferry from a demolished
-      // home): a decommissioning ship never departs again, and lastHeading
-      // stays at its previous value for any other ship that survives.
-      const originStation = manager.stationResolver(flight.origin.stationId);
-      const destinationStation = manager.stationResolver(flight.destination.stationId);
-      if (originStation && destinationStation) {
-        ship.lastHeading = Math.atan2(destinationStation.y - originStation.y, destinationStation.x - originStation.x);
-      }
+      recordDepartureHeadingForNextLeg(ship, flight, manager);
       ship.flight = null;
       completedFlights.push(ship);
     }
@@ -562,49 +596,30 @@ function completeFinishedTradeFlights(manager: TradeManager, deltaSeconds: numbe
   }
 }
 
-export function tradeShipToSnapshot(tradeShip: TradeShip): TradeShipSnapshot {
-  return {
-    shipId: tradeShip.orbitingShipId,
-    homeStationId: tradeShip.homeStationId,
-    cargo: [...tradeShip.cargoAmountByWareId.entries()].map(([wareId, amount]) => ({ wareId, amount })),
-    actionQueue: tradeShip.actionQueue.map(shipActionToSnapshot),
-    flight: tradeShip.flight ? { ...tradeShip.flight } : null,
-    targetStationId: tradeShip.targetStationId,
-    tradeDirection: tradeShip.tradeDirection,
-    reservations: tradeShip.reservations.map(r => ({
-      stationId: r.station.id,
-      wareId: r.wareId,
-      amount: r.amount,
-      cargoDirection: r.cargoDirection,
-    })),
-    lastHeading: tradeShip.lastHeading,
-    idleStartTime: tradeShip.idleStartTime,
-  };
-}
-
 /** Serialize trade module state (tradeTime + pending timers). Trade-route
  *  delivery history is runtime-only — saves restart overview history from
  *  the moment the restored session begins. */
-export function tradeModuleToSnapshot(manager: TradeManager): TradeModuleSnapshot {
+function tradeManagerToSnapshot(manager: TradeManager): TradeManagerSnapshot {
   return {
     tradeTime: manager.tradeTime,
-    scheduledTimers: manager.activeTradeShips.pendingTimers()
-      .map(entry => ({ shipId: entry.ship.orbitingShipId, fireTime: entry.fireTime })),
+    scheduledTimers: manager.activeTradeShips
+      .pendingTimers()
+      .map((entry) => ({ shipId: entry.ship.orbitingShipId, fireTime: entry.fireTime })),
   };
 }
 
 /** Restore trade-module state from a snapshot. Call after all trade ships have
- *  been rehydrated via `registerTradeShip` — timers reference those instances. */
-export function restoreTradeModuleFromSnapshot(
+ *  been restored via `registerTradeShip` — timers reference those instances. */
+function tradeManagerFromSnapshot(
   manager: TradeManager,
-  snapshot: TradeModuleSnapshot,
+  snapshot: TradeManagerSnapshot,
   tradeShipsByShipId: Map<string, TradeShip>,
 ): void {
   manager.setTradeTime(snapshot.tradeTime);
   const restored: ScheduledTimer[] = [];
   for (const entry of snapshot.scheduledTimers) {
     const ship = tradeShipsByShipId.get(entry.shipId);
-    if (!ship) throw new Error(`restoreTradeModuleFromSnapshot: missing ship ${entry.shipId}`);
+    if (!ship) throw new Error(`tradeManagerFromSnapshot: missing ship ${entry.shipId}`);
     restored.push({ ship, fireTime: entry.fireTime });
   }
   manager.activeTradeShips.restoreTimers(restored);
@@ -612,87 +627,9 @@ export function restoreTradeModuleFromSnapshot(
 
 /** Drop trade-system state for a removed orbiting ship: clear reservations,
  *  cancel timers, drop from flight set, remove the lookup entry. */
-export function deregisterTradeShipForShip(manager: TradeManager, orbitingShip: Ship): void {
+function deregisterTradeShipForShip(manager: TradeManager, orbitingShip: Ship): void {
   const tradeShip = manager.activeTradeShips.findByShipId(orbitingShip.id);
   if (!tradeShip) return;
   clearReservations(tradeShip);
   manager.activeTradeShips.removeForShipId(orbitingShip.id);
 }
-
-/** id→object lookups passed to TradeShip reconstruction. */
-export interface SnapshotContext {
-  stations: Map<string, Station>;
-  ships: Map<string, Ship>;
-}
-
-export function tradeShipFromSnapshot(snapshot: TradeShipSnapshot, context: SnapshotContext): TradeShip {
-  // Orbiting Ship must resolve — a TradeShip without one is structural
-  // corruption (ShipManager rebuilds from the same snapshot).
-  if (!context.ships.has(snapshot.shipId)) throw new Error(`tradeShipFromSnapshot: missing ship ${snapshot.shipId}`);
-
-  return {
-    orbitingShipId: snapshot.shipId,
-    homeStationId: snapshot.homeStationId,
-    cargoAmountByWareId: new Map(snapshot.cargo.map(c => [c.wareId, c.amount])),
-    actionQueue: snapshot.actionQueue.map(actionSnapshot => shipActionFromSnapshot(actionSnapshot, context)),
-    flight: snapshot.flight ? { ...snapshot.flight } : null,
-    targetStationId: snapshot.targetStationId,
-    tradeDirection: snapshot.tradeDirection,
-    reservations: restoreReservationsFromSnapshot(snapshot.reservations, context),
-    lastHeading: snapshot.lastHeading,
-    idleStartTime: snapshot.idleStartTime,
-  };
-}
-
-/** Reconstruct reservations from snapshot, dropping ones whose station or slot
- *  is gone. Mirrors clearReservations' do-nothing-on-missing — a reservation whose
- *  target vanished is effectively vacated. */
-function restoreReservationsFromSnapshot(snapshots: ReservationSnapshot[], context: SnapshotContext): TradeReservation[] {
-  const reservations: TradeReservation[] = [];
-  for (const snapshot of snapshots) {
-    const reservation = reservationFromSnapshot(snapshot, context);
-    if (reservation) reservations.push(reservation);
-  }
-  return reservations;
-}
-
-function shipActionToSnapshot(action: ShipAction): ShipActionSnapshot {
-  switch (action.type) {
-    case "fly":
-      return shipFlyActionToSnapshot(action);
-    case "wait":
-      return shipWaitActionToSnapshot(action);
-    case "cargo-withdrawal":
-      return shipCargoWithdrawalActionToSnapshot(action);
-    case "cargo-deposit":
-      return shipCargoDepositActionToSnapshot(action);
-    case "decommission":
-      return shipDecommissionActionToSnapshot(action);
-  }
-}
-
-function shipActionFromSnapshot(snapshot: ShipActionSnapshot, context: SnapshotContext): ShipAction {
-  switch (snapshot.type) {
-    case "fly":
-      return shipFlyActionFromSnapshot(snapshot, context.stations);
-    case "wait":
-      return shipWaitActionFromSnapshot(snapshot);
-    case "cargo-withdrawal":
-      return shipCargoWithdrawalActionFromSnapshot(snapshot, context.stations);
-    case "cargo-deposit":
-      return shipCargoDepositActionFromSnapshot(snapshot, context.stations);
-    case "decommission":
-      return shipDecommissionActionFromSnapshot(snapshot, context.stations);
-  }
-}
-
-function reservationFromSnapshot(snapshot: ReservationSnapshot, context: SnapshotContext): TradeReservation | null {
-  // Tolerate missing station/slot — reservations can legitimately outlive
-  // their target. clearReservations already does nothing on missing, so dropping
-  // these on load keeps behavior consistent.
-  const station = context.stations.get(snapshot.stationId);
-  if (!station) return null;
-  if (!getInventorySlot(station, snapshot.wareId)) return null;
-  return { station, wareId: snapshot.wareId, amount: snapshot.amount, cargoDirection: snapshot.cargoDirection };
-}
-

@@ -1,25 +1,19 @@
 import type { Game } from "./game";
+import { SAVE_VERSION, type GameSnapshot, type ShipSnapshot } from "./sim-save-types";
 import {
-  SAVE_VERSION,
-  type GameSnapshot,
-  type ShipSnapshot,
   type SlotKind,
   saveSlotKey,
   autoSaveNextIndexKey,
   AUTO_SLOT_COUNT,
   MANUAL_SLOT_COUNT,
-} from "./sim-save-types";
+} from "./sim-save-slots";
 import { getNextAutoIndex } from "./storage-save-slots";
 import { validateSnapshot, runSnapshotRoundTripTest, type ValidationResult } from "./ui-snapshot-validator";
 import { isDevModeEnabled } from "./util-devmode";
 import { downloadJsonFile, fileNameTimestamp } from "./ui-download-json";
 import { stationToSnapshot, stationFromSnapshot, type Station } from "./sim-station";
 import { shipToSnapshot, shipFromSnapshot, type Ship } from "./sim-ships";
-import {
-  tradeShipToSnapshot,
-  tradeShipFromSnapshot,
-  type SnapshotContext,
-} from "./sim-trade-manager";
+import { tradeShipToSnapshot, tradeShipFromSnapshot, type SnapshotContext } from "./sim-trade-save-snapshot";
 import type { TradeShip } from "./sim-trade-types";
 import type { Simulation } from "./sim-lifecycle";
 import { staggerStationTicks } from "./sim-economy";
@@ -32,15 +26,15 @@ export function captureSnapshot(game: Game, source?: GameSnapshot["source"]): Ga
   const snapshot: GameSnapshot = {
     version: SAVE_VERSION,
     savedAt: Date.now(),
-    simTick: simulation.economyTimer.tick,
+    simulationTick: simulation.economyTimer.tickCount,
     ...(source !== undefined && { source }),
-    preset: game.map.presetId,
+    presetId: game.map.presetId,
     stations: game.stations.map(stationToSnapshot),
     ships: snapshotShipsWithInFlight(game.ships, simulation.tradeManager.tradeShips),
     tradeShips: simulation.tradeManager.tradeShips.map(tradeShipToSnapshot),
     nationManager: simulation.nationManager.toSnapshot(),
     emigrationManager: simulation.emigrationManager.toSnapshot(),
-    tradeModule: simulation.tradeManager.toSnapshot(),
+    tradeManager: simulation.tradeManager.toSnapshot(),
     stationHistory: simulation.stationHistory.toSnapshot(),
   };
   // Dev-mode safety net — round-trip every fresh snapshot so schema drift
@@ -53,17 +47,15 @@ export function captureSnapshot(game: Game, source?: GameSnapshot["source"]): Ga
  *  so the snapshot reflects sim truth even though Ship no longer carries the field. */
 function snapshotShipsWithInFlight(ships: Ship[], tradeShips: readonly TradeShip[]): ShipSnapshot[] {
   const inFlightShipIds = new Set(
-    tradeShips
-      .filter((tradeShip) => tradeShip.flight !== null)
-      .map((tradeShip) => tradeShip.orbitingShipId),
+    tradeShips.filter((tradeShip) => tradeShip.flight !== null).map((tradeShip) => tradeShip.orbitingShipId),
   );
   return ships.map((ship) => shipToSnapshot(ship, inFlightShipIds.has(ship.id)));
 }
 
-export function applySnapshot(game: Game, snapshot: GameSnapshot): void {
+export function restoreSavedGame(game: Game, snapshot: GameSnapshot): void {
   const simulation = game.simulation!;
   // Roster registration with StationManager and ShipManager happens in
-  // game-setup.ts via initStationsAndShipsForRestore after we return — keeps
+  // game-setup.ts via seedRosterForSavedGame after we return — keeps
   // manager lifecycle ownership on the runtime side, not here.
   const stationsById = restoreStations(game, simulation, snapshot);
   const shipsById = restoreShips(game, snapshot, stationsById);
@@ -74,7 +66,7 @@ export function applySnapshot(game: Game, snapshot: GameSnapshot): void {
 }
 
 /** Snapshot is the sole source of station truth for loaded sessions; the
- *  authored map only seeds fresh-init and isn't consulted here. */
+ *  map template only seeds fresh-init and isn't consulted here. */
 function restoreStations(game: Game, simulation: Simulation, snapshot: GameSnapshot): Map<string, Station> {
   const stationsById = new Map<string, Station>();
   const rebuilt: Station[] = [];
@@ -89,12 +81,19 @@ function restoreStations(game: Game, simulation: Simulation, snapshot: GameSnaps
   return stationsById;
 }
 
-function restoreShips(game: Game, snapshot: GameSnapshot, stationsById: Map<string, Station>): Map<string, Ship> {
+function restoreShips(
+  game: Game,
+  snapshot: GameSnapshot,
+  stationsById: Map<string, Station>,
+): Map<string, Ship> {
   const ships: Ship[] = [];
   const shipsById = new Map<string, Ship>();
   for (const shipSnapshot of snapshot.ships) {
     const station = stationsById.get(shipSnapshot.stationId);
-    if (!station) throw new Error(`applySnapshot: orbiting ship ${shipSnapshot.id} references missing station ${shipSnapshot.stationId}`);
+    if (!station)
+      throw new Error(
+        `restoreSavedGame: orbiting ship ${shipSnapshot.id} references missing station ${shipSnapshot.stationId}`,
+      );
     const ship = shipFromSnapshot(shipSnapshot, station);
     ships.push(ship);
     shipsById.set(ship.id, ship);
@@ -129,13 +128,13 @@ function restoreManagerSnapshots(
   simulation.nationManager.fromSnapshot(snapshot.nationManager);
   simulation.emigrationManager.fromSnapshot(snapshot.emigrationManager);
   simulation.stationHistory.fromSnapshot(snapshot.stationHistory);
-  simulation.tradeManager.restoreFromSnapshot(snapshot.tradeModule, tradeShipsByShipId);
+  simulation.tradeManager.restoreFromSnapshot(snapshot.tradeManager, tradeShipsByShipId);
 }
 
 function restoreEconomyTime(game: Game, simulation: Simulation, snapshot: GameSnapshot): void {
   staggerStationTicks(game.stations);
   simulation.economyTimer.reset();
-  simulation.economyTimer.tick = snapshot.simTick;
+  simulation.economyTimer.tickCount = snapshot.simulationTick;
 }
 
 /** Playback always resumes at 1× so loaded saves don't blast through unattended. */
@@ -158,9 +157,9 @@ export function saveAutoSlot(game: Game): void {
 }
 
 /** Read + validate a slot. Does NOT apply — caller triggers remount.
- *  Slots are shared (one universe); snapshot.preset records the seeding
+ *  Slots are shared (one universe); snapshot.presetId records the seeding
  *  preset but nothing consumes it for routing. */
-export function loadFromSlot(kind: SlotKind, index: number): ValidationResult {
+export function readSlot(kind: SlotKind, index: number): ValidationResult {
   const raw = localStorage.getItem(saveSlotKey(kind, index));
   if (!raw) return { ok: false, reason: "empty", message: saveError.SLOT_EMPTY };
   return validateSnapshot(raw);
@@ -180,11 +179,11 @@ function writeSlot(kind: SlotKind, index: number, snapshot: GameSnapshot): void 
 export function exportToFile(game: Game): void {
   const snapshot = captureSnapshot(game, "export");
   const timestamp = fileNameTimestamp(new Date(snapshot.savedAt));
-  downloadJsonFile(snapshot, `skyshift-${snapshot.preset}-${timestamp}.json`);
+  downloadJsonFile(snapshot, `skyshift-${snapshot.presetId}-${timestamp}.json`);
 }
 
 /** Read + validate a file. Does NOT apply; caller triggers remount on ok. */
-export async function importFromFile(file: File): Promise<ValidationResult> {
+export async function readFile(file: File): Promise<ValidationResult> {
   const json = await file.text();
   return validateSnapshot(json);
 }

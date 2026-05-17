@@ -37,7 +37,8 @@ function splatDensity(buf, cx, cy, radius, intensity) {
   const y1 = Math.min(SIZE - 1, Math.ceil(cy + radius));
   for (let py = y0; py <= y1; py++) {
     for (let px = x0; px <= x1; px++) {
-      const dx = px - cx, dy = py - cy;
+      const dx = px - cx,
+        dy = py - cy;
       const d2 = dx * dx + dy * dy;
       if (d2 < r2) {
         const f = 1 - d2 / r2;
@@ -89,11 +90,16 @@ function densityToCanvas(buf, r, g, b, peakAlpha) {
 // Radial edge fade — shared by all dark nebulas
 function applyEdgeFade(buf) {
   for (let i = 0; i < buf.length; i++) {
-    const px = i % SIZE, py = Math.floor(i / SIZE);
-    const dx = px - CENTER, dy = py - CENTER;
+    const px = i % SIZE,
+      py = Math.floor(i / SIZE);
+    const dx = px - CENTER,
+      dy = py - CENTER;
     const dist = Math.sqrt(dx * dx + dy * dy) / (SIZE * 0.45);
-    if (dist > 1) { buf[i] = 0; }
-    else if (dist > 0.7) { buf[i] *= 1 - (dist - 0.7) / 0.3; }
+    if (dist > 1) {
+      buf[i] = 0;
+    } else if (dist > 0.7) {
+      buf[i] *= 1 - (dist - 0.7) / 0.3;
+    }
   }
 }
 
@@ -138,11 +144,11 @@ function buildDensityM() {
 
   const tendrilBuf = new Float32Array(SIZE * SIZE);
   const tendrils = [
-    { x: CENTER - 400, y: CENTER - 300, angle: 0.3,  len: 1800 },
-    { x: CENTER + 200, y: CENTER + 100, angle: 2.1,  len: 1500 },
-    { x: CENTER - 100, y: CENTER + 500, angle: 1.0,  len: 1200 },
-    { x: CENTER + 600, y: CENTER - 200, angle: 3.8,  len: 1400 },
-    { x: CENTER - 500, y: CENTER + 300, angle: 5.5,  len: 1000 },
+    { x: CENTER - 400, y: CENTER - 300, angle: 0.3, len: 1800 },
+    { x: CENTER + 200, y: CENTER + 100, angle: 2.1, len: 1500 },
+    { x: CENTER - 100, y: CENTER + 500, angle: 1.0, len: 1200 },
+    { x: CENTER + 600, y: CENTER - 200, angle: 3.8, len: 1400 },
+    { x: CENTER - 500, y: CENTER + 300, angle: 5.5, len: 1000 },
   ];
 
   for (const t of tendrils) {
@@ -211,7 +217,7 @@ function buildDensityXL() {
     { x: CENTER + 600, y: CENTER - 300 },
     { x: CENTER + 200, y: CENTER + 500 },
     { x: CENTER - 400, y: CENTER + 300 },
-    { x: CENTER,        y: CENTER - 100 },
+    { x: CENTER, y: CENTER - 100 },
   ];
 
   for (let s = 0; s < 500; s++) {
@@ -251,9 +257,9 @@ function buildDensityXL() {
 
 // ---- Build all ----
 const builders = {
-  "dark-nebula-density-s":  buildDensityS,
-  "dark-nebula-density-m":  buildDensityM,
-  "dark-nebula-density-l":  buildDensityL,
+  "dark-nebula-density-s": buildDensityS,
+  "dark-nebula-density-m": buildDensityM,
+  "dark-nebula-density-l": buildDensityL,
   "dark-nebula-density-xl": buildDensityXL,
 };
 

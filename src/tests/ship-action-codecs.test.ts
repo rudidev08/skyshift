@@ -1,9 +1,18 @@
 import { test, assertEqual, assertTrue } from "./test-utils.ts";
 import { shipFlyActionToSnapshot, shipFlyActionFromSnapshot } from "../sim-ship-action-fly.ts";
 import { shipWaitActionToSnapshot, shipWaitActionFromSnapshot } from "../sim-ship-action-wait.ts";
-import { shipCargoWithdrawalActionToSnapshot, shipCargoWithdrawalActionFromSnapshot } from "../sim-ship-action-cargo-withdrawal.ts";
-import { shipCargoDepositActionToSnapshot, shipCargoDepositActionFromSnapshot } from "../sim-ship-action-cargo-deposit.ts";
-import { shipDecommissionActionToSnapshot, shipDecommissionActionFromSnapshot } from "../sim-ship-action-decommission.ts";
+import {
+  shipCargoWithdrawalActionToSnapshot,
+  shipCargoWithdrawalActionFromSnapshot,
+} from "../sim-ship-action-cargo-withdrawal.ts";
+import {
+  shipCargoDepositActionToSnapshot,
+  shipCargoDepositActionFromSnapshot,
+} from "../sim-ship-action-cargo-deposit.ts";
+import {
+  shipDecommissionActionToSnapshot,
+  shipDecommissionActionFromSnapshot,
+} from "../sim-ship-action-decommission.ts";
 import { createOrbitEndpoint, createSurfaceEndpoint } from "../sim-travel.ts";
 import { createStation, type Station } from "../sim-station.ts";
 import { hubNation, bioNation } from "../../data/nations.ts";
@@ -13,9 +22,18 @@ import { hubNation, bioNation } from "../../data/nations.ts";
 // wait-stalled queues after load.
 
 function buildStation(id: string): Station {
-  return createStation({
-    id, name: id, x: 0, y: 0, nation: hubNation, stationTypeId: "habitat", size: "M",
-  }, 0);
+  return createStation(
+    {
+      id,
+      name: id,
+      x: 0,
+      y: 0,
+      nation: hubNation,
+      stationTypeId: "habitat",
+      size: "M",
+    },
+    0,
+  );
 }
 
 function withStations(stations: Station[]): Map<string, Station> {
@@ -202,7 +220,12 @@ test("wait action: roundtrip preserves duration and label", () => {
 
 test("cargo-withdrawal action: roundtrip preserves stationId, wareId, amount", () => {
   const station = buildStation("BIO-F");
-  const action = { type: "cargo-withdrawal" as const, station, wareId: "food" as const, amount: 250 };
+  const action = {
+    type: "cargo-withdrawal" as const,
+    station,
+    wareId: "food" as const,
+    amount: 250,
+  };
   const snapshot = shipCargoWithdrawalActionToSnapshot(action);
   // Pin the snapshot shape — stationId, not station.
   assertEqual(snapshot.stationId, "BIO-F", "snapshot carries stationId, not the live ref");
@@ -216,7 +239,12 @@ test("cargo-withdrawal action: roundtrip preserves stationId, wareId, amount", (
 
 test("cargo-withdrawal action: missing station resolves to wait placeholder with 'Load' label", () => {
   const station = buildStation("BIO-F");
-  const action = { type: "cargo-withdrawal" as const, station, wareId: "food" as const, amount: 250 };
+  const action = {
+    type: "cargo-withdrawal" as const,
+    station,
+    wareId: "food" as const,
+    amount: 250,
+  };
   const snapshot = shipCargoWithdrawalActionToSnapshot(action);
   const restored = shipCargoWithdrawalActionFromSnapshot(snapshot, withStations([]));
   // Pin the fixed "Load" label. cargo-withdrawal has no label field on the
@@ -254,7 +282,11 @@ test("cargo-deposit action: missing station resolves to wait placeholder with 'D
 
 test("decommission action: roundtrip preserves stationId and label", () => {
   const station = buildStation("WAY-001");
-  const action = { type: "decommission" as const, station, label: "Decommission at The Long Drift" };
+  const action = {
+    type: "decommission" as const,
+    station,
+    label: "Decommission at The Long Drift",
+  };
   const snapshot = shipDecommissionActionToSnapshot(action);
   assertEqual(snapshot.stationId, "WAY-001", "snapshot carries stationId");
   assertEqual(snapshot.label, "Decommission at The Long Drift", "snapshot carries label");
@@ -267,7 +299,11 @@ test("decommission action: roundtrip preserves stationId and label", () => {
 
 test("decommission action: missing station resolves to wait placeholder (label preserved)", () => {
   const station = buildStation("WAY-001");
-  const action = { type: "decommission" as const, station, label: "Decommission at The Long Drift" };
+  const action = {
+    type: "decommission" as const,
+    station,
+    label: "Decommission at The Long Drift",
+  };
   const snapshot = shipDecommissionActionToSnapshot(action);
   const restored = shipDecommissionActionFromSnapshot(snapshot, withStations([]));
   // Pin the label-preserving fallback. Decommission DOES have a label field
@@ -282,9 +318,18 @@ test("fly action: stations Map lookup uses stationId — not action.originStatio
   // a leftover live ref. Different station instances with the same id should
   // resolve to whichever one is in the stations Map.
   const originalStation = buildStation("BIO-F");
-  const replacementStation = createStation({
-    id: "BIO-F", name: "BIO-F", x: 99, y: 99, nation: bioNation, stationTypeId: "farm", size: "L",
-  }, 0);
+  const replacementStation = createStation(
+    {
+      id: "BIO-F",
+      name: "BIO-F",
+      x: 99,
+      y: 99,
+      nation: bioNation,
+      stationTypeId: "farm",
+      size: "L",
+    },
+    0,
+  );
   const action = {
     type: "fly" as const,
     origin: createOrbitEndpoint(originalStation),
@@ -299,6 +344,10 @@ test("fly action: stations Map lookup uses stationId — not action.originStatio
   const restored = shipFlyActionFromSnapshot(snapshot, withStations([replacementStation]));
   assertTrue(restored.type === "fly", "type preserved");
   if (restored.type !== "fly") return;
-  assertEqual(restored.originStation, replacementStation, "decoder resolves to the post-load station instance");
+  assertEqual(
+    restored.originStation,
+    replacementStation,
+    "decoder resolves to the post-load station instance",
+  );
   assertEqual(restored.originStation.size, "L", "post-load station is a fresh instance, not the original");
 });

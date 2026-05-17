@@ -1,6 +1,6 @@
 // Per-station orbit-slot reservation + idle-orbit pose. Slots are released on
 // ship destroy so churning stations don't push later arrivals into ever-larger
-// orbit radii. The ±0.4×spacing randomization hides the occasional slot reuse.
+// orbit radii. The 0–0.4×spacing radius jitter hides the occasional slot reuse.
 
 import type { Ship } from "../sim-ships";
 import { shipOrbitVisuals } from "../../data/ship-visuals";
@@ -50,13 +50,16 @@ export function createOrbitState(slotIndex: number): OrbitState {
   const orbitSpeedRadPerSec =
     (shipOrbitVisuals.speedMin + Math.random() * (shipOrbitVisuals.speedMax - shipOrbitVisuals.speedMin)) *
     (Math.random() < 0.5 ? 1 : -1);
-  const orbitRadius = shipOrbitVisuals.radiusMin + slotIndex * shipOrbitVisuals.radiusSpacing + Math.random() * (shipOrbitVisuals.radiusSpacing * 0.4);
+  const orbitRadius =
+    shipOrbitVisuals.radiusMin +
+    slotIndex * shipOrbitVisuals.radiusSpacing +
+    Math.random() * (shipOrbitVisuals.radiusSpacing * 0.4);
   return { orbitAngleAtZero, orbitSpeedRadPerSec, orbitRadius };
 }
 
-/** Current orbit pose (map x/y + heading angle) for a ship orbiting its
- *  home station. Uses wall-clock time so orbit phase advances at the
- *  render-owned angular velocity. */
+/** Current orbit pose (map x/y + heading angle) for a ship orbiting its home
+ *  station. `timeSec` is the game clock (frozen on pause, scaled by game
+ *  speed), so idle orbits track the simulation rather than the wall clock. */
 export function getOrbitingShipPose(
   ship: Ship,
   orbit: OrbitState,

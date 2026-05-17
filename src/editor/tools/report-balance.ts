@@ -1,6 +1,6 @@
 import { allWares } from "../../../data/wares.ts";
 import { createStation, getStationRates } from "../../sim-station.ts";
-import type { createMapFromTemplate } from "../../sim-map-builder.ts";
+import type { createMapFromTemplate } from "../../sim-map-create.ts";
 
 const wareById = Object.fromEntries(allWares.map((ware) => [ware.id, ware]));
 
@@ -23,7 +23,12 @@ export function aggregateNationProduction(
 
   for (const station of map.stations) {
     if (!nations[station.nation.id]) {
-      nations[station.nation.id] = { name: station.nation.name, stationCount: 0, produces: {}, consumes: {} };
+      nations[station.nation.id] = {
+        name: station.nation.name,
+        stationCount: 0,
+        produces: {},
+        consumes: {},
+      };
     }
 
     const nation = nations[station.nation.id];
@@ -69,13 +74,17 @@ export function logNationBalanceReport(nations: Record<string, NationReport>): v
     console.log(`    Produces per station / total:`);
     for (const [wareId, total] of Object.entries(nation.produces)) {
       const perStation = total / nation.stationCount;
-      console.log(`      ${wareById[wareId].name.padEnd(12)} ${perStation.toFixed(1)}/cycle × ${nation.stationCount} = ${total}/cycle`);
+      console.log(
+        `      ${wareById[wareId].name.padEnd(12)} ${perStation.toFixed(1)}/cycle × ${nation.stationCount} = ${total}/cycle`,
+      );
     }
 
     console.log(`    Consumes per station / total:`);
     for (const [wareId, total] of Object.entries(nation.consumes)) {
       const perStation = total / nation.stationCount;
-      console.log(`      ${wareById[wareId].name.padEnd(12)} ${perStation.toFixed(1)}/cycle × ${nation.stationCount} = ${total}/cycle`);
+      console.log(
+        `      ${wareById[wareId].name.padEnd(12)} ${perStation.toFixed(1)}/cycle × ${nation.stationCount} = ${total}/cycle`,
+      );
     }
   }
 
@@ -89,6 +98,8 @@ export function logNationBalanceReport(nations: Record<string, NationReport>): v
     const consumed = totals.consumed[ware.id] ?? 0;
     const net = produced - consumed;
     const sign = net >= 0 ? "+" : "";
-    console.log(`    ${ware.name.padEnd(12)}  produced: ${String(produced).padStart(3)}  consumed: ${String(consumed).padStart(3)}  net: ${sign}${net}`);
+    console.log(
+      `    ${ware.name.padEnd(12)}  produced: ${String(produced).padStart(3)}  consumed: ${String(consumed).padStart(3)}  net: ${sign}${net}`,
+    );
   }
 }

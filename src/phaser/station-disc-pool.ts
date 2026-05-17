@@ -26,7 +26,7 @@ interface StationVisual {
 
 // Cached parsed nation hex per nation id — `Phaser.Display.Color.HexStringToColor`
 // re-parses on every call (hundreds per timelapse run), and the nation set is
-// bounded (~6 nations) and authored, so caching at module scope is safe.
+// bounded (~6 nations) and hand-written, so caching at module scope is safe.
 const parsedColorByNationId = new Map<string, number>();
 
 function getParsedNationColor(nationId: string): number {

@@ -26,7 +26,7 @@ export class NamePool {
   }
 
   /** Claim a specific name, adding a nation-flavored suffix if taken. Use for
-   *  pre-authored names that still need global tracking so dynamic names won't
+   *  predefined names that still need global tracking so dynamic names won't
    *  conflict. */
   claimName(baseName: string, nation?: Nation): string {
     const count = this.usedNameCounts.get(baseName) ?? 0;
@@ -40,13 +40,11 @@ export class NamePool {
     const owner = nation ?? this.nameNation.get(baseName);
     const suffixes = owner?.nameSuffixes ?? [];
     const suffixIndex = count - 1;
-    const suffix = suffixIndex < suffixes.length
-      ? suffixes[suffixIndex]
-      : String(count + 1);
+    const suffix = suffixIndex < suffixes.length ? suffixes[suffixIndex] : String(count + 1);
     return `${baseName} ${suffix}`;
   }
 
-  /** Reserve a pre-authored name from its nation's pool so dynamic draws
+  /** Reserve a predefined name from its nation's pool so dynamic draws
    *  don't collide. */
   reservePoolName(pool: string[], baseName: string): void {
     let remaining = this.remainingNames.get(pool);
@@ -76,10 +74,9 @@ export class NamePool {
     const baseName = remaining.pop()!;
     return this.claimName(baseName, nation);
   }
-
 }
 
-/** Assign names to every station in a map. Pre-authored names are claimed
+/** Assign names to every station in a map. Predefined names are claimed
  *  and reserved out of their nation's draw pile first, then unnamed stations
  *  draw from the remainder. Every station has a name on return.
  *
@@ -90,7 +87,7 @@ export function assignStationNames<T extends { name?: string; nation: Nation }>(
   namePool: NamePool,
   stations: T[],
 ): asserts stations is (T & { name: string })[] {
-  // First pass: reserve pre-authored names before any random draws.
+  // First pass: reserve predefined names before any random draws.
   for (const station of stations) {
     if (station.name) {
       namePool.reservePoolName(station.nation.stationNames, station.name);
@@ -108,7 +105,7 @@ export function assignStationNames<T extends { name?: string; nation: Nation }>(
 
 function shuffleNames(names: string[]) {
   // Fisher-Yates in place — callers pass a copy of the canonical pool so the
-  // authored order in data/nations.ts is never mutated.
+  // order written in data/nations.ts is never mutated.
   for (let i = names.length - 1; i > 0; i--) {
     const swapIndex = Math.floor(Math.random() * (i + 1));
     [names[i], names[swapIndex]] = [names[swapIndex], names[i]];

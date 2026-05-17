@@ -1,14 +1,14 @@
 import { economyConfig } from "../../../data/economy-config.ts";
-import { getAllInventorySlots } from "../../sim-station.ts";
+import { getAllInventorySlots, type InventorySlot } from "../../sim-station.ts";
 import { createSimulation } from "../../sim-lifecycle.ts";
 import { allShips } from "../../../data/ships.ts";
-import type { createMapFromTemplate } from "../../sim-map-builder.ts";
+import type { createMapFromTemplate } from "../../sim-map-create.ts";
 
 const SIMULATION_DURATION_SECONDS = 3600 * 20;
 const TICK = economyConfig.simulationIntervalSeconds;
 const LOW_STOCK_THRESHOLD_PERCENT = 25;
 const HIGH_STOCK_THRESHOLD_PERCENT = 75;
-const DYNAMICS_INTERVAL = 5;
+const SLOW_SIMULATION_TICK_INTERVAL_SECONDS = 5;
 
 type Simulation = ReturnType<typeof createSimulation>;
 type SimulationStation = Simulation["stations"][number];
@@ -35,7 +35,7 @@ function formatSlotLabel(wareName: string, isOutput: boolean): string {
   return isOutput ? `${wareName} (out)` : `${wareName} (in)`;
 }
 
-function formatTrackedTickPercent(tickCount: number, totalTicks: number): string {
+function formatTickShareAsPercent(tickCount: number, totalTicks: number): string {
   if (tickCount <= 0) return "0%";
 
   const percent = (tickCount / totalTicks) * 100;
@@ -87,33 +87,35 @@ function expandSlotRange(range: SlotRange, value: number, percent: number): void
   }
 }
 
-function ensureStationTracked(station: SimulationStation, state: TrackingState): StationMeta {
+function computeStationMeta(station: SimulationStation, stationSlots: readonly InventorySlot[]): StationMeta {
+  return {
+    isProducer: station.stationType.produces.length > 0,
+    isConsumer: stationSlots.some((slot) => !station.stationType.produces.includes(slot.ware.id)),
+    producedWares: new Set(station.stationType.produces),
+  };
+}
+
+function getOrCreateStationMeta(station: SimulationStation, state: TrackingState): StationMeta {
+  const stationSlots = getAllInventorySlots(station);
   let meta = state.stationMeta.get(station.id);
   if (!meta) {
-    meta = {
-      isProducer: station.stationType.produces.length > 0,
-      isConsumer: getAllInventorySlots(station).some(slot => !station.stationType.produces.includes(slot.ware.id)),
-      producedWares: new Set(station.stationType.produces),
-    };
+    meta = computeStationMeta(station, stationSlots);
     state.stationMeta.set(station.id, meta);
     state.stalledTicks.set(station.id, 0);
   }
   // Building → producing flips rebuild inventory with a different slot list,
   // so the ranges array has to resize too.
   const ranges = state.slotRanges.get(station.id);
-  const stationSlots = getAllInventorySlots(station);
   if (!ranges || ranges.length !== stationSlots.length) {
     state.slotRanges.set(station.id, initSlotRanges(stationSlots));
-    meta.isProducer = station.stationType.produces.length > 0;
-    meta.isConsumer = stationSlots.some(slot => !station.stationType.produces.includes(slot.ware.id));
-    meta.producedWares = new Set(station.stationType.produces);
+    Object.assign(meta, computeStationMeta(station, stationSlots));
   }
   return meta;
 }
 
-function recordTickStats(stations: readonly SimulationStation[], state: TrackingState): void {
+function tickStationStats(stations: readonly SimulationStation[], state: TrackingState): void {
   for (const station of stations) {
-    const meta = ensureStationTracked(station, state);
+    const meta = getOrCreateStationMeta(station, state);
 
     const stalled = meta.isProducer && !station.didProduceLastTick;
 
@@ -146,17 +148,63 @@ type GameLoopOptions = {
 function tickGameLoopUntil(simulation: Simulation, options: GameLoopOptions): void {
   // Same two cadences as the game's main loop:
   //   - fast: economy + trade (which moves ships), every tickIntervalSeconds.
-  //   - slow: station/nation/emigration managers, every DYNAMICS_INTERVAL seconds.
-  let dynamicsAccumulator = 0;
+  //   - slow: station/nation/emigration managers, every SLOW_SIMULATION_TICK_INTERVAL_SECONDS seconds.
+  let slowSimulationAccumulator = 0;
   for (let time = 0; time < options.durationSeconds; time += options.tickIntervalSeconds) {
     simulation.tick(options.tickIntervalSeconds);
-    dynamicsAccumulator += options.tickIntervalSeconds;
-    if (dynamicsAccumulator >= DYNAMICS_INTERVAL) {
-      simulation.tickDynamics(dynamicsAccumulator);
-      dynamicsAccumulator = 0;
+    slowSimulationAccumulator += options.tickIntervalSeconds;
+    if (slowSimulationAccumulator >= SLOW_SIMULATION_TICK_INTERVAL_SECONDS) {
+      simulation.slowSimulationTick(slowSimulationAccumulator);
+      slowSimulationAccumulator = 0;
     }
     options.onTick();
   }
+}
+
+type StockRangeColumnWidths = { stationColumnWidth: number; slotColumnWidth: number };
+
+function computeColumnWidths(
+  stations: readonly SimulationStation[],
+  state: TrackingState,
+): StockRangeColumnWidths {
+  const stationColumnWidth =
+    Math.max(
+      "Station".length,
+      ...stations.map((station) => `${station.nation.codeName} ${station.name ?? station.id}`.length),
+    ) + 2;
+
+  const slotColumnWidth =
+    Math.max(
+      "Slot".length,
+      ...stations.flatMap((station) => {
+        const meta = state.stationMeta.get(station.id)!;
+        return getAllInventorySlots(station).map(
+          (slot) => formatSlotLabel(slot.ware.name, meta.producedWares.has(slot.ware.id)).length,
+        );
+      }),
+    ) + 2;
+
+  return { stationColumnWidth, slotColumnWidth };
+}
+
+function formatStockRangeHeaderRow(widths: StockRangeColumnWidths): string {
+  const underThresholdHeader = `<${LOW_STOCK_THRESHOLD_PERCENT}%`;
+  const overThresholdHeader = `>${HIGH_STOCK_THRESHOLD_PERCENT}%`;
+  return `  ${"Station".padEnd(widths.stationColumnWidth)} ${"Slot".padEnd(widths.slotColumnWidth)} ${"Now%".padStart(5)}  ${"Min%".padStart(5)}  ${"Max%".padStart(5)}  ${underThresholdHeader.padStart(5)}  ${overThresholdHeader.padStart(5)}  ${"Stall%".padStart(6)}`;
+}
+
+function formatStockRangeDataRow(
+  rowLabel: string,
+  slotName: string,
+  slot: { current: number; max: number },
+  range: SlotRange,
+  stallColumn: string,
+  totalTicks: number,
+  widths: StockRangeColumnWidths,
+): string {
+  const underLowThresholdPercent = formatTickShareAsPercent(range.underLowThresholdTicks, totalTicks);
+  const overHighThresholdPercent = formatTickShareAsPercent(range.overHighThresholdTicks, totalTicks);
+  return `  ${rowLabel.padEnd(widths.stationColumnWidth)} ${slotName.padEnd(widths.slotColumnWidth)} ${(slotPercent(slot) + "%").padStart(5)}  ${(range.minPercent + "%").padStart(5)}  ${(range.maxPercent + "%").padStart(5)}  ${underLowThresholdPercent.padStart(5)}  ${overHighThresholdPercent.padStart(5)}  ${stallColumn.padStart(6)}`;
 }
 
 function renderStockRangeTable(
@@ -164,28 +212,14 @@ function renderStockRangeTable(
   state: TrackingState,
   totalTicks: number,
 ): void {
-  const stationColumnWidth = Math.max(
-    "Station".length,
-    ...stations.map((station) => `${station.nation.codeName} ${station.name ?? station.id}`.length),
-  ) + 2;
-
-  const slotColumnWidth = Math.max(
-    "Slot".length,
-    ...stations.flatMap((station) => {
-      const meta = state.stationMeta.get(station.id)!;
-      return getAllInventorySlots(station).map((slot) => formatSlotLabel(slot.ware.name, meta.producedWares.has(slot.ware.id)).length);
-    }),
-  ) + 2;
-
-  const underThresholdHeader = `<${LOW_STOCK_THRESHOLD_PERCENT}%`;
-  const overThresholdHeader = `>${HIGH_STOCK_THRESHOLD_PERCENT}%`;
-  const stockRangeHeader = `  ${"Station".padEnd(stationColumnWidth)} ${"Slot".padEnd(slotColumnWidth)} ${"Now%".padStart(5)}  ${"Min%".padStart(5)}  ${"Max%".padStart(5)}  ${underThresholdHeader.padStart(5)}  ${overThresholdHeader.padStart(5)}  ${"Stall%".padStart(6)}`;
-  const stockRangeDivider = `  ${"─".repeat(stockRangeHeader.length - 2)}`;
+  const widths = computeColumnWidths(stations, state);
+  const headerRow = formatStockRangeHeaderRow(widths);
+  const divider = `  ${"─".repeat(headerRow.length - 2)}`;
 
   console.log(`\n  Per-station stock ranges over ${SIMULATION_DURATION_SECONDS / 3600}h:`);
-  console.log(stockRangeDivider);
-  console.log(stockRangeHeader);
-  console.log(stockRangeDivider);
+  console.log(divider);
+  console.log(headerRow);
+  console.log(divider);
 
   for (const station of stations) {
     const label = `${station.nation.codeName} ${station.name ?? station.id}`;
@@ -199,9 +233,10 @@ function renderStockRangeTable(
       const slot = slots[i];
       const slotName = formatSlotLabel(slot.ware.name, meta.producedWares.has(slot.ware.id));
       const stallColumn = i === 0 && (meta.isProducer || meta.isConsumer) ? `${stalledPercent}%` : "";
-      const underLowThresholdPercent = formatTrackedTickPercent(ranges[i].underLowThresholdTicks, totalTicks);
-      const overHighThresholdPercent = formatTrackedTickPercent(ranges[i].overHighThresholdTicks, totalTicks);
-      console.log(`  ${(i === 0 ? label : "").padEnd(stationColumnWidth)} ${slotName.padEnd(slotColumnWidth)} ${(slotPercent(slot) + "%").padStart(5)}  ${(ranges[i].minPercent + "%").padStart(5)}  ${(ranges[i].maxPercent + "%").padStart(5)}  ${underLowThresholdPercent.padStart(5)}  ${overHighThresholdPercent.padStart(5)}  ${stallColumn.padStart(6)}`);
+      const rowLabel = i === 0 ? label : "";
+      console.log(
+        formatStockRangeDataRow(rowLabel, slotName, slot, ranges[i], stallColumn, totalTicks, widths),
+      );
     }
   }
 }
@@ -229,16 +264,23 @@ function collectStationOutliers(
 
     const stationSlots = getAllInventorySlots(station);
     for (let i = 0; i < stationSlots.length; i++) {
-      const underLowThresholdPercent = formatTrackedTickPercent(ranges[i].underLowThresholdTicks, totalTicks);
-      const overHighThresholdPercent = formatTrackedTickPercent(ranges[i].overHighThresholdTicks, totalTicks);
-      const slotName = formatSlotLabel(stationSlots[i].ware.name, meta.producedWares.has(stationSlots[i].ware.id));
+      const underLowThresholdPercent = formatTickShareAsPercent(ranges[i].underLowThresholdTicks, totalTicks);
+      const overHighThresholdPercent = formatTickShareAsPercent(ranges[i].overHighThresholdTicks, totalTicks);
+      const slotName = formatSlotLabel(
+        stationSlots[i].ware.name,
+        meta.producedWares.has(stationSlots[i].ware.id),
+      );
 
       if (ranges[i].minPercent < LOW_STOCK_THRESHOLD_PERCENT) {
-        issues.push(`${slotName} spent ${underLowThresholdPercent} of ticks below ${LOW_STOCK_THRESHOLD_PERCENT}%`);
+        issues.push(
+          `${slotName} spent ${underLowThresholdPercent} of ticks below ${LOW_STOCK_THRESHOLD_PERCENT}%`,
+        );
       }
 
       if (ranges[i].maxPercent > HIGH_STOCK_THRESHOLD_PERCENT) {
-        issues.push(`${slotName} spent ${overHighThresholdPercent} of ticks above ${HIGH_STOCK_THRESHOLD_PERCENT}%`);
+        issues.push(
+          `${slotName} spent ${overHighThresholdPercent} of ticks above ${HIGH_STOCK_THRESHOLD_PERCENT}%`,
+        );
       }
     }
 
@@ -261,7 +303,9 @@ function renderOutlierReport(
   totalTicks: number,
 ): void {
   console.log(`\n  ${"─".repeat(70)}`);
-  console.log(`  Outliers (any slot <${LOW_STOCK_THRESHOLD_PERCENT}% or >${HIGH_STOCK_THRESHOLD_PERCENT}% at any point)`);
+  console.log(
+    `  Outliers (any slot <${LOW_STOCK_THRESHOLD_PERCENT}% or >${HIGH_STOCK_THRESHOLD_PERCENT}% at any point)`,
+  );
   console.log(`  ${"─".repeat(70)}`);
 
   const outliers = collectStationOutliers(stations, state, totalTicks);
@@ -279,13 +323,25 @@ function renderOutlierReport(
   }
 }
 
-export function runTradeSimulation(map: ReturnType<typeof createMapFromTemplate>): void {
+function printSimulationHeader(simulation: Simulation): void {
   console.log(`  ${"═".repeat(50)}`);
   console.log(`  ${SIMULATION_DURATION_SECONDS / 3600}h Trade Simulation (actual game values)`);
-  const simulation = createSimulation(map, { ignoreCargoCompatibility: true });
   console.log(`  Cargo: ${allShips.map((ship) => `${ship.name}=${ship.cargoCapacity}`).join(", ")}`);
   console.log(`  Fleet: ${formatFleetSummary(simulation.ships.map((ship) => ship.shipTypeId))}`);
   console.log(`  ${"─".repeat(50)}`);
+}
+
+function printSimulationFooter(simulation: Simulation): void {
+  console.log(`\n  ${"─".repeat(70)}`);
+  console.log(`  Simulation notes`);
+  console.log(`  ${"─".repeat(70)}`);
+  console.log(`  Total ships: ${simulation.ships.length}`);
+  console.log(`  Duration: ${SIMULATION_DURATION_SECONDS / 3600}h, tick: ${TICK}s`);
+}
+
+export function runTradeSimulation(map: ReturnType<typeof createMapFromTemplate>): void {
+  const simulation = createSimulation(map, { ignoreCargoCompatibility: true });
+  printSimulationHeader(simulation);
 
   const stations = simulation.stations;
 
@@ -296,7 +352,7 @@ export function runTradeSimulation(map: ReturnType<typeof createMapFromTemplate>
   };
 
   for (const station of stations) {
-    ensureStationTracked(station, state);
+    getOrCreateStationMeta(station, state);
   }
 
   const totalTicks = SIMULATION_DURATION_SECONDS / TICK;
@@ -304,15 +360,10 @@ export function runTradeSimulation(map: ReturnType<typeof createMapFromTemplate>
   tickGameLoopUntil(simulation, {
     durationSeconds: SIMULATION_DURATION_SECONDS,
     tickIntervalSeconds: TICK,
-    onTick: () => recordTickStats(stations, state),
+    onTick: () => tickStationStats(stations, state),
   });
 
   renderStockRangeTable(stations, state, totalTicks);
   renderOutlierReport(stations, state, totalTicks);
-
-  console.log(`\n  ${"─".repeat(70)}`);
-  console.log(`  Simulation notes`);
-  console.log(`  ${"─".repeat(70)}`);
-  console.log(`  Total ships: ${simulation.ships.length}`);
-  console.log(`  Duration: ${SIMULATION_DURATION_SECONDS / 3600}h, tick: ${TICK}s`);
+  printSimulationFooter(simulation);
 }

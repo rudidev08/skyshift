@@ -3,7 +3,7 @@
 import { Play, FastForward, SkipForward } from "lucide-static";
 import type { CycleSpeed } from "../data/controls-game-speed";
 
-export const SPEED_ICONS: Record<CycleSpeed, string> = {
+export const speedIcons: Record<CycleSpeed, string> = {
   1: Play,
   2: FastForward,
   5: SkipForward,

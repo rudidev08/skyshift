@@ -2,15 +2,10 @@ import type { WareId } from "../data/ware-types";
 import type { TravelEndpoint, TravelMode } from "./sim-travel-types";
 import type { FlightData } from "./sim-travel";
 import type { TradeReservation, TradeDirection } from "./sim-trade-types";
-import type { StationTypeId, StationSize, StationState } from "../data/station-types";
+import type { BuildWaresRequired, StationTypeId, StationSize, StationState } from "../data/station-types";
 import type { StationLifecycleEvent } from "./sim-station-history";
 
 export const SAVE_VERSION = 1;
-export const AUTOSAVE_INTERVAL_SECONDS = 120;
-export const MANUAL_SLOT_COUNT = 3;
-export const AUTO_SLOT_COUNT = 3;
-
-export const SAVE_KEY_PREFIX = "skyshift.save";
 
 // Snapshot shapes are `Pick<>` from runtime types so a new runtime-only field
 // can't accidentally land in saves via spread (e.g. `flight: { ...ts.flight }`
@@ -18,12 +13,18 @@ export const SAVE_KEY_PREFIX = "skyshift.save";
 
 export type FlightSnapshot = Pick<
   FlightData,
-  | "phase" | "progress"
-  | "origin" | "destination"
-  | "phaseStartTime" | "totalElapsedTime" | "flightDuration"
-  | "departDistanceFraction" | "flightDistanceFraction" | "arriveDistanceFraction"
+  | "phase"
+  | "progress"
+  | "origin"
+  | "destination"
+  | "phaseStartSeconds"
+  | "totalElapsedSeconds"
+  | "flightDuration"
+  | "departDistanceFraction"
+  | "flightDistanceFraction"
+  | "arriveDistanceFraction"
   | "travelMode"
-  | "prevHeading"
+  | "previousHeading"
 >;
 
 export type TravelEndpointSnapshot = Pick<TravelEndpoint, "stationId" | "surfaceOrOrbit">;
@@ -35,31 +36,20 @@ export interface ReservationSnapshot {
   cargoDirection: TradeReservation["cargoDirection"];
 }
 
-export type SlotKind = "manual" | "auto";
-/** One shared slot set across all presets — M1/M2/M3/A1/A2/A3 are reused
- *  regardless of which preset seeded the run. `GameSnapshot.preset` is a
- *  breadcrumb only; nothing routes loads by it. */
-export function saveSlotKey(kind: SlotKind, index: number): string {
-  return `${SAVE_KEY_PREFIX}.${kind}.${index}`;
-}
-export function autoSaveNextIndexKey(): string {
-  return `${SAVE_KEY_PREFIX}.auto.nextIndex`;
-}
-
 export interface GameSnapshot {
   version: typeof SAVE_VERSION;
-  savedAt: number;       // Date.now()
-  simTick: number;
+  savedAt: number; // Date.now()
+  simulationTick: number;
   source?: "auto" | "manual" | "export";
-  /** Preset the run started from ("settled" / "frontier" / "blank"). Breadcrumb
+  /** Preset id the run started from ("settled" / "frontier"). Breadcrumb
    *  only — used in the export filename in savegame-manager.ts; not used to route loads. */
-  preset: string;
+  presetId: string;
   stations: StationSnapshot[];
   ships: ShipSnapshot[];
   tradeShips: TradeShipSnapshot[];
   nationManager: NationExpansionSnapshot[];
   emigrationManager: EmigrationManagerSnapshot;
-  tradeModule: TradeModuleSnapshot;
+  tradeManager: TradeManagerSnapshot;
   /** Per-station lifecycle events powering the Stations Timelapse Log.
    *  Persisted in full — typically ~50 events across a 20-day game. */
   stationHistory: StationLifecycleEvent[];
@@ -68,7 +58,7 @@ export interface GameSnapshot {
 /** Trade-module clock + pending wake-ups. The `byOrbitingShipId` and `flying`
  *  indices in sim-trade-manager.ts rebuild from the restored trade ships;
  *  trade-route delivery history is intentionally not persisted (overview restarts at load). */
-export interface TradeModuleSnapshot {
+export interface TradeManagerSnapshot {
   /** Origin clock for scheduledTimers[].fireTime. */
   tradeTime: number;
   /** Pending ship wake-ups, absolute against tradeTime. */
@@ -76,21 +66,18 @@ export interface TradeModuleSnapshot {
 }
 
 /** Full-identity station record. After game start, the snapshot is the source of truth;
- *  map-authored stations are only the seed. Static type-level props re-derive at load. */
+ *  stations from the map template are only the seed. Static type-level props re-derive at load. */
 export interface StationSnapshot {
   id: string;
-  nationId: string;            // Nation.id (lowercase 3-letter code, e.g. "hub")
+  nationId: string; // Nation.id (lowercase 3-letter code, e.g. "hub")
   typeId: StationTypeId;
   size: StationSize;
   name: string;
   x: number;
   y: number;
-  zoneId?: string;             // undefined for map-seeded stations not in a zone
+  zoneId?: string; // undefined for map-seeded stations not in a zone
   state: StationState;
-  build?: {
-    waresRequired: { provisions: number; hulls: number };
-    contractingNationId?: string;
-  };
+  build?: StationBuildSnapshot;
   inventory: InventorySlotSnapshot[];
   /** Set while state === "emigrating". Render reads it directly. */
   emigrationEvent?: StationEmigrationSnapshot;
@@ -110,10 +97,15 @@ export interface StationEmigrationSnapshot {
   secondsUntilNextLaunch: number;
 }
 
+export interface StationBuildSnapshot {
+  waresRequired: BuildWaresRequired;
+  contractingNationId?: string;
+}
+
 export interface StationGenerationalShipBuildSnapshot {
   eventId: string;
   destinationName: string;
-  stationCount: number;
+  emigratingStationCount: number;
 }
 
 /** Inventory slot persistence. `max` is re-derived on load (or, for building
@@ -135,7 +127,7 @@ export interface ShipSnapshot {
 }
 
 export interface TradeShipSnapshot {
-  shipId: string;        // matches ShipSnapshot.id
+  shipId: string; // matches ShipSnapshot.id
   homeStationId: string;
   cargo: { wareId: WareId; amount: number }[];
   actionQueue: ShipActionSnapshot[];
@@ -143,10 +135,9 @@ export interface TradeShipSnapshot {
   targetStationId: string | null;
   tradeDirection: TradeDirection | null;
   reservations: ReservationSnapshot[];
-  lastHeading: number | null;
-  idleStartTime: number;
+  lastFlightHeadingRadians: number | null;
+  idleSinceTradeTime: number;
 }
-// Wake times live in TradeModuleSnapshot.scheduledTimers, not on the ship.
 
 export type ShipActionSnapshot =
   | {
@@ -178,7 +169,7 @@ export interface EmigrationEventSnapshot {
   /** Total ships expected at the generational ship. Locked at trigger; reduced by retireUnlaunched if a launch budget is abandoned. */
   totalExpectedShips: number;
   destinationName: string;
-  eventStartAt: number;
+  startAt: number;
 }
 
 export interface EmigrationManagerSnapshot {
@@ -191,7 +182,7 @@ export interface EmigrationManagerSnapshot {
   usedDestinations: string[];
   nextGenerationalShipArrivalAt: number | null; // sim-time of next arrival; null = one is present
   /** Private monotonic clock for event deadlines. Must round-trip or deadlines drift. */
-  simTime: number;
+  clockSeconds: number;
   /** WAY-NNN generational-ship id counter. Persisted to avoid post-load id collisions. */
   nextGenerationalShipCounter: number;
   /** {NATION}-EMIG-NNNN emigrant ship id counter. Persisted to avoid post-load id collisions. */

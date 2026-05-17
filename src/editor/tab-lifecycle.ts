@@ -12,9 +12,9 @@ import {
 import { map } from "../../data/map";
 import { MapEditorController } from "./map-controller";
 import type { MapEditorState } from "./map-editor-state";
-import { buildEditorRuntimeMap } from "./map-runtime";
+import { createEditorRuntimeMapFromPreset } from "./map-runtime";
 import { hasUnsavedEdits } from "./edits-heuristic";
-import { presetById } from "../util-map-preset";
+import { getPresetById } from "../util-map-preset";
 import { waitForEditorSceneReady } from "./scene-ready";
 import type { EditorSimulationSession } from "./simulation-session";
 
@@ -36,6 +36,9 @@ export interface EditorTabLifecycleControls {
   mapModeSelectButton: HTMLButtonElement;
   mapModeMoveButton: HTMLButtonElement;
   mapEditorStatusText: HTMLElement;
+  /** Hidden in dev (editing enabled); in prod, shows on the map + economy tabs
+   *  and hides on timelapse, which is a view-only run no banner can clarify. */
+  readonlyBanner: HTMLElement | null;
 }
 
 export interface EditorTabLifecycleDependencies {
@@ -57,9 +60,7 @@ export interface EditorTabLifecycle {
 /** Builds the tab lifecycle controller and wires the tab + unload listeners.
  *  The returned object owns map-editor mount state and exposes operations the
  *  entry point invokes (set tab, mark stale, switch preset, dispose). */
-export function createEditorTabLifecycle(
-  dependencies: EditorTabLifecycleDependencies,
-): EditorTabLifecycle {
+export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDependencies): EditorTabLifecycle {
   const { controls, mapState, simulationSession, refreshDerivedPanels, rebuildEditorPage } = dependencies;
 
   let activeTab: EditorTab = "timelapse";
@@ -99,6 +100,8 @@ export function createEditorTabLifecycle(
     controls.timelapseEditorView.classList.toggle("is-active", timelapseActive);
     controls.timelapseEditorView.hidden = !timelapseActive;
 
+    controls.readonlyBanner?.classList.toggle("is-visible", !timelapseActive);
+
     for (const button of controls.editorTabButtons) {
       const tab = button.dataset.editorTab as EditorTab | undefined;
       const isActive = tab === nextTab;
@@ -113,7 +116,11 @@ export function createEditorTabLifecycle(
       mapEditorController = null;
       mapEditorPhase = "mounting";
       const runtime = await mountGameRuntime({
-        mapData: buildEditorRuntimeMap(mapState.activePreset, mapState.editableStations, mapState.editableNebulas),
+        mapData: createEditorRuntimeMapFromPreset(
+          mapState.activePreset,
+          mapState.editableStations,
+          mapState.editableNebulas,
+        ),
         keyboardShortcutsEnabled: false,
         isEditorMode: true,
       });
@@ -206,21 +213,23 @@ export function createEditorTabLifecycle(
   /** Switches the active preset, prompting first if there are unsaved station/nebula edits to discard. */
   function switchPreset(presetId: string) {
     if (presetId === mapState.activePreset.id) return;
-    const next = presetById(presetId);
-    if (!next) return;
-    if (hasUnsavedEdits({
+    const nextPreset = getPresetById(presetId);
+    if (!nextPreset) return;
+    const unsavedEdits = hasUnsavedEdits({
       stations: { current: mapState.editableStations, baseline: mapState.baselineMap.stations },
       nebulas: { current: mapState.editableNebulas, baseline: map.nebulas },
-    })) {
-      const confirmed = window.confirm(
-        `Switching to "${next.name}" will discard any station or nebula edits. Continue?`,
-      );
-      if (!confirmed) return;
-    }
+    });
+    if (unsavedEdits && !confirmDiscardingUnsavedEdits(nextPreset.name)) return;
     mapState.switchPreset(presetId);
     simulationSession.clearCaches();
     markMapEditorNeedsRemount();
     rebuildEditorPage();
+  }
+
+  function confirmDiscardingUnsavedEdits(nextPresetName: string): boolean {
+    return window.confirm(
+      `Switching to "${nextPresetName}" will discard any station or nebula edits. Continue?`,
+    );
   }
 
   for (const button of controls.editorTabButtons) {

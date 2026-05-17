@@ -6,7 +6,7 @@ export const shipTravel = {
   baseFlightSpeed: 25, // pixels/second before globalSpeed and nation speed
   accelerationDurationSeconds: 5.0, // take-off phase length
   dockingDurationSeconds: 5.0, // docking phase length
-  stationProximityMultiplier: 3, // accel/docking zone = this × station radius
+  stationProximityMultiplier: 3, // zone where accel/docking starts = this × station radius
 };
 
 /** Orbit-phase endpoint distance from station center. Sim uses it as a coarse

@@ -5,11 +5,11 @@
 
 import { X } from "lucide-static";
 import type { GameMap } from "./sim-map-types";
-import { createMapFromTemplate, filterZonesForOccupants } from "./sim-map-builder";
+import { createMapFromTemplate, mapFromSnapshot } from "./sim-map-create";
 import { map } from "../data/map";
 import { presets } from "../data/map-presets";
-import { presetById } from "./util-map-preset";
-import { loadFromSlot, type ValidationResult } from "./ui-savegame-manager";
+import { getPresetById } from "./util-map-preset";
+import { readSlot, type ValidationResult } from "./ui-savegame-manager";
 import { findLatestSave, clearAllSaves } from "./storage-save-slots";
 import * as saveError from "../data/strings-save";
 import { mountGameRuntime, destroyGameRuntime } from "./game-entry";
@@ -17,7 +17,9 @@ import { mountGameRuntime, destroyGameRuntime } from "./game-entry";
 const START_ROUTE_PATTERN = /^\/start\/([^/]+)\/?$/;
 const UNIVERSE_ROUTE_PATTERN = /^\/universe\/?$/;
 
-export function parseRoute(pathname: string): { kind: "start"; presetId: string } | { kind: "universe" } | null {
+export function parseRoute(
+  pathname: string,
+): { kind: "start"; presetId: string } | { kind: "universe" } | null {
   const normalized = pathname.replace(/\/$/, "") || "/";
   const startMatch = START_ROUTE_PATTERN.exec(normalized);
   if (startMatch) {
@@ -30,9 +32,9 @@ export function parseRoute(pathname: string): { kind: "start"; presetId: string 
 }
 
 function createMapForPreset(presetId: string): GameMap {
-  const preset = presetById(presetId);
+  const preset = getPresetById(presetId);
   if (!preset) {
-    const known = presets.map((p) => p.id).join(", ");
+    const known = presets.map((preset) => preset.id).join(", ");
     throw new Error(`Unknown preset "${presetId}". Known presets: ${known}.`);
   }
   return createMapFromTemplate(map, preset);
@@ -40,17 +42,39 @@ function createMapForPreset(presetId: string): GameMap {
 
 export function renderLoadError(message: string, diagnostic?: string) {
   destroyGameRuntime();
-  const container = mountLoadErrorTemplate();
+  const container = mountLoadErrorPanel();
   populateLoadErrorMessage(container, message);
   if (diagnostic) populateLoadErrorDiagnostic(container, diagnostic);
   const actions = requireElement<HTMLElement>(container, '[data-role="actions"]');
-  setupClearAllSavesConfirmFlow(actions);
+  setupClearSavesConfirmFlow(actions);
+}
+
+/** Two-step destructive confirm (idle → pending dots → confirm button) so a
+ *  stray click can't wipe every save. Bounces to / on confirm — with no saves
+ *  left, landing falls back to first-visit. Mirrors ui-slot-selector.ts. */
+function setupClearSavesConfirmFlow(actionsContainer: HTMLElement): void {
+  let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  const renderIdle = () => {
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      pendingTimer = null;
+    }
+    renderIdleActions(actionsContainer, () => {
+      actionsContainer.innerHTML = `<span class="slot-pending">···</span>`;
+      pendingTimer = setTimeout(() => {
+        pendingTimer = null;
+        actionsContainer.innerHTML = "";
+        renderConfirmReady(actionsContainer, renderIdle);
+      }, 1500);
+    });
+  };
+  renderIdle();
 }
 
 /** Wipe the canvas + HUD scaffolding and replace with the error panel.
  *  Returns the freshly-inserted container so subsequent lookups can be scoped
  *  to it (a stray matching selector elsewhere on the page can't be picked up). */
-function mountLoadErrorTemplate(): HTMLElement {
+function mountLoadErrorPanel(): HTMLElement {
   document.body.innerHTML = `
     <div class="load-error">
       <main class="load-error__panel">
@@ -91,21 +115,6 @@ function requireElement<T extends Element>(parent: ParentNode, selector: string)
   return element;
 }
 
-/** Two-step destructive confirm (idle → pending dots → confirm button) so a stray click can't wipe every save. Bounces to / on confirm — with no saves left, landing falls back to first-visit. Mirrors settings-panel.ts. */
-function setupClearAllSavesConfirmFlow(actions: HTMLElement): void {
-  const pendingTimerRef: { current: ReturnType<typeof setTimeout> | null } = { current: null };
-
-  const renderIdle = () => {
-    if (pendingTimerRef.current) {
-      clearTimeout(pendingTimerRef.current);
-      pendingTimerRef.current = null;
-    }
-    renderIdleActions(actions, () => startConfirmPending(actions, pendingTimerRef, renderIdle));
-  };
-
-  renderIdle();
-}
-
 function renderIdleActions(actions: HTMLElement, onClearClicked: () => void): void {
   actions.innerHTML = "";
 
@@ -123,20 +132,6 @@ function renderIdleActions(actions: HTMLElement, onClearClicked: () => void): vo
 
   actions.appendChild(back);
   actions.appendChild(clear);
-}
-
-/** Show the pending-dots placeholder, then swap to the confirm button after 1.5s. */
-function startConfirmPending(
-  actions: HTMLElement,
-  pendingTimerRef: { current: ReturnType<typeof setTimeout> | null },
-  onCancel: () => void,
-): void {
-  actions.innerHTML = `<span class="slot-pending">···</span>`;
-  pendingTimerRef.current = setTimeout(() => {
-    pendingTimerRef.current = null;
-    actions.innerHTML = "";
-    renderConfirmReady(actions, onCancel);
-  }, 1500);
 }
 
 function renderConfirmReady(actions: HTMLElement, onCancel: () => void): void {
@@ -162,13 +157,13 @@ function renderConfirmReady(actions: HTMLElement, onCancel: () => void): void {
 
 /** Validate the most recently saved slot, returning the full ValidationResult
  *  so callers can distinguish "nothing to resume" from "resume blocked".
- *  Absent slots report as `reason: "empty"` to match the loadFromSlot shape. */
-function loadLatestSnapshot(): ValidationResult {
+ *  Absent slots report as `reason: "empty"` to match the readSlot shape. */
+function validateLatestSave(): ValidationResult {
   const latest = findLatestSave();
   if (!latest || latest.savedAt === null) {
     return { ok: false, reason: "empty", message: saveError.SLOT_EMPTY };
   }
-  return loadFromSlot(latest.kind, latest.index);
+  return readSlot(latest.kind, latest.index);
 }
 
 /** Handles `/start/:preset` — fresh universe seeded from the named preset.
@@ -183,7 +178,7 @@ export async function startFromPreset(presetId: string) {
  *  a present-but-invalid save shows the load-error panel so the player sees the
  *  reason instead of silently flickering back. */
 export async function continueUniverse() {
-  const result = loadLatestSnapshot();
+  const result = validateLatestSave();
   if (!result.ok) {
     if (result.reason === "empty") {
       // replace (not assign) so Back from the landing doesn't re-enter here.
@@ -194,13 +189,6 @@ export async function continueUniverse() {
     return;
   }
   const snapshot = result.snapshot;
-  // Blank preset keeps every zone available so restored stations can land on
-  // any of them. Pre-trim occupied zones now — zone renders spawn before
-  // applySnapshot, so without this they'd briefly draw under the stations
-  // about to be installed on top.
-  const blank = presetById("blank");
-  if (!blank) throw new Error("No 'blank' preset registered.");
-  const mapData = createMapFromTemplate(map, blank);
-  mapData.stationZones = filterZonesForOccupants(mapData.stationZones, snapshot.stations);
+  const mapData = mapFromSnapshot(map, snapshot);
   await mountGameRuntime({ mapData, initialSnapshot: snapshot });
 }

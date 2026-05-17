@@ -29,10 +29,15 @@ function replaceColorWithTransparency(data, { r, g, b }) {
   return replaced;
 }
 
-const files = fs.readdirSync(backupDir).filter((f) => f.startsWith("background_space_") && f.endsWith(".png"));
+const files = fs
+  .readdirSync(backupDir)
+  .filter((f) => f.startsWith("background_space_") && f.endsWith(".png"));
 
 for (const file of files) {
-  const { data, info } = await sharp(path.join(backupDir, file)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { data, info } = await sharp(path.join(backupDir, file))
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
 
   const backgroundColor = findMostCommonColor(data);
   const replaced = replaceColorWithTransparency(data, backgroundColor);

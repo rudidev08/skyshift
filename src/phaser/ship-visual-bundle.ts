@@ -5,15 +5,20 @@
 import { type Scene } from "phaser";
 import { TEXTURE_SCALE } from "../render-ship-hull";
 import { ensureShipTexture } from "./texture-cache";
-import { getNationShipTemplate, type Ship } from "../sim-ships";
-import { getShipTemplate } from "../sim-ship-template";
+import { getNationShipTypeTemplate, type Ship } from "../sim-ships";
+import { getShipTypeTemplate } from "../sim-ship-template";
 import { getWareTemplate } from "../sim-ware-template";
 import type { TradeManager } from "../sim-trade-manager";
 import { getTotalCargo } from "../sim-trade-types";
 import { getTradeShipDescription, getTradeShipStatusLabel, isTradeShipSelectable } from "../sim-trade-log";
 import type { Selection, SelectionLabel, SelectionTarget } from "./selection-input";
-import { type ShipTravelVisualBundle, destroyShipTravelVisualBundle, updateShipTravelVisualBundle } from "./ship-travel-visual-bundle";
-import { hexToNumber, isVisibleInViewport } from "./viewport-culling";
+import {
+  type ShipTravelVisualBundle,
+  destroyShipTravelVisualBundle,
+  updateShipTravelVisualBundle,
+} from "./ship-travel-visual-bundle";
+import { hexToNumber } from "../util-hex-color";
+import { isVisibleInViewport } from "./viewport-culling";
 import { getShipHudIcon } from "../render-hud-icon";
 import { announceShip } from "../audio-announcer";
 import {
@@ -22,7 +27,7 @@ import {
   hideShipUi,
   updateShipUi,
   type ShipRenderFrame,
-  type ShipUi,
+  type ShipUiBundle,
 } from "./ship-ui";
 import {
   createOrbitState,
@@ -38,20 +43,13 @@ const shipMapPositionScratch = { x: 0, y: 0 };
 
 export interface ShipVisualBundle {
   ship: Ship;
-  shape: Phaser.GameObjects.Image;
+  orbitSprite: Phaser.GameObjects.Image;
   selectionTarget: ShipSelectionTarget;
-  shipUi: ShipUi;
+  shipUi: ShipUiBundle;
   travelBundle: ShipTravelVisualBundle | null;
   /** Render-owned orbit visuals; regenerated per bundle. Sim holds only the
    *  ship's home station + inFlight flag. */
   orbit: OrbitState;
-}
-
-export function isShipSelected(
-  bundle: ShipVisualBundle,
-  selection: Selection,
-): boolean {
-  return selection.isSelected(bundle.selectionTarget);
 }
 
 export class ShipSelectionTarget implements SelectionTarget {
@@ -67,7 +65,7 @@ export class ShipSelectionTarget implements SelectionTarget {
 
   enterSelected() {
     this.cachedLabel = null;
-    const shipType = getNationShipTemplate(this.ship.station.nation);
+    const shipType = getNationShipTypeTemplate(this.ship.station.nation);
     announceShip(this.ship.shipName, shipType.name, this.ship.station.nation);
   }
 
@@ -77,7 +75,7 @@ export class ShipSelectionTarget implements SelectionTarget {
   }
 
   isActive() {
-    // A trade ship spawned mid-flight isn't user-selectable; auto-clear an active selection if it slips into that state.
+    // Auto-clear selection if the ship enters an unselectable state (loading/unloading cargo, decommissioning) — `isTradeShipSelectable` only allows idle or inter-station flight.
     const tradeShip = this.tradeManager.findTradeShip(this.ship);
     if (tradeShip && !isTradeShipSelectable(tradeShip)) return false;
     return true;
@@ -94,7 +92,7 @@ export class ShipSelectionTarget implements SelectionTarget {
    *  the up-to-date label. */
   private refreshLabelCacheIfStale(): SelectionLabel {
     const tradeShip = this.tradeManager.findTradeShip(this.ship);
-    if (!tradeShip) return { iconUri: "", stackLabel: "", name: "", serialCode: "", description: "", loreTypeName: "", lore: "", hasDetails: false, accentColor: "", statusLabel: "" };
+    if (!tradeShip) return buildEmptyShipSelectionLabel();
 
     const queueLength = tradeShip.actionQueue.length;
     if (this.cachedLabel && this.cachedQueueLength === queueLength && queueLength > 0) {
@@ -103,7 +101,7 @@ export class ShipSelectionTarget implements SelectionTarget {
     this.cachedQueueLength = queueLength;
 
     const nation = this.ship.station.nation;
-    const shipType = getNationShipTemplate(nation);
+    const shipType = getNationShipTypeTemplate(nation);
     this.cachedLabel = {
       iconUri: getShipHudIcon(shipType),
       stackLabel: shipType.name,
@@ -124,21 +122,38 @@ export class ShipSelectionTarget implements SelectionTarget {
   }
 
   getMapPosition() {
-    shipMapPositionScratch.x = this.bundle.shape.x;
-    shipMapPositionScratch.y = this.bundle.shape.y;
+    shipMapPositionScratch.x = this.bundle.orbitSprite.x;
+    shipMapPositionScratch.y = this.bundle.orbitSprite.y;
     return shipMapPositionScratch;
   }
 }
 
-export function createShipVisualBundle(
-  scene: Scene,
-  ship: Ship,
-  selection: Selection,
-  tradeManager: TradeManager,
-  orbitPool: ShipOrbitPool,
-  bundles: ShipVisualBundlesByShipId,
-): ShipVisualBundle {
-  const shipType = getNationShipTemplate(ship.station.nation);
+function buildEmptyShipSelectionLabel(): SelectionLabel {
+  return {
+    iconUri: "",
+    stackLabel: "",
+    name: "",
+    serialCode: "",
+    description: "",
+    loreTypeName: "",
+    lore: "",
+    hasDetails: false,
+    accentColor: "",
+    statusLabel: "",
+  };
+}
+
+export interface ShipVisualBundleContext {
+  scene: Scene;
+  selection: Selection;
+  tradeManager: TradeManager;
+  orbitPool: ShipOrbitPool;
+  bundles: ShipVisualBundlesByShipId;
+}
+
+export function createShipVisualBundle(ship: Ship, context: ShipVisualBundleContext): ShipVisualBundle {
+  const { scene, selection, tradeManager, orbitPool, bundles } = context;
+  const shipType = getNationShipTypeTemplate(ship.station.nation);
   const textureKey = ensureShipTexture(scene, shipType);
   const color = hexToNumber(ship.station.nation.color);
 
@@ -146,21 +161,21 @@ export function createShipVisualBundle(
   const orbit = createOrbitState(slotIndex);
 
   const initialAngle = orbit.orbitAngleAtZero + orbit.orbitSpeedRadPerSec * (scene.time.now / 1000);
-  const shape = scene.add.image(
+  const orbitSprite = scene.add.image(
     ship.station.x + Math.cos(initialAngle) * orbit.orbitRadius,
     ship.station.y + Math.sin(initialAngle) * orbit.orbitRadius,
     textureKey,
   );
-  shape.setScale(1 / TEXTURE_SCALE);
-  shape.setTint(color);
-  shape.setVisible(false); // Deploy makes the orbit sprite visible (see updateFlightLifecycle).
+  orbitSprite.setScale(1 / TEXTURE_SCALE);
+  orbitSprite.setTint(color);
+  orbitSprite.setVisible(false); // Deploy makes the orbit sprite visible (see updateFlightLifecycle).
 
-  const shipTemplate = getShipTemplate(ship.shipTypeId);
+  const shipTemplate = getShipTypeTemplate(ship.shipTypeId);
   const shipUi = createShipUi(scene, ship, shipTemplate.cargoCapacity);
 
   const bundle: ShipVisualBundle = {
     ship,
-    shape,
+    orbitSprite,
     selectionTarget: undefined!,
     shipUi,
     travelBundle: null,
@@ -177,7 +192,7 @@ export function createShipVisualBundle(
 /** Hide every ship visual (orbit sprite, flight sprite/engine/trail, shared UI).
  *  Used by overview mode where the overlay owns the scene. */
 export function hideShipForOverview(bundle: ShipVisualBundle): void {
-  bundle.shape.setVisible(false);
+  bundle.orbitSprite.setVisible(false);
   hideShipUi(bundle.shipUi);
   const travelBundle = bundle.travelBundle;
   if (travelBundle) {
@@ -206,7 +221,7 @@ export function restoreShipAfterOverview(bundle: ShipVisualBundle): void {
  *  draw as selected. */
 export function updateAllShipVisualBundles(
   scene: Scene,
-  shipRenders: ShipVisualBundle[],
+  shipBundles: ShipVisualBundle[],
   frame: ShipRenderFrame,
   selectedTarget: SelectionTarget | null,
   tradeManager: TradeManager,
@@ -217,7 +232,7 @@ export function updateAllShipVisualBundles(
     if (bundle) updateFlightLifecycle(scene, bundle, tradeShip, tradeManager, frame.timeSec);
   }
 
-  for (const shipRender of shipRenders) {
+  for (const shipRender of shipBundles) {
     const selected = shipRender.selectionTarget === selectedTarget;
     updateShipVisualBundle(scene, shipRender, frame, selected, tradeManager);
   }
@@ -230,24 +245,7 @@ function updateShipVisualBundle(
   selected: boolean,
   tradeManager: TradeManager,
 ) {
-  let positionX: number;
-  let positionY: number;
-
-  if (bundle.travelBundle) {
-    const flightPosition = updateShipTravelVisualBundle(scene, bundle.travelBundle);
-    positionX = flightPosition.x;
-    positionY = flightPosition.y;
-    // Selection ring reads bundle.shape.x/y, so keep the orbit sprite positioned even while flying.
-    bundle.shape.setPosition(positionX, positionY);
-  } else {
-    const orbitPose = getOrbitingShipPose(bundle.ship, bundle.orbit, frame.timeSec);
-    positionX = orbitPose.x;
-    positionY = orbitPose.y;
-    bundle.shape.setPosition(positionX, positionY);
-    // Heading is tangent to the orbit circle — radial angle plus or minus 90°
-    // depending on rotation direction (so ships always face along their motion).
-    bundle.shape.setRotation(orbitPose.angle + Math.sign(bundle.orbit.orbitSpeedRadPerSec) * Math.PI / 2);
-  }
+  const { x: positionX, y: positionY } = computeShipPosition(scene, bundle, frame);
 
   // Skip UI updates for off-screen ships (position above already updated).
   if (!selected && !isVisibleInViewport(frame.camera, { x: positionX, y: positionY })) {
@@ -256,7 +254,7 @@ function updateShipVisualBundle(
   }
 
   // Selectable while orbit sprite shows or in flight.
-  const isShipInteractable = bundle.shape.visible || bundle.travelBundle !== null;
+  const isShipInteractable = bundle.orbitSprite.visible || bundle.travelBundle !== null;
 
   // Cargo for shipUi — sum across all wares; label shows the first ware's name even when the ship carries multiple.
   const tradeShip = selected ? tradeManager.findTradeShip(bundle.ship) : null;
@@ -275,17 +273,36 @@ function updateShipVisualBundle(
   });
 }
 
-export function destroyShipVisualBundle(
+/** Compute the ship's position for this frame and apply it to `orbitSprite`.
+ *  Flight: read from travel bundle; orbit: compute pose and set rotation. */
+function computeShipPosition(
+  scene: Scene,
   bundle: ShipVisualBundle,
-  selection: Selection,
-  orbitPool: ShipOrbitPool,
-  bundles: ShipVisualBundlesByShipId,
-) {
+  frame: ShipRenderFrame,
+): { x: number; y: number } {
+  if (bundle.travelBundle) {
+    const flightPosition = updateShipTravelVisualBundle(scene, bundle.travelBundle);
+    // Selection ring reads bundle.orbitSprite.x/y, so keep the orbit sprite positioned even while flying.
+    bundle.orbitSprite.setPosition(flightPosition.x, flightPosition.y);
+    return flightPosition;
+  }
+  const orbitPose = getOrbitingShipPose(bundle.ship, bundle.orbit, frame.timeSec);
+  bundle.orbitSprite.setPosition(orbitPose.x, orbitPose.y);
+  // Heading is tangent to the orbit circle — radial angle plus or minus 90°
+  // depending on rotation direction (so ships always face along their motion).
+  bundle.orbitSprite.setRotation(
+    orbitPose.angle + (Math.sign(bundle.orbit.orbitSpeedRadPerSec) * Math.PI) / 2,
+  );
+  return { x: orbitPose.x, y: orbitPose.y };
+}
+
+export function destroyShipVisualBundle(bundle: ShipVisualBundle, context: ShipVisualBundleContext) {
+  const { selection, orbitPool, bundles } = context;
   // Without this, every emigration ferry leaks its SelectionTarget into the
   // registry — heap-leak-check showed +582 ShipSelectionTarget retained over
   // a 1-hour run despite the ships being decommissioned.
   selection.unregister(bundle.selectionTarget);
-  bundle.shape.destroy();
+  bundle.orbitSprite.destroy();
   destroyShipUi(bundle.shipUi);
   if (bundle.travelBundle) {
     destroyShipTravelVisualBundle(bundle.travelBundle);

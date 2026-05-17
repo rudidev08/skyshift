@@ -8,24 +8,22 @@ import { type ValidationResult } from "./ui-savegame-manager";
 import { getPresetLabel } from "./util-map-preset";
 import { formatLocalDateTime } from "./util-date-format";
 
-export type SlotInfo = SlotSummary;
-
 const PENDING_TIMEOUT_MS = 1500;
 
 export interface SlotSelectorOptions {
   slotList: HTMLElement;
   actionBar: HTMLElement;
   /** Callback owns the write + toasting; selector only re-renders after. */
-  onSave(slot: SlotInfo): void;
+  onSave(slot: SlotSummary): void;
   /** Returns ValidationResult so errors flow through the same handler as file-import. */
-  onLoad(slot: SlotInfo): ValidationResult;
+  onLoad(slot: SlotSummary): ValidationResult;
   /** Typically close the panel on success, show a toast on failure. */
   onLoadResult(result: ValidationResult): void;
 }
 
 export class SlotSelector {
   private readonly options: SlotSelectorOptions;
-  private selectedSlot: SlotInfo | null = null;
+  private selectedSlot: SlotSummary | null = null;
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: SlotSelectorOptions) {
@@ -36,7 +34,7 @@ export class SlotSelector {
   refresh(): void {
     const slots = listSlots();
     this.selectedSlot = this.selectedSlot
-      ? slots.find((slot) => isSameSlot(slot, this.selectedSlot)) ?? null
+      ? (slots.find((slot) => isSameSlot(slot, this.selectedSlot)) ?? null)
       : null;
 
     const { slotList } = this.options;
@@ -49,7 +47,7 @@ export class SlotSelector {
     this.renderActionBar();
   }
 
-  private createSlotRow(slot: SlotInfo): HTMLButtonElement {
+  private createSlotRow(slot: SlotSummary): HTMLButtonElement {
     const isEmpty = slot.savedAt === null;
     const row = document.createElement("button");
     row.type = "button";
@@ -61,7 +59,7 @@ export class SlotSelector {
     // M/A prefix on slot-num already encodes the kind). Falls back to
     // Manual/Auto when empty or when a save lacks a preset field.
     const kindLabel = slot.kind === "manual" ? "Manual" : "Auto";
-    const slotLabel = isEmpty || !slot.preset ? kindLabel : getPresetLabel(slot.preset);
+    const slotLabel = isEmpty || !slot.presetId ? kindLabel : getPresetLabel(slot.presetId);
     const numberLabel = `${slot.kind === "manual" ? "M" : "A"}${slot.index}`;
     const numberClass = isEmpty ? "slot-num is-empty" : `slot-num slot-num--${slot.kind}`;
     let timeText: string;
@@ -96,7 +94,7 @@ export class SlotSelector {
     this.pendingTimer = null;
   }
 
-  private handleEmptySlotSave(slot: SlotInfo): void {
+  private handleEmptySlotSave(slot: SlotSummary): void {
     this.options.onSave(slot);
     this.renderActionBar();
   }
@@ -117,13 +115,11 @@ export class SlotSelector {
     if (slot.kind === "manual") {
       // Empty slot has nothing to clobber — save immediately. Overwriting
       // an occupied slot keeps the two-step guard since that IS destructive.
-      const onClick = isEmpty
-        ? () => this.handleEmptySlotSave(slot)
-        : () => this.setActionPending("save");
-      actionBar.appendChild(makeButton(isEmpty ? "Save" : "Overwrite", onClick));
+      const onClick = isEmpty ? () => this.handleEmptySlotSave(slot) : () => this.setActionPending("save");
+      actionBar.appendChild(createHudButton(isEmpty ? "Save" : "Overwrite", onClick));
     }
     if (!isEmpty) {
-      actionBar.appendChild(makeButton("Load", () => this.setActionPending("load")));
+      actionBar.appendChild(createHudButton("Load", () => this.setActionPending("load")));
     }
   }
 
@@ -132,38 +128,41 @@ export class SlotSelector {
     const slot = this.selectedSlot;
     const { actionBar } = this.options;
     actionBar.innerHTML = `<span class="slot-pending">···</span>`;
-    this.pendingTimer = setTimeout(() => {
-      actionBar.innerHTML = "";
-      const confirmButton = makeButton(
-        action === "save" ? "Confirm save?" : "Confirm load?",
-        () => {
-          if (action === "save") {
-            this.options.onSave(slot);
-            this.renderActionBar();
-          } else {
-            this.options.onLoadResult(this.options.onLoad(slot));
-          }
-        },
-        "slot-confirm",
-      );
-      const cancelButton = document.createElement("button");
-      cancelButton.className = "hud-btn";
-      cancelButton.innerHTML = X;
-      cancelButton.addEventListener("click", () => this.renderActionBar());
-      actionBar.appendChild(confirmButton);
-      actionBar.appendChild(cancelButton);
-    }, PENDING_TIMEOUT_MS);
+    this.pendingTimer = setTimeout(() => this.showConfirmButtons(action, slot), PENDING_TIMEOUT_MS);
+  }
+
+  private showConfirmButtons(action: "save" | "load", slot: SlotSummary): void {
+    const { actionBar } = this.options;
+    actionBar.innerHTML = "";
+    const confirmButton = createHudButton(
+      action === "save" ? "Confirm save?" : "Confirm load?",
+      () => {
+        if (action === "save") {
+          this.options.onSave(slot);
+          this.renderActionBar();
+        } else {
+          this.options.onLoadResult(this.options.onLoad(slot));
+        }
+      },
+      "slot-confirm",
+    );
+    const cancelButton = document.createElement("button");
+    cancelButton.className = "hud-btn";
+    cancelButton.innerHTML = X;
+    cancelButton.addEventListener("click", () => this.renderActionBar());
+    actionBar.appendChild(confirmButton);
+    actionBar.appendChild(cancelButton);
   }
 }
 
-function isSameSlot(leftSlot: SlotInfo | null, rightSlot: SlotInfo | null): boolean {
+function isSameSlot(leftSlot: SlotSummary | null, rightSlot: SlotSummary | null): boolean {
   return !!leftSlot && !!rightSlot && leftSlot.kind === rightSlot.kind && leftSlot.index === rightSlot.index;
 }
 
-function makeButton(label: string, onClick: () => void, extraClass?: string): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.className = extraClass ? `hud-btn ${extraClass}` : "hud-btn";
-  btn.textContent = label;
-  btn.addEventListener("click", onClick);
-  return btn;
+function createHudButton(label: string, onClick: () => void, extraClass?: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.className = extraClass ? `hud-btn ${extraClass}` : "hud-btn";
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
 }

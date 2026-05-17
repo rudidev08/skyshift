@@ -4,7 +4,7 @@
 
 import {
   collectAnnouncementSpeechStringsFromMapStations,
-  collectCoreAnnouncementSpeechStrings,
+  collectCoreSpeechStrings,
 } from "../../src/audio-speech-strings";
 import { mkdirSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -16,10 +16,12 @@ const outputFile = join(projectRoot, "dev/audio/data/audio-strings.txt");
 // Settled is the superset of station names across presets today (Frontier
 // is a strict subset), so collecting from settledPreset covers every map
 // station name the announcement system can speak.
-const allSpeechStrings = [...new Set([
-  ...collectCoreAnnouncementSpeechStrings(),
-  ...collectAnnouncementSpeechStringsFromMapStations(settledPreset.stations),
-])].sort();
+const allSpeechStrings = [
+  ...new Set([
+    ...collectCoreSpeechStrings(),
+    ...collectAnnouncementSpeechStringsFromMapStations(settledPreset.presetStations),
+  ]),
+].sort();
 
 mkdirSync(dirname(outputFile), { recursive: true });
 writeFileSync(outputFile, allSpeechStrings.join(", ") + "\n");

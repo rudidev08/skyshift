@@ -1,12 +1,12 @@
 import { test, assertTrue } from "./test-utils.ts";
 import { hasUnsavedEdits } from "../editor/edits-heuristic.ts";
-import type { StationPlacement } from "../../data/station-types.ts";
+import type { PlacedStation } from "../../data/station-types.ts";
 import type { Nebula } from "../../data/map-types.ts";
 import { bioNation } from "../../data/nations.ts";
-import { makeStationPlacement, makeNebula } from "./factories.ts";
+import { makePlacedStation, makeNebula } from "./factories.ts";
 
-function station(id: string, x: number, y: number): StationPlacement {
-  return makeStationPlacement({ id, x, y });
+function station(id: string, x: number, y: number): PlacedStation {
+  return makePlacedStation({ id, x, y });
 }
 
 function nebula(textureKey: string, x: number, y: number): Nebula {
@@ -90,7 +90,7 @@ test("hasUnsavedEdits: station y moved (x unchanged) -> true", () => {
 });
 
 test("hasUnsavedEdits: nebula added -> true", () => {
-  const baselineStations: StationPlacement[] = [];
+  const baselineStations: PlacedStation[] = [];
   const baselineNebulas: Nebula[] = [];
   const currentNebulas = [nebula("neb-new", 100, 100)];
   assertTrue(

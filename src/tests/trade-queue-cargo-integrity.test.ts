@@ -1,6 +1,7 @@
 import { test, assertEqual, assertTrue } from "./test-utils.ts";
-import { createInventorySlot as createSlot } from "../sim-station.ts";
+import { createInventorySlot } from "../sim-station.ts";
 import {
+  advanceQueue,
   processDepositAction,
   startTrip,
   withdrawCargo,
@@ -8,31 +9,44 @@ import {
 } from "../sim-trade-queue.ts";
 import { addReservation } from "../sim-trade-reservation.ts";
 import { ice, food, medicine } from "../../data/wares.ts";
-import {
-  makeMockStation,
-  makeMockTradeShip,
-  withMockManager,
-} from "./trade-test-fixtures.ts";
-import { createSimulation } from "../sim-lifecycle.ts";
-import { createMapFromTemplate } from "../sim-map-builder.ts";
+import { makeEmptyTradeShip, withMockManager } from "./trade-test-fixtures.ts";
+import { createSimulation, type Simulation } from "../sim-lifecycle.ts";
+import { createMapFromTemplate } from "../sim-map-create.ts";
 import { map as settledUniverse } from "../../data/map.ts";
 import { settledPreset } from "../../data/map-preset-settled.ts";
 import { findRoundTradeTrip } from "../sim-trade-decision.ts";
-import { getInventorySlot } from "../sim-station.ts";
+import type { TradeShip, TradeTripLeg } from "../sim-trade-types.ts";
 
 // Pins cargo + reservation integrity through queue advancement
 // (sim-trade-queue.ts). Existing trade-cargo-transfer.test.ts covers
 // per-action helpers; this file covers the queue-level plumbing where
 // silent corruption shows up.
 
-test("buildQueueFromTrip: deposits queued before withdrawals at the target stop", () => {
+function makeSettledSimulation(): Simulation {
+  return createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
+    ignoreCargoCompatibility: true,
+    initialStaggerDurationSeconds: 0,
+  });
+}
+
+function findShipWithRoundTrip(
+  simulation: Simulation,
+  predicate?: (ship: TradeShip, legs: TradeTripLeg[]) => boolean,
+): { ship: TradeShip; legs: TradeTripLeg[] } | null {
+  for (const candidate of simulation.tradeManager.tradeShips) {
+    const tripLegs = findRoundTradeTrip(candidate, simulation.tradeManager);
+    if (tripLegs && (!predicate || predicate(candidate, tripLegs))) {
+      return { ship: candidate, legs: tripLegs };
+    }
+  }
+  return null;
+}
+
+test("createQueueFromTrip: deposits queued before withdrawals at the target stop", () => {
   // Pin the order: targetActions = [...targetDeposits, ...targetWithdrawals].
   // Mutating to put withdrawals first would refill the hold before emptying it,
   // potentially overflowing or wasting capacity.
-  const simulation = createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
-    ignoreCargoCompatibility: true,
-    initialStaggerDuration: 0,
-  });
+  const simulation = makeSettledSimulation();
   // Build a synthetic 2-leg trip so target sees both a deposit and a withdrawal.
   const home = simulation.stationManager.getStation("BIO-M");
   const target = simulation.stationManager.getStation("BIO-H");
@@ -42,56 +56,68 @@ test("buildQueueFromTrip: deposits queued before withdrawals at the target stop"
   }
   let ship = null;
   for (const candidate of simulation.tradeManager.tradeShips) {
-    if (candidate.homeStationId === "BIO-M") { ship = candidate; break; }
+    if (candidate.homeStationId === "BIO-M") {
+      ship = candidate;
+      break;
+    }
   }
-  if (!ship) { simulation.tradeManager.dispose(); return; }
+  if (!ship) {
+    simulation.tradeManager.dispose();
+    return;
+  }
 
-  startTrip(ship, [
-    { wareId: "medicine", amount: 50, fromStation: home, toStation: target },
-    { wareId: "food", amount: 50, fromStation: target, toStation: home },
-  ], simulation.tradeManager);
+  startTrip(
+    ship,
+    [
+      { wareId: "medicine", amount: 50, fromStation: home, toStation: target },
+      { wareId: "food", amount: 50, fromStation: target, toStation: home },
+    ],
+    simulation.tradeManager,
+  );
 
   // Walk the queue. The target's first cargo action must be a cargo-deposit
   // (medicine), followed by a cargo-withdrawal (food).
   let firstTargetActionIndex = -1;
-  let firstTargetAction = null;
-  let secondTargetAction = null;
+  let firstCargoActionAtTarget = null;
+  let secondCargoActionAtTarget = null;
   for (let actionIndex = 0; actionIndex < ship.actionQueue.length; actionIndex++) {
     const action = ship.actionQueue[actionIndex];
-    if ((action.type === "cargo-deposit" || action.type === "cargo-withdrawal") && action.station.id === target.id) {
+    if (
+      (action.type === "cargo-deposit" || action.type === "cargo-withdrawal") &&
+      action.station.id === target.id
+    ) {
       if (firstTargetActionIndex < 0) {
         firstTargetActionIndex = actionIndex;
-        firstTargetAction = action;
-      } else if (secondTargetAction === null) {
-        secondTargetAction = action;
+        firstCargoActionAtTarget = action;
+      } else if (secondCargoActionAtTarget === null) {
+        secondCargoActionAtTarget = action;
       }
     }
   }
-  assertEqual(firstTargetAction?.type, "cargo-deposit", "first target cargo action is a deposit");
-  assertEqual(secondTargetAction?.type, "cargo-withdrawal", "second target cargo action is a withdrawal");
+  assertEqual(firstCargoActionAtTarget?.type, "cargo-deposit", "first target cargo action is a deposit");
+  assertEqual(
+    secondCargoActionAtTarget?.type,
+    "cargo-withdrawal",
+    "second target cargo action is a withdrawal",
+  );
 
   simulation.tradeManager.dispose();
 });
 
-test("buildQueueFromTrip: dock-wait inserted before withdrawals at home (when home has cargo to load)", () => {
-  // Pin `if (needsHomeLanding) { queue.push(buildDockWait(homeLabel)); ... }`.
+test("createQueueFromTrip: dock-wait inserted before withdrawals at home (when home has cargo to load)", () => {
+  // Pin `if (needsHomeLanding) { queue.push(createDockWait(homeLabel)); ... }`.
   // Mutating the conditional or removing the dockWait would let the queue
   // start cargo-withdrawal immediately, skipping the time-on-ground beat.
-  const simulation = createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
-    ignoreCargoCompatibility: true,
-    initialStaggerDuration: 0,
-  });
-  let ship = null;
-  let legs = null;
-  for (const candidate of simulation.tradeManager.tradeShips) {
-    const tripLegs = findRoundTradeTrip(candidate, simulation.tradeManager);
-    if (tripLegs && tripLegs[0].fromStation.id === candidate.homeStationId) {
-      ship = candidate;
-      legs = tripLegs;
-      break;
-    }
+  const simulation = makeSettledSimulation();
+  const found = findShipWithRoundTrip(
+    simulation,
+    (candidate, legs) => legs[0].fromStation.id === candidate.homeStationId,
+  );
+  if (!found) {
+    simulation.tradeManager.dispose();
+    return;
   }
-  if (!ship || !legs) { simulation.tradeManager.dispose(); return; }
+  const { ship, legs } = found;
   startTrip(ship, legs, simulation.tradeManager);
 
   // Find the first cargo-withdrawal at home; the action immediately before it
@@ -102,7 +128,10 @@ test("buildQueueFromTrip: dock-wait inserted before withdrawals at home (when ho
       const previous = ship.actionQueue[actionIndex - 1];
       assertEqual(previous?.type, "wait", "action before home withdrawal is a wait");
       if (previous?.type === "wait") {
-        assertTrue(previous.label.startsWith("Dock:"), `wait label starts with 'Dock:'; got '${previous.label}'`);
+        assertTrue(
+          previous.label.startsWith("Dock:"),
+          `wait label starts with 'Dock:'; got '${previous.label}'`,
+        );
       }
       simulation.tradeManager.dispose();
       return;
@@ -116,22 +145,35 @@ test("processDepositAction: capacity-shrunk delivery (delivered < amount) releas
   // Without this branch, an overfilled destination (slot.max shrank since
   // reservation) would leave a phantom incoming claim for (amount - delivered)
   // on the slot.
-  withMockManager((manager) => {
-    const ship = makeMockTradeShip();
-    const destinationSlot = createSlot(ice, 480, 500);
+  withMockManager(({ manager, makeMockStation }) => {
+    const ship = makeEmptyTradeShip();
+    const destinationSlot = createInventorySlot(ice, 480, 500);
     const destination = makeMockStation([destinationSlot]);
     ship.cargoAmountByWareId = new Map([["ice", 100]]);
-    addReservation(ship, { station: destination, wareId: "ice", amount: 100, cargoDirection: "incoming" });
-
-    processDepositAction(ship, {
-      type: "cargo-deposit",
+    addReservation(ship, {
       station: destination,
       wareId: "ice",
       amount: 100,
-    }, manager);
+      cargoDirection: "incoming",
+    });
+
+    processDepositAction(
+      ship,
+      {
+        type: "cargo-deposit",
+        station: destination,
+        wareId: "ice",
+        amount: 100,
+      },
+      manager,
+    );
 
     assertEqual(destinationSlot.current, 500, "destination filled to capacity (delivered = 20)");
-    assertEqual(destinationSlot.reservedIncoming, 0, "full original reservation released, not just delivered");
+    assertEqual(
+      destinationSlot.reservedIncoming,
+      0,
+      "full original reservation released, not just delivered",
+    );
     assertEqual(ship.reservations.length, 0, "ship reservation entry cleared");
   });
 });
@@ -140,11 +182,16 @@ test("processDepositAction: missing slot (target inventory cleared mid-trip) —
   // Pin the `if (slot) fulfillReservation(...)` guard. When slot is missing,
   // we don't increment any slot's reservedIncoming. Cargo is silently
   // discarded (removeCargo at the bottom of processDepositAction).
-  withMockManager((manager) => {
-    const ship = makeMockTradeShip();
-    const destinationSlot = createSlot(ice, 0, 500);
+  withMockManager(({ manager, makeMockStation }) => {
+    const ship = makeEmptyTradeShip();
+    const destinationSlot = createInventorySlot(ice, 0, 500);
     const destination = makeMockStation([destinationSlot]);
-    addReservation(ship, { station: destination, wareId: "ice", amount: 100, cargoDirection: "incoming" });
+    addReservation(ship, {
+      station: destination,
+      wareId: "ice",
+      amount: 100,
+      cargoDirection: "incoming",
+    });
     // Place the reservation on the slot's counter so we can see whether it
     // changes — startTrip would normally do this; we mimic it here.
     destinationSlot.reservedIncoming = 100;
@@ -154,12 +201,16 @@ test("processDepositAction: missing slot (target inventory cleared mid-trip) —
     destination.inventory = [];
     destination.inventoryByWareId.clear();
 
-    processDepositAction(ship, {
-      type: "cargo-deposit",
-      station: destination,
-      wareId: "ice",
-      amount: 100,
-    }, manager);
+    processDepositAction(
+      ship,
+      {
+        type: "cargo-deposit",
+        station: destination,
+        wareId: "ice",
+        amount: 100,
+      },
+      manager,
+    );
 
     // Slot counter is untouched (we cleared the inventory, the slot object
     // still exists in our local handle). Pin: no phantom claim added.
@@ -173,22 +224,31 @@ test("processDepositAction: missing slot (target inventory cleared mid-trip) —
 test("processDepositAction: emigrating destination — cargo discarded, reservation released cleanly", () => {
   // Pin `isEmigrating` branch: delivered = 0, but slot still exists so
   // fulfillReservation runs and clears the reservation. No leak.
-  withMockManager((manager) => {
-    const ship = makeMockTradeShip();
-    const destinationSlot = createSlot(ice, 0, 500);
+  withMockManager(({ manager, makeMockStation }) => {
+    const ship = makeEmptyTradeShip();
+    const destinationSlot = createInventorySlot(ice, 0, 500);
     const destination = makeMockStation([destinationSlot]);
     destination.state = "emigrating";
     // addReservation populates destinationSlot.reservedIncoming on its own —
     // don't manually set it first or the slot's counter ends up doubled.
-    addReservation(ship, { station: destination, wareId: "ice", amount: 100, cargoDirection: "incoming" });
-    ship.cargoAmountByWareId = new Map([["ice", 100]]);
-
-    processDepositAction(ship, {
-      type: "cargo-deposit",
+    addReservation(ship, {
       station: destination,
       wareId: "ice",
       amount: 100,
-    }, manager);
+      cargoDirection: "incoming",
+    });
+    ship.cargoAmountByWareId = new Map([["ice", 100]]);
+
+    processDepositAction(
+      ship,
+      {
+        type: "cargo-deposit",
+        station: destination,
+        wareId: "ice",
+        amount: 100,
+      },
+      manager,
+    );
 
     // Pin: delivered=0 → slot stock unchanged, reservation released, cargo dropped.
     assertEqual(destinationSlot.current, 0, "emigrating station does not stock cargo");
@@ -198,22 +258,56 @@ test("processDepositAction: emigrating destination — cargo discarded, reservat
   });
 });
 
+test("processWithdrawAction releases the outgoing reservation entry on the ship (not the incoming entry)", () => {
+  // Pin processWithdrawAction's `cargoDirection: "outgoing"` on its
+  // fulfillReservation call. A swap to "incoming" would leave the
+  // ship's outgoing-reservation entry on the array (since the entry-removal
+  // loop in fulfillReservation matches by direction), so after the
+  // withdrawal fires the ship still has its outgoing entry.
+  withMockManager(({ manager, makeMockStation }) => {
+    const ship = makeEmptyTradeShip();
+    const sourceSlot = createInventorySlot(ice, 100, 500);
+    const sourceStation = makeMockStation([sourceSlot]);
+
+    addReservation(ship, {
+      station: sourceStation,
+      wareId: "ice",
+      amount: 50,
+      cargoDirection: "outgoing",
+    });
+    // Synthesize a queued withdraw + drive it via advanceQueue. The ship has
+    // a leading placeholder + one withdraw + one terminal action so advanceQueue
+    // processes the burst and exits cleanly.
+    ship.actionQueue = [
+      { type: "wait", duration: 0, label: "—" },
+      { type: "cargo-withdrawal", station: sourceStation, wareId: "ice", amount: 50 },
+      { type: "wait", duration: 999, label: "park" },
+    ];
+
+    advanceQueue(ship, manager);
+
+    // After the withdraw fires: ship's outgoing entry is settled and removed.
+    // With the bug (cargoDirection "incoming" in fulfillReservation), the
+    // entry-removal loop skips the outgoing entry, leaving it stuck.
+    const outgoingEntries = ship.reservations.filter(
+      (reservation) => reservation.cargoDirection === "outgoing",
+    );
+    assertEqual(outgoingEntries.length, 0, "outgoing reservation entry removed after withdraw");
+  });
+});
+
 test("processWithdrawAction-equivalent via tick: missing slot → no cargo added, ship inventory uncorrupted", () => {
   // processWithdrawAction is private. Test via the queue: have a ship attempt
   // a withdrawal at a station whose inventory was cleared. Pin: no cargo is
   // added to the ship and no slot counters change.
-  const simulation = createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
-    ignoreCargoCompatibility: true,
-    initialStaggerDuration: 0,
-  });
+  const simulation = makeSettledSimulation();
   // Build a 1-leg synthetic trip.
-  let ship = null;
-  let legs = null;
-  for (const candidate of simulation.tradeManager.tradeShips) {
-    const tripLegs = findRoundTradeTrip(candidate, simulation.tradeManager);
-    if (tripLegs) { ship = candidate; legs = tripLegs; break; }
+  const found = findShipWithRoundTrip(simulation);
+  if (!found) {
+    simulation.tradeManager.dispose();
+    return;
   }
-  if (!ship || !legs) { simulation.tradeManager.dispose(); return; }
+  const { ship, legs } = found;
   startTrip(ship, legs, simulation.tradeManager);
 
   // Wipe the source station's inventory. The ship will eventually arrive,
@@ -242,17 +336,13 @@ test("advanceQueue bursts through multiple instant cargo actions until a fly blo
   // Pin the burst loop. Mutating the case "cargo-deposit"/"cargo-withdrawal"
   // to add a `return` would break the burst — the queue would advance one
   // instant action per tick instead of all-at-once.
-  const simulation = createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
-    ignoreCargoCompatibility: true,
-    initialStaggerDuration: 0,
-  });
-  let ship = null;
-  let legs = null;
-  for (const candidate of simulation.tradeManager.tradeShips) {
-    const tripLegs = findRoundTradeTrip(candidate, simulation.tradeManager);
-    if (tripLegs) { ship = candidate; legs = tripLegs; break; }
+  const simulation = makeSettledSimulation();
+  const found = findShipWithRoundTrip(simulation);
+  if (!found) {
+    simulation.tradeManager.dispose();
+    return;
   }
-  if (!ship || !legs) { simulation.tradeManager.dispose(); return; }
+  const { ship, legs } = found;
   startTrip(ship, legs, simulation.tradeManager);
 
   // Tick enough to consume the leading placeholder + dock + withdrawals
@@ -272,7 +362,10 @@ test("advanceQueue bursts through multiple instant cargo actions until a fly blo
   // Pin the burst: after the dock-wait fires, the cargo-withdrawal(s) burst
   // through and the queue lands on the fly action. (If the test exited the
   // loop, headType is "fly".)
-  assertTrue(headType === "fly" || ship.actionQueue.length === 0, `burst progressed to fly or empty; got ${headType}`);
+  assertTrue(
+    headType === "fly" || ship.actionQueue.length === 0,
+    `burst progressed to fly or empty; got ${headType}`,
+  );
 
   simulation.tradeManager.dispose();
 });
@@ -282,8 +375,8 @@ test("withdrawCargo + depositCargo: round-trip preserves total cargo across slot
   // deposited (clamped by capacity). Mutating either function's clamp would
   // create or destroy cargo.
   withMockManager(() => {
-    const sourceSlot = createSlot(food, 100, 500);
-    const destinationSlot = createSlot(food, 200, 500);
+    const sourceSlot = createInventorySlot(food, 100, 500);
+    const destinationSlot = createInventorySlot(food, 200, 500);
 
     const taken = withdrawCargo(sourceSlot, 50);
     const delivered = depositCargo(destinationSlot, taken);
@@ -298,7 +391,7 @@ test("withdrawCargo: clamps to current when stock is below request", () => {
   // Pin Math.min(maxAmount, slot.current). Mutating to Math.max would let the
   // ship withdraw more than the source has, driving slot.current negative.
   withMockManager(() => {
-    const sourceSlot = createSlot(medicine, 30, 500);
+    const sourceSlot = createInventorySlot(medicine, 30, 500);
     const taken = withdrawCargo(sourceSlot, 100);
     assertEqual(taken, 30, "clamped to current stock");
     assertEqual(sourceSlot.current, 0, "source emptied");
@@ -309,19 +402,28 @@ test("processDepositAction: removeCargo runs even when delivery is short — no 
   // Pin the unconditional `removeCargo(ship, action.wareId, amount)` at the
   // end of processDepositAction. Mutating to gate it (e.g. only on delivered
   // > 0) would leave overflow cargo on the ship after a short deposit.
-  withMockManager((manager) => {
-    const ship = makeMockTradeShip();
-    const destinationSlot = createSlot(ice, 0, 50);  // tiny destination
+  withMockManager(({ manager, makeMockStation }) => {
+    const ship = makeEmptyTradeShip();
+    const destinationSlot = createInventorySlot(ice, 0, 50); // tiny destination
     const destination = makeMockStation([destinationSlot]);
-    addReservation(ship, { station: destination, wareId: "ice", amount: 100, cargoDirection: "incoming" });
-    ship.cargoAmountByWareId = new Map([["ice", 100]]);
-
-    processDepositAction(ship, {
-      type: "cargo-deposit",
+    addReservation(ship, {
       station: destination,
       wareId: "ice",
       amount: 100,
-    }, manager);
+      cargoDirection: "incoming",
+    });
+    ship.cargoAmountByWareId = new Map([["ice", 100]]);
+
+    processDepositAction(
+      ship,
+      {
+        type: "cargo-deposit",
+        station: destination,
+        wareId: "ice",
+        amount: 100,
+      },
+      manager,
+    );
 
     assertEqual(destinationSlot.current, 50, "destination filled to its tiny max");
     assertEqual(ship.cargoAmountByWareId.size, 0, "ship cargo emptied even though only 50 of 100 delivered");
@@ -331,23 +433,28 @@ test("processDepositAction: removeCargo runs even when delivery is short — no 
 test("startTrip throws when a leg references a ware with no inventory slot at either station", () => {
   // Pin the slot-existence check in startTrip. Without the throw, the trip
   // would proceed with broken reservations and crash later when the action fires.
-  const simulation = createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
-    ignoreCargoCompatibility: true,
-    initialStaggerDuration: 0,
-  });
+  const simulation = makeSettledSimulation();
   let ship = null;
   for (const candidate of simulation.tradeManager.tradeShips) {
-    if (candidate.homeStationId === "BIO-M") { ship = candidate; break; }
+    if (candidate.homeStationId === "BIO-M") {
+      ship = candidate;
+      break;
+    }
   }
   const home = simulation.stationManager.getStation("BIO-M");
   const target = simulation.stationManager.getStation("BIO-H");
-  if (!ship || !home || !target) { simulation.tradeManager.dispose(); return; }
+  if (!ship || !home || !target) {
+    simulation.tradeManager.dispose();
+    return;
+  }
   // hyperdata: not produced/consumed by either station — neither has a slot.
   let threw = false;
   try {
-    startTrip(ship, [
-      { wareId: "hyperdata", amount: 50, fromStation: home, toStation: target },
-    ], simulation.tradeManager);
+    startTrip(
+      ship,
+      [{ wareId: "hyperdata", amount: 50, fromStation: home, toStation: target }],
+      simulation.tradeManager,
+    );
   } catch {
     threw = true;
   }
@@ -365,9 +472,11 @@ test("startTrip throws when a leg references a ware with no inventory slot at ei
   // asymmetric.
   let asymError: Error | null = null;
   try {
-    startTrip(ship, [
-      { wareId: "provisions", amount: 50, fromStation: home, toStation: target },
-    ], simulation.tradeManager);
+    startTrip(
+      ship,
+      [{ wareId: "provisions", amount: 50, fromStation: home, toStation: target }],
+      simulation.tradeManager,
+    );
   } catch (error) {
     asymError = error as Error;
   }
@@ -378,43 +487,4 @@ test("startTrip throws when a leg references a ware with no inventory slot at ei
   );
 
   simulation.tradeManager.dispose();
-});
-
-test("advanceQueue: queue.shift is called for each instant action processed (not skipped)", () => {
-  // Indirect pin of the per-action shift — count actions before/after a burst
-  // and verify the count drops by exactly the number processed in the burst.
-  withMockManager((manager) => {
-    const ship = makeMockTradeShip();
-    const destinationSlot1 = createSlot(ice, 0, 500);
-    const destinationSlot2 = createSlot(food, 0, 500);
-    const destination1 = makeMockStation([destinationSlot1]);
-    const destination2 = makeMockStation([destinationSlot2]);
-    ship.cargoAmountByWareId = new Map([["ice", 50], ["food", 50]]);
-
-    // Two instant deposits.
-    addReservation(ship, { station: destination1, wareId: "ice", amount: 50, cargoDirection: "incoming" });
-    addReservation(ship, { station: destination2, wareId: "food", amount: 50, cargoDirection: "incoming" });
-
-    processDepositAction(ship, {
-      type: "cargo-deposit",
-      station: destination1,
-      wareId: "ice",
-      amount: 50,
-    }, manager);
-    processDepositAction(ship, {
-      type: "cargo-deposit",
-      station: destination2,
-      wareId: "food",
-      amount: 50,
-    }, manager);
-
-    // Both deposits processed. Pin the cumulative effect — each shifted slot
-    // is filled, each reservation cleared.
-    assertEqual(destinationSlot1.current, 50, "first deposit landed");
-    assertEqual(destinationSlot2.current, 50, "second deposit landed");
-    assertEqual(ship.cargoAmountByWareId.size, 0, "all cargo deposited");
-    assertEqual(ship.reservations.length, 0, "all reservations cleared");
-    // Reference getInventorySlot so unused-import lint stays quiet.
-    assertEqual(getInventorySlot(destination1, "ice")?.current, 50, "slot lookup matches");
-  });
 });

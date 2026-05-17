@@ -16,8 +16,8 @@ interface DarkNebula {
 
 const DARK_NEBULAS: DarkNebula[] = [
   { xRatio: 0.05, yRatio: 0.15, scale: 0.35, alpha: 0.5 },
-  { xRatio: 0.90, yRatio: 0.80, scale: 0.30, alpha: 0.4 },
-  { xRatio: 0.55, yRatio: 0.90, scale: 0.28, alpha: 0.35 },
+  { xRatio: 0.9, yRatio: 0.8, scale: 0.3, alpha: 0.4 },
+  { xRatio: 0.55, yRatio: 0.9, scale: 0.28, alpha: 0.35 },
 ];
 
 /** One tiled starfield layer: the bitmap, its blend opacity, and the offset jitters that break up the visible tile-seam grid. */
@@ -28,10 +28,15 @@ interface StarLayer {
 }
 
 const STARS_FAR_OFFSETS: Array<[number, number]> = [
-  [0, 0], [300, 500], [700, 200], [150, 750],
+  [0, 0],
+  [300, 500],
+  [700, 200],
+  [150, 750],
 ];
 const STARS_NEAR_OFFSETS: Array<[number, number]> = [
-  [0, 0], [400, 300], [100, 600],
+  [0, 0],
+  [400, 300],
+  [100, 600],
 ];
 
 /** Resolves `name` against `/index/`; fires `onload` when the bitmap is decoded. */
@@ -63,14 +68,17 @@ export function mountPageBackground(canvas: HTMLCanvasElement): PageBackgroundHa
   };
 
   function resize() {
-    canvas.width  = innerWidth  * PIXEL_RATIO;
+    canvas.width = innerWidth * PIXEL_RATIO;
     canvas.height = innerHeight * PIXEL_RATIO;
     context.setTransform(PIXEL_RATIO, 0, 0, PIXEL_RATIO, 0, 0);
   }
   resize();
 
   // draw() reads innerWidth/innerHeight, so re-resize + redraw on viewport changes.
-  const onResize = () => { resize(); draw(); };
+  const onResize = () => {
+    resize();
+    draw();
+  };
   window.addEventListener("resize", onResize);
   draw();
 
@@ -81,7 +89,12 @@ export function mountPageBackground(canvas: HTMLCanvasElement): PageBackgroundHa
   };
 }
 
-function drawDarkNebula(context: CanvasRenderingContext2D, nebula: DarkNebula, width: number, height: number): void {
+function drawDarkNebula(
+  context: CanvasRenderingContext2D,
+  nebula: DarkNebula,
+  width: number,
+  height: number,
+): void {
   context.save();
   context.globalCompositeOperation = "multiply";
   context.globalAlpha = nebula.alpha;
@@ -97,12 +110,9 @@ function drawDarkNebula(context: CanvasRenderingContext2D, nebula: DarkNebula, w
   context.restore();
 }
 
-function drawBackground(
-  context: CanvasRenderingContext2D,
-  farLayer: StarLayer,
-  nearLayer: StarLayer,
-): void {
-  const width = innerWidth, height = innerHeight;
+function drawBackground(context: CanvasRenderingContext2D, farLayer: StarLayer, nearLayer: StarLayer): void {
+  const width = innerWidth,
+    height = innerHeight;
   context.globalAlpha = 1;
   context.fillStyle = "#050709";
   context.fillRect(0, 0, width, height);
@@ -123,7 +133,8 @@ function tileStarLayer(context: CanvasRenderingContext2D, layer: StarLayer): voi
   context.imageSmoothingEnabled = false;
   const tileWidth = image.naturalWidth;
   const tileHeight = image.naturalHeight;
-  const width = innerWidth, height = innerHeight;
+  const width = innerWidth,
+    height = innerHeight;
   for (const [offsetX, offsetY] of offsets) {
     for (let y = -tileHeight + offsetY; y < height + tileHeight; y += tileHeight) {
       for (let x = -tileWidth + offsetX; x < width + tileWidth; x += tileWidth) {

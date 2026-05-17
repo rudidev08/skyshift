@@ -1,11 +1,6 @@
 import { test, assertTrue, assertEqual } from "./test-utils.ts";
-import {
-  saveSlotKey,
-  autoSaveNextIndexKey,
-  MANUAL_SLOT_COUNT,
-  AUTO_SLOT_COUNT,
-  SAVE_VERSION,
-} from "../sim-save-types.ts";
+import { SAVE_VERSION } from "../sim-save-types.ts";
+import { saveSlotKey, autoSaveNextIndexKey, MANUAL_SLOT_COUNT, AUTO_SLOT_COUNT } from "../sim-save-slots.ts";
 import {
   clearAllSaves,
   getNextAutoIndex,
@@ -22,11 +17,19 @@ import {
 const store = new Map<string, string>();
 (globalThis as { localStorage?: Storage }).localStorage = {
   getItem: (key: string) => store.get(key) ?? null,
-  setItem: (key: string, value: string) => { store.set(key, value); },
-  removeItem: (key: string) => { store.delete(key); },
-  clear: () => { store.clear(); },
+  setItem: (key: string, value: string) => {
+    store.set(key, value);
+  },
+  removeItem: (key: string) => {
+    store.delete(key);
+  },
+  clear: () => {
+    store.clear();
+  },
   key: (index: number) => Array.from(store.keys())[index] ?? null,
-  get length() { return store.size; },
+  get length() {
+    return store.size;
+  },
 } as Storage;
 
 test("saveSlotKey is shared across maps (no map segment)", () => {
@@ -116,11 +119,8 @@ test("clearAllSaves wipes every slot key + auto-rotation cursor", () => {
   );
 });
 
-function seedSlot(kind: "manual" | "auto", index: number, savedAt: number): void {
-  store.set(
-    saveSlotKey(kind, index),
-    JSON.stringify({ savedAt, preset: "settled", source: kind }),
-  );
+function seedSlot(slotKind: "manual" | "auto", index: number, savedAt: number): void {
+  store.set(saveSlotKey(slotKind, index), JSON.stringify({ savedAt, presetId: "settled", source: slotKind }));
 }
 
 test("listSlots returns one summary per manual + auto slot", () => {
@@ -150,7 +150,7 @@ test("readSlotSummary returns empty placeholder for an unwritten slot", () => {
   assertEqual(summary.kind, "manual", "kind preserved");
   assertEqual(summary.index, 1, "index preserved");
   assertEqual(summary.savedAt, null, "empty savedAt");
-  assertEqual(summary.preset, null, "empty preset");
+  assertEqual(summary.presetId, null, "empty presetId");
   assertEqual(summary.source, null, "empty source");
 });
 
@@ -161,11 +161,11 @@ test("readSlotSummary returns the breadcrumb fields when a slot blob is present"
   store.clear();
   store.set(
     saveSlotKey("manual", 2),
-    JSON.stringify({ savedAt: 12345, preset: "frontier", source: "manual" }),
+    JSON.stringify({ savedAt: 12345, presetId: "frontier", source: "manual" }),
   );
   const summary = readSlotSummary("manual", 2);
   assertEqual(summary.savedAt, 12345, "savedAt extracted");
-  assertEqual(summary.preset, "frontier", "preset extracted");
+  assertEqual(summary.presetId, "frontier", "presetId extracted");
   assertEqual(summary.source, "manual", "source extracted");
 });
 
@@ -173,10 +173,7 @@ test("readSlotSummary falls back to empty when source is not in the allowed set"
   // Anchors the SLOT_SOURCES whitelist — drift (e.g. dropping "export")
   // would surface as a populated source slipping past validation.
   store.clear();
-  store.set(
-    saveSlotKey("manual", 1),
-    JSON.stringify({ savedAt: 1, preset: "settled", source: "haxxor" }),
-  );
+  store.set(saveSlotKey("manual", 1), JSON.stringify({ savedAt: 1, presetId: "settled", source: "haxxor" }));
   const summary = readSlotSummary("manual", 1);
   assertEqual(summary.savedAt, null, "rejected blob falls back to empty");
 });
@@ -186,26 +183,20 @@ test("readSlotSummary accepts every supported source value", () => {
   // "export" or any other value would reject a legitimate exported snapshot.
   store.clear();
   for (const source of ["auto", "manual", "export"] as const) {
-    store.set(
-      saveSlotKey("manual", 1),
-      JSON.stringify({ savedAt: 1, preset: "settled", source }),
-    );
+    store.set(saveSlotKey("manual", 1), JSON.stringify({ savedAt: 1, presetId: "settled", source }));
     const summary = readSlotSummary("manual", 1);
     assertEqual(summary.source, source, `${source} source preserved`);
     assertEqual(summary.savedAt, 1, `${source} blob accepted`);
   }
 });
 
-test("readSlotSummary falls back to empty for non-string preset", () => {
-  // typeof guard on preset — a flipped check would let a number leak through
-  // and break the slot picker which reads .preset directly.
+test("readSlotSummary falls back to empty for non-string presetId", () => {
+  // typeof guard on presetId — a flipped check would let a number leak through
+  // and break the slot picker which reads .presetId directly.
   store.clear();
-  store.set(
-    saveSlotKey("auto", 1),
-    JSON.stringify({ savedAt: 1, preset: 42, source: "auto" }),
-  );
+  store.set(saveSlotKey("auto", 1), JSON.stringify({ savedAt: 1, presetId: 42, source: "auto" }));
   const summary = readSlotSummary("auto", 1);
-  assertEqual(summary.savedAt, null, "non-string preset rejected");
+  assertEqual(summary.savedAt, null, "non-string presetId rejected");
 });
 
 test("readSlotSummary falls back to empty when JSON.parse throws", () => {
@@ -238,9 +229,9 @@ test("findLatestSave picks the slot with the highest savedAt timestamp", () => {
 });
 
 test("findLatestSave skips empty slots when picking the latest", () => {
-  // The `if (slot.savedAt === null) continue;` guard — flipping it would
-  // either stall on the first empty slot (returning null) or pick an empty
-  // one as latest (no savedAt to display).
+  // The `isSavedSlot` filter step — dropping it would let the reduce see an
+  // empty (savedAt=null) slot and either crash on the comparison or pick a
+  // slot with no savedAt to display.
   store.clear();
   seedSlot("auto", 2, 5000);
   const latest = findLatestSave();

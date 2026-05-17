@@ -1,9 +1,7 @@
 // Trade sidebar — DOM-only controls for the overview's Trading tab.
 //
-// Two controls:
-//   1. Ware dropdown — picks which ware drives the green accent on the
-//      trade-route overlay. Rows show per-ware shipment totals.
-//   2. Time-window pills (20m / 1h / 2h) — picks the baseline window.
+// One control: a ware dropdown that picks which ware drives the green accent
+// on the trade-route overlay. Rows show per-ware shipment totals for the last 2h.
 
 import { ChevronDown } from "lucide-static";
 import type { WareTemplate } from "../data/ware-types";
@@ -14,15 +12,7 @@ import { DOM_INPUT_SHIELD_EVENT_TYPES } from "./ui-dom-input-shield";
 import { NONE, type WareSelection } from "./phaser/overview-trade-render";
 import { setTextIfChanged } from "./ui-dom-cache";
 
-export type OverviewTradeMode = "last-20-min" | "last-1-hour" | "last-2-hour";
-
 const NONE_LABEL = "None";
-
-const MODE_CONFIGS: ReadonlyArray<{ id: OverviewTradeMode; label: string }> = [
-  { id: "last-20-min", label: "20m" },
-  { id: "last-1-hour", label: "1h" },
-  { id: "last-2-hour", label: "2h" },
-];
 
 function formatTradeTotal(tradeTotal: number): string {
   if (tradeTotal === 0) return "0";
@@ -40,7 +30,6 @@ export interface OverviewTradeSidebarOptions {
   parent: HTMLElement;
   tradeableWares: WareTemplate[];
   onSelectionChange(ware: WareSelection): void;
-  onModeChange(mode: OverviewTradeMode): void;
 }
 
 interface WareRow {
@@ -50,14 +39,14 @@ interface WareRow {
 }
 
 interface WareDropdown {
-  dropdown: HTMLElement;
+  rootElement: HTMLElement;
   triggerLabel: HTMLElement;
   triggerCount: HTMLElement;
   wareRows: Map<WareSelection, WareRow>;
 }
 
-/** Owns dropdown state (selected ware, open/closed, per-ware totals) and the
- *  sync that pushes that state to the DOM. Returned from createWareDropdownState. */
+/** Owns dropdown state (selected ware, open/closed, per-ware totals); every
+ *  mutator pushes the new state to the DOM through sync(). */
 interface WareDropdownState {
   setSelectedWare(ware: WareSelection): void;
   setOpen(open: boolean): void;
@@ -74,11 +63,10 @@ function createWareDropdownState(wareDropdown: WareDropdown | null): WareDropdow
 
   function sync(): void {
     if (!wareDropdown) return;
-    const { dropdown, triggerLabel, triggerCount, wareRows } = wareDropdown;
-    dropdown.classList.toggle("is-open", dropdownOpen);
-    const triggerLabelText = selectedWare === NONE
-      ? NONE_LABEL
-      : getWareTemplate(selectedWare as WareId).name;
+    const { rootElement, triggerLabel, triggerCount, wareRows } = wareDropdown;
+    rootElement.classList.toggle("is-open", dropdownOpen);
+    const triggerLabelText =
+      selectedWare === NONE ? NONE_LABEL : getWareTemplate(selectedWare as WareId).name;
     setTextIfChanged(triggerLabel, triggerLabelText);
     if (selectedWare === NONE) {
       setTextIfChanged(triggerCount, "");
@@ -100,42 +88,35 @@ function createWareDropdownState(wareDropdown: WareDropdown | null): WareDropdow
   }
 
   return {
-    setSelectedWare(ware) { selectedWare = ware; },
-    setOpen(open) { dropdownOpen = open; },
-    toggleOpen() { dropdownOpen = !dropdownOpen; },
-    setTotals(totals) { wareTradeTotals = totals; },
-    isOpen() { return dropdownOpen; },
+    setSelectedWare(ware) {
+      selectedWare = ware;
+      sync();
+    },
+    setOpen(open) {
+      dropdownOpen = open;
+      sync();
+    },
+    toggleOpen() {
+      dropdownOpen = !dropdownOpen;
+      sync();
+    },
+    setTotals(totals) {
+      wareTradeTotals = totals;
+      sync();
+    },
+    isOpen() {
+      return dropdownOpen;
+    },
     sync,
   };
 }
 
-/** Owns mode-button state (which time window is active) and the sync that
- *  paints the active pill. */
-interface ModeButtonsState {
-  setSelected(mode: OverviewTradeMode): void;
-  sync(): void;
-}
-
-function createModeButtonsState(modeButtons: Map<OverviewTradeMode, HTMLElement>): ModeButtonsState {
-  let selectedTimeWindow: OverviewTradeMode = "last-20-min";
-  return {
-    setSelected(mode) { selectedTimeWindow = mode; },
-    sync() {
-      for (const [id, button] of modeButtons) button.classList.toggle("is-on", id === selectedTimeWindow);
-    },
-  };
-}
-
-export function createOverviewTradeSidebar(
-  options: OverviewTradeSidebarOptions,
-): OverviewTradeSidebar {
-  const { parent, tradeableWares, onSelectionChange, onModeChange } = options;
+export function createOverviewTradeSidebar(options: OverviewTradeSidebarOptions): OverviewTradeSidebar {
+  const { parent, tradeableWares, onSelectionChange } = options;
   parent.innerHTML = "";
 
   const sidebar = buildSidebarShell();
-  const sortedWares = [...tradeableWares].sort(
-    (wareA, wareB) => wareA.name.localeCompare(wareB.name),
-  );
+  const sortedWares = [...tradeableWares].sort((wareA, wareB) => wareA.name.localeCompare(wareB.name));
   const hasTradeableWares = sortedWares.length > 0;
 
   const wareDropdown = hasTradeableWares
@@ -145,59 +126,40 @@ export function createOverviewTradeSidebar(
         onWareSelect(ware) {
           dropdownState.setSelectedWare(ware);
           dropdownState.setOpen(false);
-          dropdownState.sync();
           onSelectionChange(ware);
         },
         onTriggerToggle() {
           dropdownState.toggleOpen();
-          dropdownState.sync();
         },
       })
     : null;
   if (!wareDropdown) appendEmptyWareSection(sidebar);
   const dropdownState = createWareDropdownState(wareDropdown);
 
-  const modeButtons = hasTradeableWares
-    ? buildTimeWindowPills({
-        sidebar,
-        onModeSelect(mode) {
-          modeState.setSelected(mode);
-          modeState.sync();
-          onModeChange(mode);
-        },
-      })
-    : new Map<OverviewTradeMode, HTMLElement>();
-  const modeState = createModeButtonsState(modeButtons);
-
   parent.appendChild(sidebar);
 
   const detachInputShield = shieldSidebarFromCanvasInput(sidebar);
   const detachOutsideClick = closeDropdownOnOutsideClick({
-    dropdown: wareDropdown?.dropdown ?? null,
+    dropdown: wareDropdown?.rootElement ?? null,
     isOpen: () => dropdownState.isOpen(),
     closeDropdown() {
       dropdownState.setOpen(false);
-      dropdownState.sync();
     },
   });
 
   dropdownState.sync();
-  modeState.sync();
 
   return {
     setWareTotals(totals: Map<WareId, number>): void {
       dropdownState.setTotals(totals);
-      dropdownState.sync();
     },
     closeDropdown(): void {
       if (!dropdownState.isOpen()) return;
       dropdownState.setOpen(false);
-      dropdownState.sync();
     },
     destroy(): void {
       detachOutsideClick();
       detachInputShield();
-      wareDropdown?.wareRows.clear();
       parent.innerHTML = "";
     },
   };
@@ -229,8 +191,8 @@ function buildWareDropdown(input: {
   const dropdown = document.createElement("div");
   dropdown.className = "ware-dropdown";
   const waresLabel = document.createElement("div");
-  waresLabel.className = "ware-section-label ware-section-label--split";
-  waresLabel.innerHTML = `<span>Wares</span><span>Shipments</span>`;
+  waresLabel.className = "ware-section-label";
+  waresLabel.textContent = "Ware shipments in last 2h";
   dropdown.appendChild(waresLabel);
 
   const trigger = document.createElement("button");
@@ -265,7 +227,7 @@ function buildWareDropdown(input: {
   }
   dropdown.appendChild(menu);
   sidebar.appendChild(dropdown);
-  return { dropdown, triggerLabel, triggerCount, wareRows };
+  return { rootElement: dropdown, triggerLabel, triggerCount, wareRows };
 }
 
 interface AppendWareRowOptions {
@@ -304,48 +266,13 @@ function appendEmptyWareSection(sidebar: HTMLElement): void {
   const emptyState = document.createElement("div");
   emptyState.className = "ware-section";
   const emptyLabel = document.createElement("div");
-  emptyLabel.className = "ware-section-label ware-section-label--split";
-  emptyLabel.innerHTML = `<span>Wares</span><span>Shipments</span>`;
+  emptyLabel.className = "ware-section-label";
+  emptyLabel.textContent = "Ware shipments in last 2h";
   const emptyMessage = document.createElement("div");
   emptyMessage.className = "ware-empty-state";
   emptyMessage.textContent = "No tradeable wares are available for this map's spawned fleet.";
   emptyState.append(emptyLabel, emptyMessage);
   sidebar.appendChild(emptyState);
-}
-
-/** Time-window pills — radio-style, exactly one always active. */
-function buildTimeWindowPills(input: {
-  sidebar: HTMLElement;
-  onModeSelect(mode: OverviewTradeMode): void;
-}): Map<OverviewTradeMode, HTMLElement> {
-  const { sidebar, onModeSelect } = input;
-  const modeSection = document.createElement("div");
-  modeSection.className = "ware-section ware-modes-section";
-  const modeLabel = document.createElement("div");
-  modeLabel.className = "ware-section-label";
-  modeLabel.textContent = "Shipments in last";
-  modeSection.appendChild(modeLabel);
-  const modes = document.createElement("div");
-  modes.className = "hud-segment hud-segment--row ware-modes";
-  const modeButtons = new Map<OverviewTradeMode, HTMLElement>();
-  for (const modeConfig of MODE_CONFIGS) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "hud-btn ware-mode";
-    button.dataset.mode = modeConfig.id;
-    button.textContent = modeConfig.label;
-    button.addEventListener("click", (event) => {
-      // Don't bubble — the document outside-click handler would otherwise
-      // close the open ware dropdown when the user switches time windows.
-      event.stopPropagation();
-      onModeSelect(modeConfig.id);
-    });
-    modes.appendChild(button);
-    modeButtons.set(modeConfig.id, button);
-  }
-  modeSection.appendChild(modes);
-  sidebar.appendChild(modeSection);
-  return modeButtons;
 }
 
 /** Stop pointer/wheel events inside the sidebar from leaking into the Phaser map.

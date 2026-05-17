@@ -1,9 +1,30 @@
 const MORSE: Record<string, string> = {
-  A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.",
-  G: "--.", H: "....", I: "..", J: ".---", K: "-.-", L: ".-..",
-  M: "--", N: "-.", O: "---", P: ".--.", Q: "--.-", R: ".-.",
-  S: "...", T: "-", U: "..-", V: "...-", W: ".--", X: "-..-",
-  Y: "-.--", Z: "--..",
+  A: ".-",
+  B: "-...",
+  C: "-.-.",
+  D: "-..",
+  E: ".",
+  F: "..-.",
+  G: "--.",
+  H: "....",
+  I: "..",
+  J: ".---",
+  K: "-.-",
+  L: ".-..",
+  M: "--",
+  N: "-.",
+  O: "---",
+  P: ".--.",
+  Q: "--.-",
+  R: ".-.",
+  S: "...",
+  T: "-",
+  U: "..-",
+  V: "...-",
+  W: ".--",
+  X: "-..-",
+  Y: "-.--",
+  Z: "--..",
 };
 
 const LETTER_COUNT = 4;
@@ -22,7 +43,10 @@ export function morseBarGradient(
   name: string,
   { letterCount = LETTER_COUNT, color = "var(--paper-dim)" }: { letterCount?: number; color?: string } = {},
 ): string {
-  const letters = name.toUpperCase().replace(/[^A-Z]/g, "").slice(0, letterCount);
+  const letters = name
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "")
+    .slice(0, letterCount);
   if (letters.length === 0) return "none";
   const segments = expandLettersToSegments(letters);
   const stops = segmentsToGradientStops(segments, color);
@@ -34,9 +58,9 @@ function expandLettersToSegments(letters: string): MorseSegment[] {
   for (let i = 0; i < letters.length; i++) {
     if (i > 0) segments.push({ mark: false, units: INTER_GAP });
     const code = MORSE[letters[i]];
-    for (let j = 0; j < code.length; j++) {
-      if (j > 0) segments.push({ mark: false, units: INTRA_GAP });
-      segments.push({ mark: true, units: code[j] === "." ? DOT : DASH });
+    for (let dotDashIndex = 0; dotDashIndex < code.length; dotDashIndex++) {
+      if (dotDashIndex > 0) segments.push({ mark: false, units: INTRA_GAP });
+      segments.push({ mark: true, units: code[dotDashIndex] === "." ? DOT : DASH });
     }
   }
   return segments;

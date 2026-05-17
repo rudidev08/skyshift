@@ -3,27 +3,32 @@
 // construct an initialized Simulation for the active session.
 
 import type { Game } from "./game";
+import type { GameSnapshot } from "./sim-save-types";
 import { Simulation } from "./sim-lifecycle";
-import { applySnapshot } from "./ui-savegame-manager";
+import { restoreSavedGame } from "./ui-savegame-manager";
 import { assignStationNames } from "./sim-name-pool";
 import {
   createShipVisualBundle,
   destroyShipVisualBundle,
+  type ShipVisualBundleContext,
 } from "./phaser/ship-visual-bundle";
-import { createStations } from "./phaser/station-visual-bundle";
+import { createStationVisualBundle, type StationVisualBundle } from "./phaser/station-visual-bundle";
+import { createStation } from "./sim-station";
+import type { Station } from "./sim-station-types";
 import { createStationZoneVisualBundles } from "./phaser/station-zone-render";
 import { createAmbientTraffic } from "./phaser/ambient-traffic-render";
 import { createPausedIndicator } from "./ui-game-paused-indicator";
 import { createElapsedTimeLabel } from "./render-elapsed-time-label";
 import { addSpeedChangeObserver } from "./phaser/time-controls";
 import { createStationShips } from "./sim-ships";
-import {
-  ensureStationRender,
-  destroyStationRender,
-  resetAutoSaveAccumulator,
-} from "./game-loop";
+import { ensureStationRender, destroyStationRender, resetAutoSaveAccumulator } from "./game-loop";
 
 export function setupHudOverlay(game: Game): void {
+  resolveHudOverlayElements(game);
+  hideInfoPanelForEditorMode(game);
+}
+
+function resolveHudOverlayElements(game: Game): void {
   game.selectedObjectEl = document.getElementById("selected-object")!;
   game.selectedTypeEl = document.getElementById("selected-type")!;
   game.infoCardEl = document.getElementById("overlay-info-card")!;
@@ -33,41 +38,48 @@ export function setupHudOverlay(game: Game): void {
   game.loreEl = document.getElementById("lore")!;
   game.loreTitleEl = document.getElementById("lore-title")!;
   game.infoPanelEl = document.getElementById("overlay-info")!;
-  game.hudSealEl = document.getElementById("hud-seal")!;
+  game.hudIconEl = document.getElementById("hud-icon")!;
   game.loreToggleEl = document.getElementById("lore-toggle")!;
   game.logToggleEl = document.getElementById("log-toggle")!;
   game.detailsContentEl = document.getElementById("details-content")!;
   game.detailsBoxEl = document.getElementById("details-box")!;
   game.loreBoxEl = document.getElementById("lore-box")!;
-  // Editor never populates the selection dossier — hide it so the .id-card
-  // chrome doesn't show as an empty "broken" box.
+}
+
+/** Editor never populates the selection dossier — hide it so the .id-card chrome doesn't show as an empty "broken" box. */
+function hideInfoPanelForEditorMode(game: Game): void {
   if (game.isEditorMode) game.infoPanelEl.style.display = "none";
 }
 
-/** Speed pill + elapsed-time label. Skipped in editor mode — the editor owns
- *  sim-speed state through its own controls and isn't player-facing. */
+/** Wire up the speed pill and elapsed-time label. Call site skips this in
+ *  editor mode — the editor owns sim-speed state through its own controls. */
 export function setupGameplaySpeedAndTimeHud(game: Game): void {
   game.pausedIndicator = createPausedIndicator(document);
   game.pausedIndicator.setSpeed(game.timeController.currentSpeed);
   game.unsubscribeSpeedObserver = addSpeedChangeObserver((speed) => {
     game.pausedIndicator?.setSpeed(speed);
   });
-  game.elapsedTimeLabel = createElapsedTimeLabel(document, () => game.simulation?.tradeManager.tradeTime ?? 0, {
-    offsetSeconds: game.map.simulationWarmup ?? 0,
-  });
+  game.elapsedTimeLabel = createElapsedTimeLabel(
+    document,
+    () => game.simulation?.tradeManager.tradeTime ?? 0,
+    {
+      offsetSeconds: game.map.simulationWarmupSeconds ?? 0,
+    },
+  );
 }
 
-function mirrorSimEntitiesInRender(game: Game, simulation: Simulation): void {
+function setupEntityRenderObservers(game: Game, simulation: Simulation): void {
+  const shipContext = createShipVisualBundleContext(game, simulation);
   simulation.shipManager.onAdd((newShips) => {
     for (const ship of newShips) {
-      game.shipRenders.push(createShipVisualBundle(game, ship, game.selection, simulation.tradeManager, game.shipOrbitPool, game.shipBundles));
+      game.shipBundles.push(createShipVisualBundle(ship, shipContext));
     }
   });
   simulation.shipManager.onRemove((ship) => {
-    const renderIndex = game.shipRenders.findIndex((shipRender) => shipRender.ship === ship);
+    const renderIndex = game.shipBundles.findIndex((shipRender) => shipRender.ship === ship);
     if (renderIndex >= 0) {
-      destroyShipVisualBundle(game.shipRenders[renderIndex], game.selection, game.shipOrbitPool, game.shipBundles);
-      game.shipRenders.splice(renderIndex, 1);
+      destroyShipVisualBundle(game.shipBundles[renderIndex], shipContext);
+      game.shipBundles.splice(renderIndex, 1);
     }
   });
   simulation.stationManager.onAdd((newStation) => {
@@ -78,63 +90,72 @@ function mirrorSimEntitiesInRender(game: Game, simulation: Simulation): void {
   });
 }
 
-/** Construct the Simulation, wire its zone visuals + render-mirror observers,
+function createShipVisualBundleContext(game: Game, simulation: Simulation): ShipVisualBundleContext {
+  return {
+    scene: game,
+    selection: game.selection,
+    tradeManager: simulation.tradeManager,
+    orbitPool: game.shipOrbitPool,
+    bundles: game.shipBundlesById,
+  };
+}
+
+/** Construct the Simulation, set up its zone visuals + render-mirror observers,
  *  then restore from the player's saved snapshot. Returns the initialized
  *  simulation; the saved snapshot is the sole source of station truth, so the
- *  authored map is not consulted for station placements. */
-export function createGameSimulationForSnapshot(game: Game): Simulation {
+ *  initial map is not consulted for station placements. */
+export function createGameSimulationForSnapshot(game: Game, snapshot: GameSnapshot): Simulation {
   const simulation = new Simulation(game.map);
   game.simulation = simulation;
   setupStationZoneVisuals(game, simulation);
-  mirrorSimEntitiesInRender(game, simulation);
+  setupEntityRenderObservers(game, simulation);
 
-  applySnapshot(game, game.initialSnapshot!);
+  restoreSavedGame(game, snapshot);
   // Snapshot already applied; release the reference so it can be GC'd.
   game.initialSnapshot = undefined;
   resetAutoSaveAccumulator();
   // Reserve-only pass — restored stations carry names already; this just
   // registers them so future dynamic spawns don't collide.
   assignStationNames(simulation.namePool, game.stations);
-  simulation.initStationsAndShipsForRestore(game.stations, game.ships);
+  simulation.seedRosterForSavedGame(game.stations, game.ships);
   for (const station of game.stations) ensureStationRender(game, station);
+  const shipContext = createShipVisualBundleContext(game, simulation);
   for (const ship of game.ships) {
-    game.shipRenders.push(createShipVisualBundle(game, ship, game.selection, simulation.tradeManager, game.shipOrbitPool, game.shipBundles));
+    game.shipBundles.push(createShipVisualBundle(ship, shipContext));
   }
-  // Ambient traffic flows between currently-live stations only.
-  game.ambientTraffic = createAmbientTraffic(
-    game,
-    game.stations,
-    game.map.sectorSize,
-  );
+  game.ambientTraffic = createAmbientTraffic(game, game.stations, game.map.sectorSize);
   return simulation;
 }
 
-/** Construct the Simulation, wire its zone visuals + render-mirror observers,
- *  then seed a fresh universe from the authored map. Returns the initialized
+/** Construct the Simulation, set up its zone visuals + render-mirror observers,
+ *  then seed a fresh universe from the map template. Returns the initialized
  *  simulation, with warmup ticks and initial nation/emigration spawns
  *  applied so the game starts mid-activity. */
 export function createGameSimulationForFreshUniverse(game: Game): Simulation {
   const simulation = new Simulation(game.map);
   game.simulation = simulation;
   setupStationZoneVisuals(game, simulation);
-  mirrorSimEntitiesInRender(game, simulation);
+  setupEntityRenderObservers(game, simulation);
 
   assignStationNames(simulation.namePool, game.map.stations);
-  game.ambientTraffic = createAmbientTraffic(
-    game,
-    game.map.stations,
-    game.map.sectorSize,
-  );
-  const stationObjects = createStations(game, game.map, game.selection);
-  game.stations = stationObjects.stations;
-  game.stationBundles = stationObjects.stationBundles;
-  game.stationBundleByStation = stationObjects.stationBundlesByStation;
+  game.ambientTraffic = createAmbientTraffic(game, game.map.stations, game.map.sectorSize);
+  const stations = game.map.stations.map((placement) => createStation(placement));
+  const stationBundles: StationVisualBundle[] = [];
+  const stationBundleByStation = new Map<Station, StationVisualBundle>();
+  for (const station of stations) {
+    const bundle = createStationVisualBundle(game, station, game.selection);
+    stationBundles.push(bundle);
+    stationBundleByStation.set(station, bundle);
+  }
+  game.stations = stations;
+  game.stationBundles = stationBundles;
+  game.stationBundleByStation = stationBundleByStation;
   game.map.seedInitialInventory?.(game.stations);
 
   if (!game.isEditorMode) seedFreshFleet(game, simulation);
 
-  simulation.initStationsAndShipsForFresh(game.stations, game.ships, game.map.initialStaggerDuration);
-  runWarmupTicks(simulation, game.map.simulationWarmup ?? 0);
+  simulation.seedFreshRoster(game.stations, game.ships, game.map.initialStaggerDurationSeconds);
+  runWarmupTicks(simulation, game.map.simulationWarmupSeconds ?? 0);
   // Initial-build expansion runs AFTER warmup so scarcity math sees real
   // inventory rather than the flat 50%-full initial state.
   simulation.nationManager.startInitialStationBuilds();
@@ -153,11 +174,14 @@ function setupStationZoneVisuals(game: Game, simulation: Simulation): void {
   game.stationZoneSelectionTargets = zoneResult.selectionTargets;
 }
 
-/** Editor is a static authoring surface — no trade ships, no sim ticks. */
+/** Spawn each station's default fleet, register them with the simulation, and
+ *  build their render bundles. Skipped in editor mode — the editor is a static
+ *  editing surface with no trade ships or sim ticks. */
 function seedFreshFleet(game: Game, simulation: Simulation): void {
   // Shared across stations so per-station fleets don't collide on the
   // BIO-042 id pool with each other.
   const takenShipIds = new Set<string>();
+  const shipContext = createShipVisualBundleContext(game, simulation);
   for (const station of game.stations) {
     const ships = createStationShips({
       station,
@@ -167,7 +191,7 @@ function seedFreshFleet(game: Game, simulation: Simulation): void {
     for (const ship of ships) takenShipIds.add(ship.id);
     game.ships.push(...ships);
     for (const ship of ships) {
-      game.shipRenders.push(createShipVisualBundle(game, ship, game.selection, simulation.tradeManager, game.shipOrbitPool, game.shipBundles));
+      game.shipBundles.push(createShipVisualBundle(ship, shipContext));
     }
   }
 }

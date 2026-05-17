@@ -8,40 +8,28 @@
 //   3. tick() checks both slots full; on both done, rebuild canonical inventory,
 //      flip state to "producing", swap the orbiting fleet.
 
-import type { StationPlacement, StationTypeId, StationSize, StationState } from "../data/station-types";
+import type {
+  BuildWaresRequired,
+  PlacedStation,
+  StationTypeId,
+  StationSize,
+  StationState,
+} from "../data/station-types";
 import type { Station } from "./sim-station-types";
 import { getNationById, type Nation } from "./sim-nation";
 import type { ShipTypeId } from "../data/ship-types";
-import { assembleStation, createStation, createInventorySlot, getInventorySlot, getAllInventorySlots, replaceStationInventory } from "./sim-station";
+import {
+  assembleStation,
+  createStation,
+  createInventorySlot,
+  getInventorySlot,
+  getAllInventorySlots,
+  replaceStationInventoryAndIndex,
+} from "./sim-station";
 import { getWareTemplate } from "./sim-ware-template";
-import { getStationTemplate } from "./sim-station-template";
-import { sizeMultiplierBySize } from "../data/stations";
+import { getStationTypeTemplate, computeBuildWares } from "./sim-station-template";
 import type { Ship } from "./sim-ships";
 import type { ShipManager } from "./sim-ship-manager";
-
-// At S size, an even split is 3000 each (6000 total); larger sizes scale via sizeMultiplierBySize.
-const BUILD_BASE_PER_WARE_S = 3000;
-
-// Fraction of build cost going to provisions; remainder to hulls. Generational
-// ships arrive fully formed, so their entry here is never read — 0.5 is just a
-// placeholder so the exhaustive-key type is satisfied.
-const PROVISIONS_SHARE: Record<StationTypeId, number> = {
-  // Life-support flavor — 65/35
-  habitat: 0.65,
-  farm: 0.65,
-  "medical-lab": 0.65,
-  "water-processing": 0.65,
-  // Signal/data flavor — 50/50
-  archives: 0.5,
-  observatory: 0.5,
-  // Industrial flavor — 35/65
-  mine: 0.35,
-  "metal-forge": 0.35,
-  "tech-factory": 0.35,
-  shipyard: 0.35,
-  // Generational ships are not built — value never read.
-  "generational-ship": 0.5,
-};
 
 export interface BuildPlacement {
   zoneId: string;
@@ -68,7 +56,11 @@ export type StationFlipObserver = (station: Station, buildShips: Ship[]) => void
  *  transitionFromBuildingToProducingState). Trade path cache subscribes here
  *  so producer/consumer topology stays in sync as stations enter and leave
  *  the trade graph. */
-export type StationStateChangeObserver = (station: Station, oldState: StationState, newState: StationState) => void;
+export type StationStateChangeObserver = (
+  station: Station,
+  oldState: StationState,
+  newState: StationState,
+) => void;
 
 /** Fires once after a batch of stations transition together via
  *  setStationStates. Carries every real (station, oldState) pair and the
@@ -78,19 +70,6 @@ export type StationStateChangeBatchObserver = (
   transitions: ReadonlyArray<{ station: Station; oldState: StationState }>,
   newState: StationState,
 ) => void;
-
-/** Compute the build ware requirement for a given type/size, with optional contract 2× multiplier. */
-export function computeBuildWares(
-  typeId: StationTypeId,
-  size: StationSize,
-  contracted: boolean,
-): { provisions: number; hulls: number } {
-  const total = BUILD_BASE_PER_WARE_S * 2 * sizeMultiplierBySize[size] * (contracted ? 2 : 1);
-  const provisionsShare = PROVISIONS_SHARE[typeId];
-  const provisions = Math.round(total * provisionsShare);
-  const hulls = total - provisions;
-  return { provisions, hulls };
-}
 
 export class StationManager {
   private stations: Station[] = [];
@@ -121,8 +100,12 @@ export class StationManager {
     for (const station of stations) this.byId.set(station.id, station);
   }
 
-  getStations(): Station[] { return this.stations; }
-  getStation(id: string): Station | undefined { return this.byId.get(id); }
+  getStations(): readonly Station[] {
+    return this.stations;
+  }
+  getStation(id: string): Station | undefined {
+    return this.byId.get(id);
+  }
 
   onAdd(callback: StationAddObserver): () => void {
     this.addObservers.add(callback);
@@ -177,7 +160,10 @@ export class StationManager {
 
   /** Register a station, spawn its fleet (optionally overriding ship type for
    *  build-site traders), rebuild the trade path cache, fire add observers. */
-  addStation(station: Station, options?: { shipTypeOverride?: ShipTypeId }): {
+  addStation(
+    station: Station,
+    options?: { shipTypeOverride?: ShipTypeId },
+  ): {
     ships: Ship[];
   } {
     const id = station.id;
@@ -226,7 +212,7 @@ export class StationManager {
     return station;
   }
 
-  /** Place a new building station. Real StationTemplate is attached so
+  /** Place a new building station. Real StationTypeTemplate is attached so
    *  economy/UI see the right produces list during the build; inventory holds
    *  only the two construction-ware slots until flip. */
   placeBuild(placement: BuildPlacement): { station: Station; ships: Ship[] } {
@@ -234,8 +220,8 @@ export class StationManager {
     const contracted = placement.contractingNationId !== undefined;
     const waresRequired = computeBuildWares(placement.typeId, placement.size, contracted);
 
-    const stationPlacement: StationPlacement = {
-      id: placement.stationId ?? this.generateBuildStationId(nation),
+    const placedStation: PlacedStation = {
+      id: placement.stationId ?? this.generateStationIdForNation(nation),
       name: placement.name,
       x: placement.x,
       y: placement.y,
@@ -248,9 +234,9 @@ export class StationManager {
     };
 
     // Trade/economy/HUD gate off station.state, so attaching the real
-    // StationTemplate up front advertises future output while only inbound
+    // StationTypeTemplate up front advertises future output while only inbound
     // construction wares are accepted. See `canStationTrade` / `isStationProducing`.
-    const station = createStationUnderConstruction(stationPlacement, waresRequired);
+    const station = createStationUnderConstruction(placedStation, waresRequired);
 
     // Build-site uses the nation's stationConstructionShipTypeId (default
     // "trader") so the fleet can carry both provisions and hulls. On flip
@@ -279,10 +265,12 @@ export class StationManager {
     // makes it true once `current === max === waresRequired`. It catches drift
     // where a trader would arrive post-flip; that cargo gets silently discarded
     // by processDepositAction's missing-slot guard.
-    return provisionsSlot.current >= build.waresRequired.provisions
-      && provisionsSlot.reservedIncoming === 0
-      && hullsSlot.current >= build.waresRequired.hulls
-      && hullsSlot.reservedIncoming === 0;
+    return (
+      provisionsSlot.current >= build.waresRequired.provisions &&
+      provisionsSlot.reservedIncoming === 0 &&
+      hullsSlot.current >= build.waresRequired.hulls &&
+      hullsSlot.reservedIncoming === 0
+    );
   }
 
   /** Building → producing flip: rebuild inventory at zero stock, carry forward
@@ -301,15 +289,24 @@ export class StationManager {
 
   private rebuildStationFromTemplate(station: Station): Station {
     const oldInventory = getAllInventorySlots(station);
-    // createStation expects a StationPlacement (authored shape) where
+    // createStation expects a PlacedStation (template shape) where
     // `stationTypeId` is an id string; the runtime station holds a resolved
     // template object, so re-emit the id here.
-    const rebuilt = createStation({
-      id: station.id, name: station.name, x: station.x, y: station.y,
-      nation: station.nation, size: station.size,
-      stationTypeId: station.stationType.id,
-      state: station.state, build: station.build, zoneId: station.zoneId,
-    }, 0.0);
+    const rebuilt = createStation(
+      {
+        id: station.id,
+        name: station.name,
+        x: station.x,
+        y: station.y,
+        nation: station.nation,
+        size: station.size,
+        stationTypeId: station.stationType.id,
+        state: station.state,
+        build: station.build,
+        zoneId: station.zoneId,
+      },
+      0.0,
+    );
     // Carry reservations forward; the rebuilt inventory starts at zero.
     for (const oldSlot of oldInventory) {
       const newSlot = getInventorySlot(rebuilt, oldSlot.ware.id);
@@ -324,7 +321,7 @@ export class StationManager {
   /** Mutate in place — other systems hold references to this Station. */
   private applyRebuiltStation(station: Station, rebuilt: Station): void {
     station.stationType = rebuilt.stationType;
-    replaceStationInventory(station, rebuilt.inventory);
+    replaceStationInventoryAndIndex(station, rebuilt.inventory);
     station.sizeMultiplier = rebuilt.sizeMultiplier;
     station.typeAndSizeLabel = rebuilt.typeAndSizeLabel;
     station.state = "producing";
@@ -346,24 +343,27 @@ export class StationManager {
   }
 
   /** Generate a unique nation-prefixed station id (e.g. "BIO-7AZ"). Throws only when 46656 stations of one nation are alive at once — ids return to the pool when a station leaves. */
-  private generateBuildStationId(nation: Nation): string {
-    const random = this.findRandomFreeStationId(nation);
+  private generateStationIdForNation(nation: Nation): string {
+    const random = this.findRandomFreeStationIdForNation(nation);
     if (random !== undefined) return random;
-    const sequential = this.findFirstFreeStationId(nation);
+    const sequential = this.findFirstFreeStationIdForNation(nation);
     if (sequential !== undefined) return sequential;
     throw new Error(`Station id pool exhausted for nation ${nation.codeName}: 46656 stations alive`);
   }
 
-  private findRandomFreeStationId(nation: Nation): string | undefined {
+  private findRandomFreeStationIdForNation(nation: Nation): string | undefined {
     for (let attempt = 0; attempt < 200; attempt++) {
-      const suffix = Math.floor(Math.random() * 46656).toString(36).toUpperCase().padStart(3, "0");
+      const suffix = Math.floor(Math.random() * 46656)
+        .toString(36)
+        .toUpperCase()
+        .padStart(3, "0");
       const id = `${nation.codeName}-${suffix}`;
       if (!this.byId.has(id)) return id;
     }
     return undefined;
   }
 
-  private findFirstFreeStationId(nation: Nation): string | undefined {
+  private findFirstFreeStationIdForNation(nation: Nation): string | undefined {
     for (let index = 0; index < 46656; index++) {
       const id = `${nation.codeName}-${index.toString(36).toUpperCase().padStart(3, "0")}`;
       if (!this.byId.has(id)) return id;
@@ -372,14 +372,14 @@ export class StationManager {
   }
 }
 
-/** Create a Station for an under-construction placement. Real StationTemplate so rate math
+/** Create a Station for an under-construction placement. Real StationTypeTemplate so rate math
  *  and HUD see the right produces list, but inventory holds only the two
  *  construction-ware slots — full inventory is created on flip. */
 function createStationUnderConstruction(
-  placement: StationPlacement,
-  waresRequired: { provisions: number; hulls: number },
+  placement: PlacedStation,
+  waresRequired: BuildWaresRequired,
 ): Station {
-  const stationType = getStationTemplate(placement.stationTypeId);
+  const stationType = getStationTypeTemplate(placement.stationTypeId);
   const inventory = [
     createInventorySlot(getWareTemplate("provisions"), 0, waresRequired.provisions),
     createInventorySlot(getWareTemplate("hulls"), 0, waresRequired.hulls),

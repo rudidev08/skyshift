@@ -51,16 +51,20 @@ const { values: args } = parseArgs({
 const durationSeconds = Number(args.duration);
 const snapshotCount = Math.max(2, Number(args.snapshots));
 const accelerateSpeed = Number(args.accelerate);
-if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error(`--duration must be a positive number, got "${args.duration}"`);
+if (!Number.isFinite(durationSeconds) || durationSeconds <= 0)
+  throw new Error(`--duration must be a positive number, got "${args.duration}"`);
 if (!Number.isFinite(snapshotCount)) throw new Error(`--snapshots must be a number, got "${args.snapshots}"`);
-if (!Number.isFinite(accelerateSpeed) || accelerateSpeed < 0) throw new Error(`--accelerate must be a non-negative number, got "${args.accelerate}"`);
+if (!Number.isFinite(accelerateSpeed) || accelerateSpeed < 0)
+  throw new Error(`--accelerate must be a non-negative number, got "${args.accelerate}"`);
 const intervalSeconds = durationSeconds / (snapshotCount - 1);
 const runId = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
 const outDir = join(args.out, runId);
 
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
-console.log(`[heap-check] url=${args.url} duration=${durationSeconds}s snapshots=${snapshotCount} accelerate=${accelerateSpeed}x out=${outDir}`);
+console.log(
+  `[heap-check] url=${args.url} duration=${durationSeconds}s snapshots=${snapshotCount} accelerate=${accelerateSpeed}x out=${outDir}`,
+);
 
 const browser = await puppeteer.launch({
   headless: !args.headed,
@@ -94,7 +98,9 @@ try {
     if (clicked) {
       console.log(`[heap-check] clicked ${accelerateSpeed}× dev speed`);
     } else {
-      console.log(`[heap-check] WARNING: no [data-dev-speed="${accelerateSpeed}"] button found — running at 1×`);
+      console.log(
+        `[heap-check] WARNING: no [data-dev-speed="${accelerateSpeed}"] button found — running at 1×`,
+      );
     }
   }
 
@@ -150,9 +156,15 @@ if (snapshotCount > 2) {
   for (let i = 1; i < measurements.length; i++) {
     const intervalDelta = measurements[i].heapMB - measurements[i - 1].heapMB;
     const intervalSign = intervalDelta >= 0 ? "+" : "";
-    console.log(`  ${measurements[i - 1].label} → ${measurements[i].label}  ${intervalSign}${intervalDelta.toFixed(2)} MB`);
+    console.log(
+      `  ${measurements[i - 1].label} → ${measurements[i].label}  ${intervalSign}${intervalDelta.toFixed(2)} MB`,
+    );
   }
 }
 
-console.log(`\nFor class-by-class diff: open Chrome DevTools → Memory tab → "Load profile" button, load any .heapsnapshot from ${outDir}.`);
-console.log(`Compare two snapshots: load both, switch the dropdown above the table from "Summary" to "Comparison", pick the baseline snapshot.`);
+console.log(
+  `\nFor class-by-class diff: open Chrome DevTools → Memory tab → "Load profile" button, load any .heapsnapshot from ${outDir}.`,
+);
+console.log(
+  `Compare two snapshots: load both, switch the dropdown above the table from "Summary" to "Comparison", pick the baseline snapshot.`,
+);

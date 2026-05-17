@@ -42,15 +42,19 @@ const { values: args } = parseArgs({
 
 const durationSeconds = Number(args.duration);
 const accelerateSpeed = Number(args.accelerate);
-if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error(`--duration must be positive, got "${args.duration}"`);
-if (!Number.isFinite(accelerateSpeed) || accelerateSpeed < 0) throw new Error(`--accelerate must be non-negative, got "${args.accelerate}"`);
+if (!Number.isFinite(durationSeconds) || durationSeconds <= 0)
+  throw new Error(`--duration must be positive, got "${args.duration}"`);
+if (!Number.isFinite(accelerateSpeed) || accelerateSpeed < 0)
+  throw new Error(`--accelerate must be non-negative, got "${args.accelerate}"`);
 
 const runId = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
 const outDir = join(args.out, runId);
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 const tracePath = join(outDir, "trace.json");
 
-console.log(`[frame-jank] url=${args.url} duration=${durationSeconds}s accelerate=${accelerateSpeed}x out=${outDir}`);
+console.log(
+  `[frame-jank] url=${args.url} duration=${durationSeconds}s accelerate=${accelerateSpeed}x out=${outDir}`,
+);
 
 const browser = await puppeteer.launch({
   headless: !args.headed,
@@ -111,7 +115,8 @@ let majorGcMaxMicroseconds = 0;
 for (const event of events) {
   if (event.dur == null || !event.cat?.includes("v8")) continue;
   const isMinor = event.name === "V8.GCScavenger" || event.name === "MinorGC";
-  const isMajor = event.name === "V8.GCMarkCompactor" || event.name === "MajorGC" || event.name === "V8.GCFinalizeMC";
+  const isMajor =
+    event.name === "V8.GCMarkCompactor" || event.name === "MajorGC" || event.name === "V8.GCFinalizeMC";
   if (isMinor) {
     minorGcCount++;
     minorGcTotalMicroseconds += event.dur;
@@ -128,7 +133,9 @@ function formatStats(label, count, totalMicroseconds, maxMicroseconds) {
   const avgMilliseconds = count > 0 ? totalMilliseconds / count : 0;
   const ratePerSecond = count / durationSeconds;
   const overheadPercent = (totalMilliseconds / (durationSeconds * 1000)) * 100;
-  console.log(`  ${label}: ${count} events  |  total ${totalMilliseconds.toFixed(1)}ms (${overheadPercent.toFixed(2)}% of run)  |  avg ${avgMilliseconds.toFixed(2)}ms  |  max ${(maxMicroseconds / 1000).toFixed(2)}ms  |  rate ${ratePerSecond.toFixed(2)}/s`);
+  console.log(
+    `  ${label}: ${count} events  |  total ${totalMilliseconds.toFixed(1)}ms (${overheadPercent.toFixed(2)}% of run)  |  avg ${avgMilliseconds.toFixed(2)}ms  |  max ${(maxMicroseconds / 1000).toFixed(2)}ms  |  rate ${ratePerSecond.toFixed(2)}/s`,
+  );
 }
 
 console.log(`\n=== GC summary over ${durationSeconds}s ===`);
@@ -140,21 +147,26 @@ formatStats("major GC (mark-compact)", majorGcCount, majorGcTotalMicroseconds, m
 // with low max+overhead is fine.
 const minorMaxMs = minorGcMaxMicroseconds / 1000;
 const majorMaxMs = majorGcMaxMicroseconds / 1000;
-const minorOverheadPercent = ((minorGcTotalMicroseconds / 1000) / (durationSeconds * 1000)) * 100;
-const majorOverheadPercent = ((majorGcTotalMicroseconds / 1000) / (durationSeconds * 1000)) * 100;
+const minorOverheadPercent = (minorGcTotalMicroseconds / 1000 / (durationSeconds * 1000)) * 100;
+const majorOverheadPercent = (majorGcTotalMicroseconds / 1000 / (durationSeconds * 1000)) * 100;
 
 const issues = [];
 if (minorMaxMs > 3) issues.push(`minor-GC max ${minorMaxMs.toFixed(2)}ms exceeds 3ms`);
 if (minorOverheadPercent > 3) issues.push(`minor-GC overhead ${minorOverheadPercent.toFixed(2)}% exceeds 3%`);
 if (majorMaxMs > 10) issues.push(`major-GC max ${majorMaxMs.toFixed(2)}ms exceeds 10ms`);
-if (majorOverheadPercent > 0.5) issues.push(`major-GC overhead ${majorOverheadPercent.toFixed(2)}% exceeds 0.5%`);
+if (majorOverheadPercent > 0.5)
+  issues.push(`major-GC overhead ${majorOverheadPercent.toFixed(2)}% exceeds 0.5%`);
 
 if (issues.length === 0) {
-  console.log(`\nVerdict: PASS — within thresholds (minor max <=3ms / overhead <=3%; major max <=10ms / overhead <=0.5%).`);
+  console.log(
+    `\nVerdict: PASS — within thresholds (minor max <=3ms / overhead <=3%; major max <=10ms / overhead <=0.5%).`,
+  );
 } else {
   console.log(`\nVerdict: INVESTIGATE`);
   for (const issue of issues) console.log(`  - ${issue}`);
 }
 
 console.log(`\nTrace saved: ${tracePath}`);
-console.log(`Open in chrome://tracing/ or DevTools Performance ("Load profile") for the full visual timeline (frame timing, GC bars, paint events, etc).`);
+console.log(
+  `Open in chrome://tracing/ or DevTools Performance ("Load profile") for the full visual timeline (frame timing, GC bars, paint events, etc).`,
+);

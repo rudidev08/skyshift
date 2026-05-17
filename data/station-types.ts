@@ -1,7 +1,5 @@
-// Authored station vocabulary — station-type ids, sizes, lifecycle states, and the
-// authored shapes (StationTemplate, StationPlacement). Runtime instance types
-// (Station, InventorySlot, StationEmigration, etc.) live in src/sim-station-types.ts.
-
+// stations produce or consume wares, and each start with number of ships relative to station size
+// trade is driven by station need: percentage of how much ware is needed (for inputs) or stored (for outputs)
 import type { NationTemplate } from "./nation-types";
 import type { WareId } from "./ware-types";
 
@@ -22,23 +20,29 @@ export const STATION_SIZES = ["S", "M", "L"] as const;
 export type StationSize = (typeof STATION_SIZES)[number];
 
 /** Station lifecycle.
- *  - "claimed" — zone reserved, materials not yet flowing.
  *  - "building" — receives provisions + hulls via trade.
  *  - "producing" — fully operational.
  *  - "emigrating" — being decommissioned; trade suspended. */
-export const STATION_STATES = ["claimed", "building", "producing", "emigrating"] as const;
+export const STATION_STATES = ["building", "producing", "emigrating"] as const;
 export type StationState = (typeof STATION_STATES)[number];
 
-/** Present iff state === "building". Cleared on flip to "producing". */
+/** Build cost — provisions + hulls delivered before construction completes. */
+export interface BuildWaresRequired {
+  provisions: number;
+  hulls: number;
+}
+
+/** Present while a station is under construction; cleared on flip to "producing". */
 export type StationBuild = {
-  waresRequired: { provisions: number; hulls: number };
+  waresRequired: BuildWaresRequired;
   /** Nation id of the contracting nation; undefined = self-built. */
   contractingNationId?: string;
 };
 
-/** Authored placement — what a preset or map-build step produces. `createStation`
- *  reads this to create the runtime `Station`. */
-export type StationPlacement = {
+/** Placed station static data — identity, owner, type, size, and lifecycle as
+ *  defined for the map. Created by factories and then passed to game engine for final
+ *  station object. */
+export type PlacedStation = {
   /** Internal registry code, e.g. "HUB-K". */
   id: string;
   /** If omitted, assigned from the nation's namePool at init. */
@@ -50,19 +54,19 @@ export type StationPlacement = {
   size: StationSize;
   /** Lifecycle state. Omit for seeded stations (treated as "producing"). */
   state?: StationState;
-  /** Present iff state === "building". */
+  /** Present when state === "building", absent otherwise. */
   build?: StationBuild;
   /** Optional zone id the station was placed into (for dynamic builds). */
   zoneId?: string;
 };
 
-export type StationTemplate = {
+export type StationTypeTemplate = {
   id: StationTypeId;
   name: string;
-  /** Plural display form — defaults to `name + "s"`. Set for irregular plurals
-   *  ("Observatories"), already-plural names ("Archives"), or mass nouns
-   *  ("Water Processing"). */
-  plural?: string;
+  /** Plural display form, always set explicitly (no implicit pluralization):
+   *  regular ("Mines"), irregular ("Observatories"), already-plural ("Archives"),
+   *  or mass noun ("Water Processing"). */
+  namePlural: string;
   produces: WareId[];
   lore: string;
 };

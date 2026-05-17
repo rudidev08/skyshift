@@ -55,7 +55,8 @@ async function buildLayer(filename, count, pickTile, requiredFiles, opts = {}) {
     });
 
     if (opts.cluster && Math.random() < opts.clusterChance) {
-      const extraStarCount = opts.clusterMin + Math.floor(Math.random() * (opts.clusterMax - opts.clusterMin + 1));
+      const extraStarCount =
+        opts.clusterMin + Math.floor(Math.random() * (opts.clusterMax - opts.clusterMin + 1));
       for (let j = 0; j < extraStarCount && i + 1 < count; j++, i++) {
         const angle = Math.random() * Math.PI * 2;
         const distance = Math.random() * opts.clusterRadius;
@@ -82,9 +83,14 @@ async function buildLayer(filename, count, pickTile, requiredFiles, opts = {}) {
 const totalSlots = (SIZE / TILE) * (SIZE / TILE); // 4096
 
 // Far layer (drawn behind near layer): sparse medium tiles with each strong variant guaranteed once.
-await buildLayer("stars-far.png", Math.round(totalSlots * 0.005), () => {
-  return pickFrom(variants.medium);
-}, [...variants.medium, ...variants.strong]);
+await buildLayer(
+  "stars-far.png",
+  Math.round(totalSlots * 0.005),
+  () => {
+    return pickFrom(variants.medium);
+  },
+  [...variants.medium, ...variants.strong],
+);
 
 // Near layer (drawn in front of far layer): denser weak tiles with clustering for visual variety.
 const nearCount = Math.round(totalSlots * 0.025);

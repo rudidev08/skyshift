@@ -2,15 +2,15 @@
 // of the shared ship indicators.
 
 import { type Scene } from "phaser";
-import type { ShipTemplate } from "../../data/ship-types";
+import type { ShipTypeTemplate } from "../../data/ship-types";
 import { SHIP_SQUARE, TEXTURE_SCALE } from "../render-ship-hull";
 import { ensureShipTexture } from "./texture-cache";
 import { shipTravel } from "../../data/ship-travel";
 import { shipVisuals } from "../../data/ship-visuals";
 import { type FlightData } from "../sim-travel";
 import { getPointOnCurve, getFlightHeading, type FlightRenderData } from "./flight-render-data";
-import { hexToNumber } from "./viewport-culling";
-import { Layer } from "./depth-layers";
+import { hexToNumber } from "../util-hex-color";
+import { Layer } from "../../data/visuals-layers";
 
 const SHIP_BASE_SCALE = 1 / TEXTURE_SCALE;
 const TRAIL_INTERVAL = 1 / shipVisuals.trailSegmentsPerSecond;
@@ -43,11 +43,11 @@ export interface ShipTravelVisualBundle {
 function getFlightRotation(flight: FlightData, flightRender: FlightRenderData): number {
   const curveHeading = getFlightHeading(flight, flightRender);
 
-  if (flight.phase === "departing" && flight.prevHeading !== null) {
+  if (flight.phase === "departing" && flight.previousHeading !== null) {
     const departDuration = shipTravel.accelerationDurationSeconds;
-    const turnProgress = Math.min(1, flight.totalElapsedTime / departDuration);
+    const turnProgress = Math.min(1, flight.totalElapsedSeconds / departDuration);
     const eased = turnProgress * turnProgress * (3 - 2 * turnProgress);
-    return lerpAngle(flight.prevHeading, curveHeading, eased);
+    return lerpAngle(flight.previousHeading, curveHeading, eased);
   }
 
   return curveHeading;
@@ -61,7 +61,12 @@ function lerpAngle(startAngle: number, endAngle: number, progress: number): numb
   return startAngle + difference * progress;
 }
 
-function updateEngine(bundle: ShipTravelVisualBundle, positionX: number, positionY: number, rotation: number) {
+function updateEngine(
+  bundle: ShipTravelVisualBundle,
+  positionX: number,
+  positionY: number,
+  rotation: number,
+) {
   const flight = bundle.flight;
   if (flight.travelMode !== "interStation" || flight.phase === "departing" || flight.phase === "arriving") {
     bundle.engine.setVisible(false);
@@ -86,48 +91,52 @@ export interface ShipTravelVisualBundleInput {
   flight: FlightData;
   flightRender: FlightRenderData;
   color: string;
-  shipType: ShipTemplate;
+  shipType: ShipTypeTemplate;
 }
 
 /** Build a fresh-flight bundle (departing from progress 0). Surface launches
  *  start at takeoff scale; the hyperjump ring pulse is still pending. */
-export function createShipTravelVisualBundleForFreshFlight(input: ShipTravelVisualBundleInput): ShipTravelVisualBundle {
+export function createShipTravelVisualBundleForFreshFlight(
+  input: ShipTravelVisualBundleInput,
+): ShipTravelVisualBundle {
   const surfaceLaunch = input.flight.origin.surfaceOrOrbit === "surface";
   const startScale = surfaceLaunch ? SHIP_BASE_SCALE * shipVisuals.takeoffScale : SHIP_BASE_SCALE;
   return buildShipTravelVisualBundle(input, {
     startScale,
-    initialLastTrailProgress: -1,
-    initialRingPulseState: "pending",
+    lastTrailProgress: -1,
+    ringPulseState: "pending",
   });
 }
 
 /** Build a bundle for a flight loaded mid-progress. Sprite starts at normal
  *  scale; the ring pulse is marked fired so it doesn't retrigger. */
-export function createShipTravelVisualBundleForFlightInProgress(input: ShipTravelVisualBundleInput): ShipTravelVisualBundle {
+export function createShipTravelVisualBundleForFlightInProgress(
+  input: ShipTravelVisualBundleInput,
+): ShipTravelVisualBundle {
   return buildShipTravelVisualBundle(input, {
     startScale: SHIP_BASE_SCALE,
-    initialLastTrailProgress: input.flight.progress,
-    initialRingPulseState: "fired",
+    lastTrailProgress: input.flight.progress,
+    ringPulseState: "fired",
   });
 }
 
-interface ShipTravelVisualBundleInitialState {
+interface ShipTravelVisualBundleInitialFields {
   startScale: number;
-  initialLastTrailProgress: number;
-  initialRingPulseState: "pending" | "fired";
+  lastTrailProgress: number;
+  ringPulseState: "pending" | "fired";
 }
 
 function buildShipTravelVisualBundle(
   input: ShipTravelVisualBundleInput,
-  initial: ShipTravelVisualBundleInitialState,
+  initial: ShipTravelVisualBundleInitialFields,
 ): ShipTravelVisualBundle {
   const { scene, flight, flightRender, color, shipType } = input;
-  const colorNum = hexToNumber(color);
+  const colorNumber = hexToNumber(color);
 
-  const texKey = ensureShipTexture(scene, shipType);
-  const sprite = scene.add.image(flightRender.startX, flightRender.startY, texKey);
+  const textureKey = ensureShipTexture(scene, shipType);
+  const sprite = scene.add.image(flightRender.startX, flightRender.startY, textureKey);
   sprite.setScale(initial.startScale);
-  sprite.setTint(colorNum);
+  sprite.setTint(colorNumber);
   sprite.setAlpha(1);
   sprite.setDepth(Layer.ShipSprite);
 
@@ -145,19 +154,22 @@ function buildShipTravelVisualBundle(
     sprite,
     trail,
     engine,
-    color: colorNum,
+    color: colorNumber,
     trailWidthMultiplier: shipType.trailWidthMultiplier,
     trailDepartureAlphaMultiplier: shipType.trailDepartureAlphaMultiplier,
     trailArrivalAlphaMultiplier: shipType.trailArrivalAlphaMultiplier,
-    lastTrailProgress: initial.initialLastTrailProgress,
+    lastTrailProgress: initial.lastTrailProgress,
     lastTrailTime: -1,
-    ringPulseState: initial.initialRingPulseState,
+    ringPulseState: initial.ringPulseState,
     trailFadeState: "pending",
   };
 }
 
 /** Update flight render; returns current position for indicator placement. */
-export function updateShipTravelVisualBundle(scene: Scene, bundle: ShipTravelVisualBundle): { x: number; y: number } {
+export function updateShipTravelVisualBundle(
+  scene: Scene,
+  bundle: ShipTravelVisualBundle,
+): { x: number; y: number } {
   const { flight, flightRender } = bundle;
   const departEnd = flight.departDistanceFraction;
 
@@ -176,30 +188,43 @@ export function updateShipTravelVisualBundle(scene: Scene, bundle: ShipTravelVis
   return position;
 }
 
-/** Exponential takeoff growth — sprite mostly grows at the end of acceleration. */
+/** Quadratic ease-in for takeoff — sprite mostly grows at the end of acceleration. */
 function tickTakeoffScale(bundle: ShipTravelVisualBundle): void {
   const flight = bundle.flight;
   if (flight.phase !== "departing" || flight.origin.surfaceOrOrbit !== "surface") return;
-  const takeoffProgress = Math.min(1.0, flight.totalElapsedTime / shipTravel.accelerationDurationSeconds);
+  const takeoffProgress = Math.min(1.0, flight.totalElapsedSeconds / shipTravel.accelerationDurationSeconds);
   const eased = takeoffProgress * takeoffProgress;
-  const scale = SHIP_BASE_SCALE * (shipVisuals.takeoffScale + (shipVisuals.normalScale - shipVisuals.takeoffScale) * eased);
+  const scale =
+    SHIP_BASE_SCALE *
+    (shipVisuals.takeoffScale + (shipVisuals.normalScale - shipVisuals.takeoffScale) * eased);
   bundle.sprite.setScale(scale);
 }
 
 /** Spawn the one-shot ring-pulse tween at the moment the ship enters hyperjump. */
 function tickHyperjumpRingPulse(scene: Scene, bundle: ShipTravelVisualBundle, departEnd: number): void {
   const flight = bundle.flight;
-  if (flight.phase !== "hyperjump" || bundle.ringPulseState !== "pending" || flight.travelMode !== "interStation") return;
+  if (
+    flight.phase !== "hyperjump" ||
+    bundle.ringPulseState !== "pending" ||
+    flight.travelMode !== "interStation"
+  )
+    return;
   bundle.ringPulseState = "fired";
   bundle.sprite.setScale(SHIP_BASE_SCALE);
   const position = getPointOnCurve(bundle.flightRender, departEnd);
-  bundle.ringPulse = scene.add.circle(position.x, position.y, shipVisuals.ringPulseInitialRadius, 0xffffff, 0);
+  bundle.ringPulse = scene.add.circle(
+    position.x,
+    position.y,
+    shipVisuals.ringPulseInitialRadius,
+    0xffffff,
+    0,
+  );
   bundle.ringPulse.setStrokeStyle(shipVisuals.ringPulseStrokeWidth, 0xffffff);
   scene.tweens.add({
     targets: bundle.ringPulse,
     radius: shipVisuals.ringPulseFinalRadius,
     alpha: 0,
-    duration: shipVisuals.ringPulseDurationMilliseconds,
+    duration: shipVisuals.ringPulseDurationSeconds * 1000,
     onComplete: () => {
       bundle.ringPulse?.destroy();
       bundle.ringPulse = undefined;
@@ -211,13 +236,12 @@ function tickHyperjumpRingPulse(scene: Scene, bundle: ShipTravelVisualBundle, de
 function tickHyperjumpTrail(bundle: ShipTravelVisualBundle, departEnd: number): void {
   const flight = bundle.flight;
   if (flight.phase !== "hyperjump" || flight.travelMode !== "interStation") return;
-  if (flight.totalElapsedTime - bundle.lastTrailTime < TRAIL_INTERVAL) return;
-  bundle.lastTrailTime = flight.totalElapsedTime;
+  if (flight.totalElapsedSeconds - bundle.lastTrailTime < TRAIL_INTERVAL) return;
+  bundle.lastTrailTime = flight.totalElapsedSeconds;
 
   const currentPosition = getPointOnCurve(bundle.flightRender, flight.progress);
-  const prevProgress = bundle.lastTrailProgress >= 0
-    ? bundle.lastTrailProgress
-    : Math.max(departEnd, flight.progress - 0.02);
+  const prevProgress =
+    bundle.lastTrailProgress >= 0 ? bundle.lastTrailProgress : Math.max(departEnd, flight.progress - 0.02);
   const prevPosition = getPointOnCurve(bundle.flightRender, prevProgress);
   bundle.lastTrailProgress = flight.progress;
 
@@ -234,7 +258,12 @@ function tickHyperjumpTrail(bundle: ShipTravelVisualBundle, departEnd: number): 
 /** Fire the trail-fade tween once when the ship enters the arriving phase. */
 function tickArrivingTrailFade(scene: Scene, bundle: ShipTravelVisualBundle): void {
   const flight = bundle.flight;
-  if (flight.phase !== "arriving" || flight.travelMode !== "interStation" || bundle.trailFadeState !== "pending") return;
+  if (
+    flight.phase !== "arriving" ||
+    flight.travelMode !== "interStation" ||
+    bundle.trailFadeState !== "pending"
+  )
+    return;
   bundle.trailFadeState = "started";
   scene.tweens.add({
     targets: bundle.trail,
@@ -247,13 +276,18 @@ function tickArrivingTrailFade(scene: Scene, bundle: ShipTravelVisualBundle): vo
   });
 }
 
-/** Exponential landing shrink — sprite mostly shrinks at the start of docking. */
+/** Quadratic ease-out for landing — sprite mostly shrinks at the start of docking. */
 function tickLandingScale(bundle: ShipTravelVisualBundle): void {
   const flight = bundle.flight;
   if (flight.phase !== "arriving" || flight.destination.surfaceOrOrbit !== "surface") return;
-  const dockingProgress = Math.min(1.0, (flight.totalElapsedTime - flight.phaseStartTime) / shipTravel.dockingDurationSeconds);
+  const dockingProgress = Math.min(
+    1.0,
+    (flight.totalElapsedSeconds - flight.phaseStartSeconds) / shipTravel.dockingDurationSeconds,
+  );
   const eased = 1 - (1 - dockingProgress) * (1 - dockingProgress);
-  const scale = SHIP_BASE_SCALE * (shipVisuals.normalScale - (shipVisuals.normalScale - shipVisuals.landingScale) * eased);
+  const scale =
+    SHIP_BASE_SCALE *
+    (shipVisuals.normalScale - (shipVisuals.normalScale - shipVisuals.landingScale) * eased);
   bundle.sprite.setScale(scale);
 }
 

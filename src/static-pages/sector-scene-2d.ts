@@ -13,8 +13,8 @@ import {
   type FlightAnimation,
 } from "./sector-scene-flight";
 import { createTwinklesForStations, type Twinkle } from "./sector-scene-twinkles";
-import { drawShip, type SectorShipHull } from "./static-ship-preview";
-import { drawStationIcon, preloadStationIcon, type StationIcon } from "./station-icon";
+import { drawShipPreview, type SectorShipHull } from "./static-ship-preview";
+import { drawStationIcon, prepareStationIcon, type StationIcon } from "./station-icon";
 
 const STATION_RADIUS = 13;
 const ORBIT_RING_RADIUS = 10;
@@ -72,20 +72,19 @@ interface FlightSlot {
   flight: FlightAnimation | null;
 }
 
-/** Loaded nebula image paired with its scene config. */
 interface LoadedNebula {
   nebula: SectorNebula;
   image: HTMLImageElement;
 }
 
 function loadSceneNebulas(scene: SectorScene): LoadedNebula[] {
-  return (scene.nebulas ?? []).map(nebula => ({ nebula, image: loadNebulaImage(nebula.src) }));
+  return (scene.nebulas ?? []).map((nebula) => ({ nebula, image: loadNebulaImage(nebula.src) }));
 }
 
 function createFlightSlots(flights: SectorFlight[]): FlightSlot[] {
   // One slot per scene flight. Each carries its own "current station" so the
   // next flight departs from the last arrival.
-  return flights.map(flight => ({
+  return flights.map((flight) => ({
     config: flight,
     currentStationId: flight.startStationId,
     flight: null,
@@ -101,8 +100,12 @@ function buildStationGradient(
   const stationX = station.xRatio * canvasWidth;
   const stationY = station.yRatio * canvasHeight;
   const gradient = context.createRadialGradient(
-    stationX, stationY, STATION_RADIUS,
-    stationX, stationY, STATION_GLOW_HALO_RADIUS,
+    stationX,
+    stationY,
+    STATION_RADIUS,
+    stationX,
+    stationY,
+    STATION_GLOW_HALO_RADIUS,
   );
   gradient.addColorStop(0, station.color + "10");
   gradient.addColorStop(1, station.color + "00");
@@ -112,9 +115,9 @@ function buildStationGradient(
 function pickNextFlightTarget(stations: SectorStation[], slot: FlightSlot): SectorStation {
   const loopStationIds = slot.config.loopStationIds;
   const eligibleStations = loopStationIds
-    ? stations.filter(station => loopStationIds.includes(station.id))
+    ? stations.filter((station) => loopStationIds.includes(station.id))
     : stations;
-  const candidates = eligibleStations.filter(station => station.id !== slot.currentStationId);
+  const candidates = eligibleStations.filter((station) => station.id !== slot.currentStationId);
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
@@ -137,9 +140,12 @@ function createFlightForSlot(
   const flightDuration = pixelDistance / (BASE_FLIGHT_SPEED * slot.config.ship.speed);
 
   return {
-    fromX: from.xRatio, fromY: from.yRatio,
-    controlX, controlY,
-    toX: to.xRatio, toY: to.yRatio,
+    fromX: from.xRatio,
+    fromY: from.yRatio,
+    controlX,
+    controlY,
+    toX: to.xRatio,
+    toY: to.yRatio,
     color: slot.config.color,
     ship: slot.config.ship,
     elapsed: 0,
@@ -156,18 +162,22 @@ function createFlightForSlot(
 export function mountSectorAnimation(canvas: HTMLCanvasElement, scene: SectorScene): SectorAnimationHandle {
   const context = canvas.getContext("2d")!;
   const stations = scene.stations;
-  const stationById = new Map(stations.map(station => [station.id, station]));
+  const stationById = new Map(stations.map((station) => [station.id, station]));
   const nebulas = loadSceneNebulas(scene);
   const twinklesByStation = createTwinklesForStations(stations);
   const iconByStation = new Map(
-    stations.map(station => [station.id, preloadStationIcon(station.iconSvgInner, station.color, 0.65)]),
+    stations.map((station) => [station.id, prepareStationIcon(station.iconSvgInner, station.color, 0.65)]),
   );
   const stationRenderStates = new Map<string, StationRenderState>();
 
   const flightSlots = createFlightSlots(scene.flights);
 
-  function canvasWidth(): number { return canvas.width / PIXEL_RATIO; }
-  function canvasHeight(): number { return canvas.height / PIXEL_RATIO; }
+  function canvasWidth(): number {
+    return canvas.width / PIXEL_RATIO;
+  }
+  function canvasHeight(): number {
+    return canvas.height / PIXEL_RATIO;
+  }
 
   function rebuildStationRenderStates(): void {
     stationRenderStates.clear();
@@ -184,7 +194,7 @@ export function mountSectorAnimation(canvas: HTMLCanvasElement, scene: SectorSce
 
   function resize(): void {
     const rect = canvas.getBoundingClientRect();
-    canvas.width  = rect.width  * PIXEL_RATIO;
+    canvas.width = rect.width * PIXEL_RATIO;
     canvas.height = rect.height * PIXEL_RATIO;
     context.setTransform(PIXEL_RATIO, 0, 0, PIXEL_RATIO, 0, 0);
     context.font = "11px system-ui, sans-serif";
@@ -264,7 +274,7 @@ export function mountSectorAnimation(canvas: HTMLCanvasElement, scene: SectorSce
       const angle = computeFlightAngle(flight, progress, canvasWidth, canvasHeight);
 
       drawEngineGlow(context, pixelX, pixelY, angle);
-      drawShip(context, {
+      drawShipPreview(context, {
         x: pixelX,
         y: pixelY,
         rotation: angle,
@@ -324,7 +334,7 @@ function drawFlightTrail(
   const fadeMultiplier = flight.fading ? Math.max(0, flight.fadeAlpha) : 1;
   const ship = flight.ship;
   const departureAlpha = TRAIL_DEPARTURE_ALPHA * ship.trailDepartureAlphaMultiplier;
-  const arrivalAlpha   = TRAIL_ARRIVAL_ALPHA   * ship.trailArrivalAlphaMultiplier;
+  const arrivalAlpha = TRAIL_ARRIVAL_ALPHA * ship.trailArrivalAlphaMultiplier;
   context.strokeStyle = flight.color;
   context.lineWidth = ship.trailWidth * 0.45;
 
@@ -358,7 +368,9 @@ function drawEngineGlow(
   context.arc(
     pixelX - Math.cos(angle) * ENGINE_GLOW_OFFSET_PIXELS,
     pixelY - Math.sin(angle) * ENGINE_GLOW_OFFSET_PIXELS,
-    ENGINE_GLOW_RADIUS_PIXELS, 0, Math.PI * 2,
+    ENGINE_GLOW_RADIUS_PIXELS,
+    0,
+    Math.PI * 2,
   );
   context.fill();
   context.globalAlpha = 1;
@@ -393,7 +405,9 @@ function drawStationOrbitBundle(
     context.arc(
       stationX + Math.cos(twinkle.angle) * (STATION_RADIUS + ORBIT_RING_RADIUS),
       stationY + Math.sin(twinkle.angle) * (STATION_RADIUS + ORBIT_RING_RADIUS),
-      1.5, 0, Math.PI * 2,
+      1.5,
+      0,
+      Math.PI * 2,
     );
     context.fill();
   }

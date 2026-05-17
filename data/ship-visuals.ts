@@ -1,3 +1,4 @@
+// Ships leave trail as they fly, and emit a pulse ring when they start travel speed.
 // Trail appearance, ring pulse, flight scale tween targets.
 
 export const shipVisuals = {
@@ -12,7 +13,7 @@ export const shipVisuals = {
   ringPulseInitialRadius: 5,
   ringPulseFinalRadius: 128,
   ringPulseStrokeWidth: 3,
-  ringPulseDurationMilliseconds: 1000,
+  ringPulseDurationSeconds: 1.0,
 };
 
 /** Per-ship orbit tuning — each orbiter gets a random angle, a rotation speed

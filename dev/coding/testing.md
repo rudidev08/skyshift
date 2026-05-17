@@ -3,6 +3,7 @@
 Project-specific guidance read by `.claude/skills/review-tests/SKILL.md` when it dispatches mutation-testing subagents.
 
 The orchestrator pastes:
+
 - "Project conventions to add to each agent prompt" → into the agent prompt's `<Project conventions>` placeholder.
 - The matching "Per-domain gotchas" bullet (per the assigned domain) → into the agent prompt's `<Per-domain gotchas>` placeholder.
 

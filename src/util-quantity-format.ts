@@ -22,7 +22,9 @@ function formatRateValue(value: number): string {
 }
 
 /** Sign prefix — unicode minus (U+2212), not ASCII hyphen. */
-function plusMinusCharacter(value: number): string { return value >= 0 ? "+" : "−"; }
+function plusMinusCharacter(value: number): string {
+  return value >= 0 ? "+" : "−";
+}
 
 function formatRatePill(rate: number | undefined, rateLabel: string | undefined): string {
   if (rate === undefined) return "";
@@ -57,9 +59,11 @@ export function formatCargoBar(input: CargoBarFormat): string {
   const ratePill = formatRatePill(rate, rateLabel);
   const reservationLine = formatReservationLine(reservation);
 
-  return `<div class="cargo-row">`
-    + `<span class="cargo-label">${wareName}</span>`
-    + `<span class="cargo-track"><span class="cargo-fill" style="width:${percent.toFixed(1)}%"></span></span>`
-    + `<span class="cargo-stat">${currentDisplay}/${maxDisplay}${ratePill}${reservationLine}</span>`
-    + `</div>`;
+  return (
+    `<div class="cargo-row">` +
+    `<span class="cargo-label">${wareName}</span>` +
+    `<span class="cargo-track"><span class="cargo-fill" style="width:${percent.toFixed(1)}%"></span></span>` +
+    `<span class="cargo-stat">${currentDisplay}/${maxDisplay}${ratePill}${reservationLine}</span>` +
+    `</div>`
+  );
 }

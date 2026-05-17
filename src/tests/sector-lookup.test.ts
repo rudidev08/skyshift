@@ -3,9 +3,9 @@ import { findSectorAtPosition, findSectorForStation } from "../sim-sector-lookup
 import { makeSector } from "./factories.ts";
 import type { Sector } from "../sim-map-types.ts";
 
-// Pins sim-sector-lookup.ts. findSectorForStation feeds emigration HUD,
-// announcements, and station manager. A swapped axis or off-by-one in grid
-// math would silently mislabel every "in <sector>" log line and toast.
+// Pins sim-sector-lookup.ts. Game.currentSector() (src/game.ts) reads this
+// every frame to label the camera's current sector. A swapped axis or
+// off-by-one in grid math would silently mislabel the HUD readout.
 
 const SECTOR_SIZE = 1000;
 
@@ -13,9 +13,9 @@ function buildSectors(): Sector[] {
   // Three side-by-side sectors at distinct centers so axis-swap mutations
   // produce a wrong-sector resolution rather than a coincidentally-matching one.
   return [
-    makeSector({ id: "alpha", x: 500, y: 500, size: SECTOR_SIZE }),     // covers x ∈ [0,1000], y ∈ [0,1000]
-    makeSector({ id: "beta",  x: 1500, y: 500, size: SECTOR_SIZE }),    // covers x ∈ [1000,2000], y ∈ [0,1000]
-    makeSector({ id: "gamma", x: 500, y: 1500, size: SECTOR_SIZE }),    // covers x ∈ [0,1000], y ∈ [1000,2000]
+    makeSector({ id: "alpha", x: 500, y: 500, size: SECTOR_SIZE }), // covers x ∈ [0,1000], y ∈ [0,1000]
+    makeSector({ id: "beta", x: 1500, y: 500, size: SECTOR_SIZE }), // covers x ∈ [1000,2000], y ∈ [0,1000]
+    makeSector({ id: "gamma", x: 500, y: 1500, size: SECTOR_SIZE }), // covers x ∈ [0,1000], y ∈ [1000,2000]
   ];
 }
 
@@ -81,17 +81,6 @@ test("findSectorForStation: delegates to findSectorAtPosition with station coord
   assertEqual(sector.id, "beta", "wrapper passes station.x, station.y in correct order");
 });
 
-test("findSectorAtPosition: uses sector[0].size as the canonical half-extent — sectors must share size", () => {
-  // The function reads `sectors[0].size / 2` once and reuses for every check.
-  // Pin: when all sectors share size (the project invariant), lookups succeed.
-  // (A mixed-size sector list isn't supported by the function — caller
-  // guarantees uniform size in createMapFromTemplate.)
-  const sectors = buildSectors();
-  // Off-center but well within all 1000-px sectors — should resolve.
-  const sector = assertNotUndefined(findSectorAtPosition(sectors, 1499, 999), "near beta corner");
-  assertEqual(sector.id, "beta", "lookup uses sectors[0].size/2 as the half-extent");
-});
-
 test("findSectorAtPosition: iteration order determines tie-break at boundaries", () => {
   // A station at x = 1000 (on the alpha/beta border) and y = 500 (alpha row)
   // matches both alpha and beta via the closed-interval ≤ check. Pin that
@@ -104,19 +93,6 @@ test("findSectorAtPosition: iteration order determines tie-break at boundaries",
   // Reorder so beta is first; same coord should now resolve to beta.
   const reordered = [sectors[1], sectors[0], sectors[2]];
   assertEqual(findSectorAtPosition(reordered, 1000, 500)?.id, "beta", "reorder changes tie-break winner");
-});
-
-test("findSectorAtPosition: works for sectors at high (large) coordinate values without overflow", () => {
-  // Sectors in real map data (settled preset) sit at map coords like (3000, 3000)
-  // up to ~12000. Pin that the lookup math holds at those scales — no surprise
-  // floating-point loss of precision.
-  const sectors: Sector[] = [
-    makeSector({ id: "far", x: 12000, y: 8000, size: 1500 }),
-  ];
-  const sector = assertNotUndefined(findSectorAtPosition(sectors, 12000, 8000), "exact center");
-  assertEqual(sector.id, "far", "exact center of high-coord sector resolves");
-  // Edge-of-sector at the high end — pin the ≤ check at large values too.
-  assertEqual(findSectorAtPosition(sectors, 12750, 8750)?.id, "far", "high-coord sector edge inclusive");
 });
 
 test("findSectorAtPosition: a station moving from one sector to another resolves to the new sector each call", () => {

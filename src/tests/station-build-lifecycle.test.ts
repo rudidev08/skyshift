@@ -1,12 +1,16 @@
 import { test, assertEqual, assertTrue, assertNotUndefined } from "./test-utils.ts";
 import { createSimulation, type Simulation } from "../sim-lifecycle.ts";
-import { createMapFromTemplate, filterZonesForOccupants } from "../sim-map-builder.ts";
+import { createMapFromTemplate, filterZonesForOccupants } from "../sim-map-create.ts";
 import { map as settledUniverse } from "../../data/map.ts";
 import { settledPreset } from "../../data/map-preset-settled.ts";
-import { computeBuildWares } from "../sim-station-manager.ts";
+import { computeBuildWares } from "../sim-station-template.ts";
 import { getInventorySlot } from "../sim-station.ts";
-import { findRoundTradeTrip, getTradeBuyDemand, scoreHomeInventoryCandidates } from "../sim-trade-decision.ts";
-import { getShipTemplate } from "../sim-ship-template.ts";
+import {
+  findRoundTradeTrip,
+  getTradeBuyDemand,
+  scoreHomeInventoryCandidates,
+} from "../sim-trade-decision.ts";
+import { getShipTypeTemplate } from "../sim-ship-template.ts";
 import type { Station } from "../sim-station-types.ts";
 import type { Ship } from "../sim-ships.ts";
 import type { TradeShip } from "../sim-trade-types.ts";
@@ -16,26 +20,18 @@ import type { TradeShip } from "../sim-trade-types.ts";
 // covers slot shapes; this file covers the cross-module chain that a new
 // construction triggers.
 
-function freshSim(): Simulation {
+function createFreshSimulation(): Simulation {
   return createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
     ignoreCargoCompatibility: true,
-    initialStaggerDuration: 0,
+    initialStaggerDurationSeconds: 0,
   });
 }
 
-function findFreeZone(simulation: Simulation): { zoneId: string; x: number; y: number; size: "S" | "M" | "L" } | undefined {
-  // Pick a buildable zone that no station currently occupies.
-  for (const zone of simulation.map.stationZones) {
-    return { zoneId: zone.id, x: zone.x, y: zone.y, size: zone.size };
-  }
-  return undefined;
-}
-
 test("placeBuild: creates a station in 'building' state with only provisions+hulls inventory slots", () => {
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   const { station } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "tech-factory",
     size: "M",
     nationId: "hub",
@@ -62,10 +58,10 @@ test("placeBuild: build slot caps match computeBuildWares output", () => {
   // Pin the wiring between computeBuildWares and inventory slot.max. A drift
   // would let the build complete with the wrong ware count, or never complete
   // because the slot caps are higher than the construction tracker checks.
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   const { station } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "habitat",
     size: "L",
     nationId: "bio",
@@ -98,13 +94,23 @@ test("computeBuildWares: per-type flavor splits — provisions-heavy / balanced 
   // support) ought to demand more provisions than hulls; a mine (industrial)
   // the reverse. Total stays the same under any of those mutations.
   const habitat = computeBuildWares("habitat", "M", false);
-  assertTrue(habitat.provisions > habitat.hulls, `habitat is provisions-heavy; got provisions=${habitat.provisions}, hulls=${habitat.hulls}`);
+  assertTrue(
+    habitat.provisions > habitat.hulls,
+    `habitat is provisions-heavy; got provisions=${habitat.provisions}, hulls=${habitat.hulls}`,
+  );
 
   const archives = computeBuildWares("archives", "M", false);
-  assertEqual(archives.provisions, archives.hulls, `archives is balanced; got provisions=${archives.provisions}, hulls=${archives.hulls}`);
+  assertEqual(
+    archives.provisions,
+    archives.hulls,
+    `archives is balanced; got provisions=${archives.provisions}, hulls=${archives.hulls}`,
+  );
 
   const mine = computeBuildWares("mine", "M", false);
-  assertTrue(mine.hulls > mine.provisions, `mine is hulls-heavy; got provisions=${mine.provisions}, hulls=${mine.hulls}`);
+  assertTrue(
+    mine.hulls > mine.provisions,
+    `mine is hulls-heavy; got provisions=${mine.provisions}, hulls=${mine.hulls}`,
+  );
 });
 
 test("computeBuildWares: scales with size (S=1×, M=2×, L=3×)", () => {
@@ -125,7 +131,7 @@ test("computeBuildWares: scales with size (S=1×, M=2×, L=3×)", () => {
 });
 
 test("placeBuild: registers the new station in StationManager and fires onAdd observers", () => {
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   let observedStation: Station | null = null;
   let observedShipCount = 0;
   const unsubscribe = simulation.stationManager.onAdd((station, ships) => {
@@ -133,9 +139,9 @@ test("placeBuild: registers the new station in StationManager and fires onAdd ob
     observedShipCount = ships.length;
   });
 
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   const { station } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "tech-factory",
     size: "M",
     nationId: "hub",
@@ -159,21 +165,24 @@ test("placeBuild: filterZonesForOccupants now hides the build zone", () => {
   // Pin that occupancy uses station.zoneId. Mutating placeBuild to drop
   // zoneId on the placement would leave the zone showing as buildable while
   // a station sits there.
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   // Confirm the zone is in the unoccupied list before placeBuild.
   assertTrue(
-    simulation.map.stationZones.some((candidate) => candidate.id === zone.zoneId),
+    simulation.map.stationZones.some((candidate) => candidate.id === zone.id),
     "zone is in stationZones (unoccupied) before placeBuild",
   );
   // Snapshot which zones are unoccupied right before placeBuild — sim init
   // already placed initial-station builds in some other zones, so the diff
   // should be exactly the one zone we're about to occupy.
-  const filteredBefore = filterZonesForOccupants(simulation.map.stationZones, simulation.stationManager.getStations());
+  const filteredBefore = filterZonesForOccupants(
+    simulation.map.stationZones,
+    simulation.stationManager.getStations(),
+  );
   const beforeFilteredCount = filteredBefore.length;
 
   const { station } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "tech-factory",
     size: "M",
     nationId: "hub",
@@ -182,13 +191,16 @@ test("placeBuild: filterZonesForOccupants now hides the build zone", () => {
   });
 
   // Apply filterZonesForOccupants with all stations (including the new one).
-  const filtered = filterZonesForOccupants(simulation.map.stationZones, simulation.stationManager.getStations());
+  const filtered = filterZonesForOccupants(
+    simulation.map.stationZones,
+    simulation.stationManager.getStations(),
+  );
   assertTrue(
-    !filtered.some((candidate) => candidate.id === zone.zoneId),
+    !filtered.some((candidate) => candidate.id === zone.id),
     "zone is filtered out once a station occupies it",
   );
   assertEqual(filtered.length, beforeFilteredCount - 1, "exactly one zone hidden by adding a build");
-  assertEqual(station.zoneId, zone.zoneId, "station.zoneId persists the occupancy claim");
+  assertEqual(station.zoneId, zone.id, "station.zoneId persists the occupancy claim");
 
   simulation.dispose();
 });
@@ -197,10 +209,10 @@ test("placeBuild: WareStationIndex lists the building station as a consumer-only
   // Pin the rebuildWareIndex call inside addStation. Without it, the index
   // wouldn't see the building station and trade decisions wouldn't route
   // construction wares to it.
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   const { station } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "tech-factory",
     size: "M",
     nationId: "hub",
@@ -230,22 +242,14 @@ test("placeBuild: WareStationIndex lists the building station as a consumer-only
 });
 
 test("scoreHomeInventoryCandidates: building station produces zero sell candidates", () => {
-  // Pin layer 1 of the construction-ware-no-sell defense — scoreHomeInventoryCandidates
-  // skips home.stationType.produces when isStationUnderConstruction(home).
-  // Without this, a building shipyard's hulls slot (a construction INPUT)
-  // would match produces=['hulls'] and surface as a sell candidate.
-  //
-  // Direct unit test because the integration path through findRoundTradeTrip
-  // hides this regression: layer 2 (findEligibleCounterStations'
-  // `score > homeScore` filter combined with the build-site demand floor of 1)
-  // currently makes the bad sell unbuildable downstream. But that's
-  // trade-balance tuning, not an invariant — a future tweak to the floor or
-  // the comparison operator would re-expose layer 1 as load-bearing, and
-  // the integration test would still pass vacuously.
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  // Pin scoreHomeInventoryCandidates' skip-produces guard when the station is
+  // under construction. Without it, a building shipyard's hulls slot (a
+  // construction INPUT) would match produces=['hulls'] and surface as a sell
+  // candidate.
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   const { station } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "shipyard",
     size: "S",
     nationId: "sky",
@@ -268,10 +272,10 @@ test("getTradeBuyDemand: build sites floor at 1 across the whole 0..max-1 range;
   // 1 - fill always) lets a near-full build site report low demand, which
   // pickDestinationStation would then deprioritize relative to operational
   // consumers — defeating the whole point of the floor.
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   const { station: buildSite } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "tech-factory",
     size: "M",
     nationId: "hub",
@@ -313,10 +317,10 @@ test("findRoundTradeTrip: producer's home ship distributes destinations across t
   //    iterated build site wins every optimal pick (75% of trials), so the
   //    second only ever sees the 25% random path (~12.5% rate) and fails
   //    the >25% distribution threshold below.
-  // Threshold note: the >25% bound discriminates with optimalChance=0.75. If
-  // economyConfig.optimalChance drops to 0.5 or lower, the without-shuffle
+  // Threshold note: the >25% bound discriminates with optimalPickChance=0.75. If
+  // economyConfig.optimalPickChance drops to 0.5 or lower, the without-shuffle
   // rate climbs and this test loses sensitivity — re-tune the threshold then.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   // Snapshot the unoccupied zones — placeBuild is what claims occupancy, so
   // grabbing the slice up front ensures both placements get distinct zones.
   const freeZones = simulation.map.stationZones.filter(
@@ -361,12 +365,15 @@ test("findRoundTradeTrip: producer's home ship distributes destinations across t
     );
     if (!candidateShip) continue;
     const orbiting = simulation.tradeManager.requireResolvedShip(candidateShip.orbitingShipId);
-    if (!getShipTemplate(orbiting.shipTypeId).allowedWares.includes("provisions")) continue;
+    if (!getShipTypeTemplate(orbiting.shipTypeId).allowedWares.includes("provisions")) continue;
     producer = candidate;
     producerShip = candidateShip;
     break;
   }
-  const resolvedProducer = assertNotUndefined(producer, "settled fixture has a provisions producer with a provisions-capable home ship");
+  const resolvedProducer = assertNotUndefined(
+    producer,
+    "settled fixture has a provisions producer with a provisions-capable home ship",
+  );
   const resolvedShip = assertNotUndefined(producerShip, "producer has a home ship");
 
   // Pin sell direction: provisions output full, other outputs empty (no sell
@@ -397,21 +404,30 @@ test("findRoundTradeTrip: producer's home ship distributes destinations across t
   }
 
   const totalBuildPicks = countA + countB;
-  assertTrue(totalBuildPicks > 50, `producer's ship picks build sites enough to test distribution; got ${totalBuildPicks}/${trialCount}`);
-  assertTrue(countA > totalBuildPicks * 0.25, `buildA picked >25% of build-site landings; got ${countA}/${totalBuildPicks}`);
-  assertTrue(countB > totalBuildPicks * 0.25, `buildB picked >25% of build-site landings; got ${countB}/${totalBuildPicks}`);
+  assertTrue(
+    totalBuildPicks > 50,
+    `producer's ship picks build sites enough to test distribution; got ${totalBuildPicks}/${trialCount}`,
+  );
+  assertTrue(
+    countA > totalBuildPicks * 0.25,
+    `buildA picked >25% of build-site landings; got ${countA}/${totalBuildPicks}`,
+  );
+  assertTrue(
+    countB > totalBuildPicks * 0.25,
+    `buildB picked >25% of build-site landings; got ${countB}/${totalBuildPicks}`,
+  );
 
   simulation.dispose();
 });
 
 test("completion flip: inventory rebuilt with full template ware slots", () => {
   // Force the build to complete by filling provisions+hulls to capacity, then
-  // tickDynamics. Pin that the flip rebuilds the inventory using the station
+  // slowSimulationTick. Pin that the flip rebuilds the inventory using the station
   // template's full produces+inputs.
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   const { station } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "tech-factory",
     size: "M",
     nationId: "hub",
@@ -443,10 +459,10 @@ test("completion flip: WareStationIndex moves the station from consumer-only to 
   // Pin the rebuildWareIndex call wired through onStationStateChange.
   // Without it, the now-producing tech-factory wouldn't show up as a tech
   // producer, breaking trade routing for tech.
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   const { station } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "tech-factory",
     size: "M",
     nationId: "hub",
@@ -490,8 +506,8 @@ test("completion flip: fires the flip observer with the build-site ships to desp
   // Pin the flipObservers fan-out. Caller wires this to despawn build-site
   // ships and spawn the regular fleet — without the fan-out, build ships
   // would persist forever, drifting around a producing station.
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   let observedFlippedStation: Station | null = null;
   let observedBuildShips: Ship[] = [];
   const unsubscribe = simulation.stationManager.onFlip((flippedStation, buildShips) => {
@@ -500,7 +516,7 @@ test("completion flip: fires the flip observer with the build-site ships to desp
   });
 
   const { station } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "tech-factory",
     size: "M",
     nationId: "hub",
@@ -522,16 +538,21 @@ test("completion flip: fires the flip observer with the build-site ships to desp
 
 test("removeStation during 'building' state: fires onRemove observer and clears the station from byId", () => {
   // Pin the removeStation path — observers fire even mid-build.
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
-  const { station } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
+  const { station, ships: buildShips } = simulation.stationManager.placeBuild({
+    zoneId: zone.id,
     typeId: "tech-factory",
     size: "M",
     nationId: "hub",
     x: zone.x,
     y: zone.y,
   });
+  // Pre-check: ShipManager has the build-site ships before removal.
+  assertTrue(buildShips.length > 0, "placeBuild spawned at least one build-site ship");
+  for (const ship of buildShips) {
+    assertEqual(simulation.shipManager.getShip(ship.id), ship, `ship ${ship.id} present in ShipManager`);
+  }
 
   let observedRemoved: Station | null = null;
   const unsubscribe = simulation.stationManager.onRemove((removed) => {
@@ -541,10 +562,25 @@ test("removeStation during 'building' state: fires onRemove observer and clears 
   simulation.stationManager.removeStation(station.id);
   unsubscribe();
 
+  // Pin the removeShipsForStation call inside removeStation. Mutating to
+  // skip the despawn would leave orphaned build-site ships orbiting where
+  // a station used to be — visible in render, still enrolled with trade-manager.
+  for (const ship of buildShips) {
+    assertEqual(
+      simulation.shipManager.getShip(ship.id),
+      undefined,
+      `build ship ${ship.id} despawned with removed station`,
+    );
+  }
+
   // Pin the fire-then-deregister sequence. Mutating removeStation to skip
   // the observer would leave subscribers with stale references.
   assertEqual(observedRemoved, station, "onRemove observer received the removed station");
-  assertEqual(simulation.stationManager.getStation(station.id), undefined, "byId no longer resolves the removed station");
+  assertEqual(
+    simulation.stationManager.getStation(station.id),
+    undefined,
+    "byId no longer resolves the removed station",
+  );
   // Pin the splice-by-1 in unregisterStation. Mutating to splice(index, 0) would
   // leave the station in the stations array even though byId is cleared.
   assertTrue(
@@ -568,10 +604,62 @@ test("removeStation during 'building' state: fires onRemove observer and clears 
   simulation.dispose();
 });
 
+test("setStationStates: no-op when stations already in target state (batch observer doesn't fire)", () => {
+  // Pin the `if (oldState === newState) continue;` short-circuit. Mutating
+  // it away would push every station into the transitions array even when
+  // nothing actually changed, firing the batch observer with phantom
+  // transitions whose oldState equals newState.
+  const simulation = createFreshSimulation();
+  const producingStations = simulation.stationManager
+    .getStations()
+    .filter((station) => station.state === "producing");
+  assertTrue(producingStations.length > 0, "settled fixture has producing stations");
+
+  let batchFired = 0;
+  const unsubscribe = simulation.stationManager.onStationStateChangeBatch(() => {
+    batchFired++;
+  });
+  simulation.stationManager.setStationStates(producingStations, "producing");
+  unsubscribe();
+
+  assertEqual(batchFired, 0, "batch observer didn't fire — every station already producing");
+
+  simulation.dispose();
+});
+
+test("removeStation at index 0: still spliced from the stations array (index >= 0 boundary)", () => {
+  // Pin the `if (index >= 0)` guard. Mutating to `> 0` would leave the
+  // station at array index 0 hanging in the stations array even after
+  // byId delete and observer fire. The existing build-state test happens
+  // to remove a high-index station; this one targets the array head.
+  const simulation = createFreshSimulation();
+  const firstStation = simulation.stationManager.getStations()[0];
+  assertTrue(firstStation !== undefined, "settled fixture has at least one station");
+  assertEqual(
+    simulation.stationManager.getStations().indexOf(firstStation),
+    0,
+    "target station is at array index 0",
+  );
+
+  simulation.stationManager.removeStation(firstStation.id);
+
+  assertTrue(
+    !simulation.stationManager.getStations().includes(firstStation),
+    "index-0 station spliced from the stations array",
+  );
+  assertEqual(
+    simulation.stationManager.getStation(firstStation.id),
+    undefined,
+    "byId no longer resolves the removed index-0 station",
+  );
+
+  simulation.dispose();
+});
+
 test("generateBuildStationId: id has the nation-code prefix and doesn't collide with existing stations", () => {
   // Pin the unique-id generation. Place 5 builds in a row and verify each
   // gets a distinct id with the right prefix.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const ids = new Set<string>();
   let placed = 0;
   for (const zone of simulation.map.stationZones.slice(0, 5)) {
@@ -599,7 +687,7 @@ test("Simulation.dispose: idempotent — second call does not re-run subordinate
   // Pin the early-return on this.disposed. Without it, the second dispose
   // would call stationHistory.reset / nationManager.reset / tradeManager.dispose
   // a second time. Patch stationHistory.reset to count calls.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   let resetCalls = 0;
   const stationHistory = simulation.stationHistory;
   const originalReset = stationHistory.reset.bind(stationHistory);
@@ -618,13 +706,15 @@ test("createSimulation: preset stations are recorded in StationHistory at game s
   // onAdd, so without an explicit backfill the history's onAdd subscriber
   // misses every preset station. Pin: the chart's getCountsAt sees the same
   // station roster the live game does as soon as the player opens the Log tab.
-  const simulation = freshSim();
-  const liveStationIds = new Set(simulation.stations.map((s) => s.id));
+  const simulation = createFreshSimulation();
+  const liveStationIds = new Set(simulation.stations.map((station) => station.id));
   // Use a far-future time so any seed event time (positive, zero, or negative
-  // due to simulationWarmup) is included — the test is about presence, not
+  // due to simulationWarmupSeconds) is included — the test is about presence, not
   // about the exact event timestamp.
   const farFuture = 100 * 24 * 3600;
-  const historicalIds = new Set(simulation.stationHistory.getStateAt(farFuture).stations.map((s) => s.id));
+  const historicalIds = new Set(
+    simulation.stationHistory.getStateAt(farFuture).stations.map((station) => station.id),
+  );
   assertEqual(historicalIds.size, liveStationIds.size, "history station count matches live");
   for (const id of liveStationIds) {
     assertTrue(historicalIds.has(id), `live station ${id} present in history`);
@@ -633,7 +723,7 @@ test("createSimulation: preset stations are recorded in StationHistory at game s
   const counts = simulation.stationHistory.getCountsAt(farFuture);
   let totalNonWayCounted = 0;
   for (const value of counts.values()) totalNonWayCounted += value;
-  const liveNonWayCount = simulation.stations.filter((s) => s.nation.id !== "way").length;
+  const liveNonWayCount = simulation.stations.filter((station) => station.nation.id !== "way").length;
   assertEqual(totalNonWayCounted, liveNonWayCount, "non-WAY counts match live roster");
   simulation.dispose();
 });
@@ -642,10 +732,10 @@ test("placeBuild then completion: post-flip station has a regular fleet (build-s
   // The flip observer wired in sim-lifecycle calls
   // shipManager.spawnFleetForStation(flippedStation). Pin: post-flip ship
   // count includes the regular fleet, not just the build-site ships.
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   const { station, ships: buildShips } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "tech-factory",
     size: "M",
     nationId: "hub",
@@ -668,22 +758,25 @@ test("placeBuild then completion: post-flip station has a regular fleet (build-s
   const postFlipShips = simulation.shipManager.getShipsForStation(station);
   assertTrue(postFlipShips.length > 0, "post-flip station has at least one ship");
   for (const ship of postFlipShips) {
-    assertTrue(!buildShipObjectSet.has(ship), `ship ${ship.id} is a fresh post-flip Ship object, not a leftover build-site ship`);
+    assertTrue(
+      !buildShipObjectSet.has(ship),
+      `ship ${ship.id} is a fresh post-flip Ship object, not a leftover build-site ship`,
+    );
   }
 
   simulation.dispose();
 });
 
-test("Simulation.tickDynamics: also drives stationManager.tick — builds complete via the dynamics tick", () => {
-  // Pin the `this.stationManager.tick()` call inside tickDynamics. The
-  // game scene calls tickDynamics every ~5s; if it skipped stationManager.tick,
-  // build flips would never fire from the dynamics path. The test calls
-  // tickDynamics (not stationManager.tick directly) so that mutation kills
+test("Simulation.slowSimulationTick: also drives stationManager.tick — builds complete via the slow simulation tick", () => {
+  // Pin the `this.stationManager.tick()` call inside slowSimulationTick. The
+  // game scene calls slowSimulationTick every ~5s; if it skipped stationManager.tick,
+  // build flips would never fire from the slow simulation path. The test calls
+  // slowSimulationTick (not stationManager.tick directly) so that mutation kills
   // this assertion.
-  const simulation = freshSim();
-  const zone = assertNotUndefined(findFreeZone(simulation), "free zone");
+  const simulation = createFreshSimulation();
+  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
   const { station } = simulation.stationManager.placeBuild({
-    zoneId: zone.zoneId,
+    zoneId: zone.id,
     typeId: "tech-factory",
     size: "M",
     nationId: "hub",
@@ -694,19 +787,19 @@ test("Simulation.tickDynamics: also drives stationManager.tick — builds comple
   const hullsSlot = assertNotUndefined(getInventorySlot(station, "hulls"), "hulls");
   provisionsSlot.current = provisionsSlot.max;
   hullsSlot.current = hullsSlot.max;
-  // Pin: tickDynamics fans through stationManager.tick.
-  simulation.tickDynamics(1);
-  assertEqual(station.state, "producing", "build flipped via tickDynamics path");
+  // Pin: slowSimulationTick fans through stationManager.tick.
+  simulation.slowSimulationTick(1);
+  assertEqual(station.state, "producing", "build flipped via slowSimulationTick path");
 
   simulation.dispose();
 });
 
 test("createSimulation: staggers per-station tick offsets across the [-interval, 0] range", () => {
-  // Pin the staggerStationTicks call inside seedStationsAndShips. Without
+  // Pin the staggerStationTicks call inside seedFreshRoster. Without
   // it, every station's secondsSinceLastTick stays at the createStation
   // default (0) — so production all fires on the same frame. With it, each
   // station gets a unique negative offset spread across one interval.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const offsetSet = new Set<number>();
   for (const station of simulation.stationManager.getStations()) {
     offsetSet.add(station.secondsSinceLastTick);
@@ -728,20 +821,19 @@ test("createSimulation: staggers per-station tick offsets across the [-interval,
 test("createSimulation: applies preset's seedInitialInventory — per-slot ratios spread across the [lower, upper] range", () => {
   // Pin the `map.seedInitialInventory?.(stations)` call. Without seeding,
   // every producing-state slot stays at exactly the starterFillRatio (0.5).
-  // With seeding (mocked random alternating between 0 and 1), per-slot
-  // ratios diverge to either lowerBound or upperBound while the universe
-  // sum still hits universeWareFraction × totalMax. Result: many slots
+  // With seeding (mocked random alternating between 0 and 1), each slot's
+  // fill ratio lands at either lowerBound or upperBound. Result: many slots
   // land >0.1 from 0.5. Skipping the seeding hook keeps every slot at 0.5.
   const originalRandom = Math.random;
   let randomCallCounter = 0;
   Math.random = () => {
-    // Alternate between 0 (lowerBound) and 1 (upperBound) so per-slot
-    // ratios diverge while the average still ≈ 0.5 (so scale ≈ 1).
-    return (randomCallCounter++) % 2 === 0 ? 0 : 0.999;
+    // Alternate between 0 (→ lowerBound) and ~1 (→ upperBound) so per-slot
+    // fill ratios spread to both ends of the range, away from 0.5.
+    return randomCallCounter++ % 2 === 0 ? 0 : 0.999;
   };
   let simulation: Simulation;
   try {
-    simulation = freshSim();
+    simulation = createFreshSimulation();
   } finally {
     Math.random = originalRandom;
   }

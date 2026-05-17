@@ -1,5 +1,6 @@
-// HUD info-panel icon tuning — pixel sizes, ring widths, backdrop color.
-// Visual-only.
+// Icon shown in the selected game-object info panel during gameplay (and the
+// overview-mode nations pane): the small monochrome silhouette disc for the
+// currently selected station/ship/sector.
 
 export const hudIconVisuals = {
   iconSize: 32,

@@ -10,8 +10,14 @@
 import { economyConfig } from "../data/economy-config";
 import type { WareId } from "../data/ware-types";
 import type { TradeTripLeg, TradeDirection } from "./sim-trade-types";
-import { getInventorySlot, getAllInventorySlots, isStationUnderConstruction, type Station, type InventorySlot } from "./sim-station";
-import { getShipTemplate } from "./sim-ship-template";
+import {
+  getInventorySlot,
+  getAllInventorySlots,
+  isStationUnderConstruction,
+  type Station,
+  type InventorySlot,
+} from "./sim-station";
+import { getShipTypeTemplate } from "./sim-ship-template";
 import { type TradeShip } from "./sim-trade-types";
 import { type RouteStats } from "./sim-trade-route-statistics";
 // Type-only — avoids runtime cycle with sim-trade-manager.
@@ -53,13 +59,15 @@ export function getTradeSellSupply(slot: InventorySlot): number {
 
 /** Producer-to-consumer routes the current fleet can actually fly,
  *  regardless of whether deliveries have happened. */
-export function getPossibleTradeRoutes(manager: TradeManager): Array<{ fromStationId: string; toStationId: string; wares: WareId[] }> {
+export function getPossibleTradeRoutes(
+  manager: TradeManager,
+): Array<{ fromStationId: string; toStationId: string; wares: WareId[] }> {
   const allowedWaresByHomeStationId = new Map<string, Set<WareId>>();
   for (const tradeShip of manager.activeTradeShips.all()) {
     if (allowedWaresByHomeStationId.has(tradeShip.homeStationId)) continue;
     allowedWaresByHomeStationId.set(
       tradeShip.homeStationId,
-      new Set(getShipTemplate(manager.requireResolvedShip(tradeShip.orbitingShipId).shipTypeId).allowedWares),
+      new Set(getShipTypeTemplate(manager.requireResolvedShip(tradeShip.orbitingShipId).shipTypeId).allowedWares),
     );
   }
 
@@ -120,7 +128,7 @@ export function getShipTransportableWares(manager: TradeManager): WareId[] {
 /** Routes that carried cargo in the last `windowSeconds` (Infinity = all-time).
  *  Cached per-window, refreshing after tradeRouteCacheRefreshSeconds. Returns
  *  the same reference while warm so callers can identity-compare for diffs. */
-export function getOrRefreshTradedRoutes(manager: TradeManager, now: number, windowSeconds: number): RouteStats[] {
+export function getTradedRoutes(manager: TradeManager, now: number, windowSeconds: number): RouteStats[] {
   const cached = manager.routesCacheByWindow.get(windowSeconds);
   if (cached && now - cached.cachedAt < economyConfig.tradeRouteCacheRefreshSeconds) return cached.routes;
   const routes = manager.tradeRouteStats.getRouteStatsInWindow(now, windowSeconds);
@@ -128,10 +136,10 @@ export function getOrRefreshTradedRoutes(manager: TradeManager, now: number, win
   return routes;
 }
 
-/** Distinct ware IDs across `getOrRefreshTradedRoutes(...)`. */
+/** Distinct ware IDs across `getTradedRoutes(...)`. */
 export function getTradedWares(manager: TradeManager, now: number, windowSeconds: number): WareId[] {
   const set = new Set<WareId>();
-  for (const route of getOrRefreshTradedRoutes(manager, now, windowSeconds)) {
+  for (const route of getTradedRoutes(manager, now, windowSeconds)) {
     for (const wareStats of route.wares) set.add(wareStats.wareId);
   }
   return [...set];
@@ -139,10 +147,7 @@ export function getTradedWares(manager: TradeManager, now: number, windowSeconds
 
 /** Highest-scoring item from `candidates`, with ties broken by uniform random
  *  pick. Caller must pass a non-empty array. */
-function pickRandomFromMaxScore<T>(
-  candidates: T[],
-  scoreFn: (item: T) => number,
-): T {
+function pickRandomFromMaxScore<T>(candidates: T[], scoreFn: (item: T) => number): T {
   let bestScore = -Infinity;
   let tied: T[] = [];
   for (const candidate of candidates) {
@@ -159,14 +164,14 @@ function pickRandomFromMaxScore<T>(
 
 /** Pick the main cargo leg — direction (sell/buy), ware, destination, amount.
  *  Respects allowedWares, minimum-fill threshold (with idle decay), and the
- *  optimalChance vs random pick. Returns null if no viable leg exists. */
+ *  optimalPickChance vs random pick. Returns null if no viable leg exists. */
 function pickPrimaryLeg(ship: TradeShip, manager: TradeManager): TradeTripLeg | null {
   const home = manager.requireResolvedStation(ship.homeStationId);
   const orbitingShip = manager.requireResolvedShip(ship.orbitingShipId);
-  const cargoCapacity = getShipTemplate(orbitingShip.shipTypeId).cargoCapacity;
+  const cargoCapacity = getShipTypeTemplate(orbitingShip.shipTypeId).cargoCapacity;
   if (cargoCapacity === 0) return null;
 
-  const allowedWares = getShipTemplate(orbitingShip.shipTypeId).allowedWares;
+  const allowedWares = getShipTypeTemplate(orbitingShip.shipTypeId).allowedWares;
   const candidates = scoreHomeInventoryCandidates(home, allowedWares);
   if (candidates.length === 0) return null;
 
@@ -175,18 +180,16 @@ function pickPrimaryLeg(ship: TradeShip, manager: TradeManager): TradeTripLeg | 
   const counterStation = pickDestinationStation(picked, home, manager);
   if (!counterStation) return null;
 
-  const isSell = picked.direction === "sell";
-  const wareId = picked.slot.ware.id;
   const cargoAmount = sizeCargoForLeg(picked, counterStation, cargoCapacity);
   if (cargoAmount <= 0) return null;
 
   if (cargoAmount / cargoCapacity < decayedMinimumCargoFill(ship, manager)) return null;
 
   return {
-    wareId,
+    wareId: picked.slot.ware.id,
     amount: cargoAmount,
-    fromStation: isSell ? home : counterStation,
-    toStation: isSell ? counterStation : home,
+    fromStation: picked.direction === "sell" ? home : counterStation,
+    toStation: picked.direction === "sell" ? counterStation : home,
   };
 }
 
@@ -241,14 +244,18 @@ export function scoreHomeInventoryCandidates(home: Station, allowedWares: WareId
   return candidates;
 }
 
-/** optimalChance of the time picks the highest-score candidate (ties shuffle),
+/** optimalPickChance of the time picks the highest-score candidate (ties shuffle),
  *  otherwise uniform random — keeps fleets from converging on the same leg
  *  every tick. */
-function pickPrimaryLegCandidate(candidates: PrimaryLegCandidate[]): PrimaryLegCandidate {
-  if (Math.random() < economyConfig.optimalChance) {
-    return pickRandomFromMaxScore(candidates, (candidate) => candidate.score);
+function pickWeightedByOptimalChance<T>(candidates: T[], scoreFn: (candidate: T) => number): T {
+  if (Math.random() < economyConfig.optimalPickChance) {
+    return pickRandomFromMaxScore(candidates, scoreFn);
   }
   return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function pickPrimaryLegCandidate(candidates: PrimaryLegCandidate[]): PrimaryLegCandidate {
+  return pickWeightedByOptimalChance(candidates, (candidate) => candidate.score);
 }
 
 interface CounterStationCandidate {
@@ -257,24 +264,30 @@ interface CounterStationCandidate {
   score: number;
 }
 
-/** Counter-side stations that score higher than home for this ware. Sell-side
- *  ranks consumers by buy-demand; buy-side ranks producers by sell-supply.
+/** Sell ranks consumers by buy-demand; buy ranks producers by sell-supply.
  *  Build-site demand floor only fires on the sell branch — buy direction stays
  *  on raw supply, so a build-site home observes the gradient and the producer's
  *  sell pick routes cargo to it. */
+export function scoreForDirection(
+  direction: TradeDirection,
+): (station: Station, slot: InventorySlot) => number {
+  return direction === "sell"
+    ? (station, slot) => getTradeBuyDemand(station, slot)
+    : (_station, slot) => getTradeSellSupply(slot);
+}
+
+/** Counter-side stations that score higher than home for this ware. */
 function findEligibleCounterStations(
   picked: PrimaryLegCandidate,
   home: Station,
   manager: TradeManager,
 ): CounterStationCandidate[] {
-  const isSell = picked.direction === "sell";
   const wareId = picked.slot.ware.id;
-  const stations = isSell
-    ? manager.wareStationIndex.getConsumers(wareId)
-    : manager.wareStationIndex.getProducers(wareId);
-  const scoreFor: (station: Station, slot: InventorySlot) => number = isSell
-    ? (station, slot) => getTradeBuyDemand(station, slot)
-    : (_station, slot) => getTradeSellSupply(slot);
+  const stations =
+    picked.direction === "sell"
+      ? manager.wareStationIndex.getConsumers(wareId)
+      : manager.wareStationIndex.getProducers(wareId);
+  const scoreFor = scoreForDirection(picked.direction);
   const homeScore = scoreFor(home, picked.slot);
   const eligible: CounterStationCandidate[] = [];
   for (const station of stations) {
@@ -287,7 +300,7 @@ function findEligibleCounterStations(
   return eligible;
 }
 
-/** Resolve the counter-side station for `picked`'s leg — optimalChance of the
+/** Resolve the counter-side station for `picked`'s leg — optimalPickChance of the
  *  time goes to the highest-scoring eligible candidate, otherwise uniform
  *  random. Returns null if none qualify. */
 function pickDestinationStation(
@@ -297,23 +310,15 @@ function pickDestinationStation(
 ): Station | null {
   const eligible = findEligibleCounterStations(picked, home, manager);
   if (eligible.length === 0) return null;
-  if (Math.random() < economyConfig.optimalChance) {
-    return pickRandomFromMaxScore(eligible, (entry) => entry.score).station;
-  }
-  return eligible[Math.floor(Math.random() * eligible.length)].station;
+  return pickWeightedByOptimalChance(eligible, (entry) => entry.score).station;
 }
 
 /** Cargo amount for the leg — clamped by ship capacity, source surplus,
  *  and destination room (all reservation-aware). */
-function sizeCargoForLeg(
-  picked: PrimaryLegCandidate,
-  target: Station,
-  cargoCapacity: number,
-): number {
-  const isSell = picked.direction === "sell";
+function sizeCargoForLeg(picked: PrimaryLegCandidate, target: Station, cargoCapacity: number): number {
   const wareId = picked.slot.ware.id;
-  const sourceSlot = isSell ? picked.slot : getInventorySlot(target, wareId)!;
-  const destinationSlot = isSell ? getInventorySlot(target, wareId)! : picked.slot;
+  const sourceSlot = picked.direction === "sell" ? picked.slot : getInventorySlot(target, wareId)!;
+  const destinationSlot = picked.direction === "sell" ? getInventorySlot(target, wareId)! : picked.slot;
   return Math.min(cargoCapacity, effectiveAvailable(sourceSlot), effectiveSpace(destinationSlot));
 }
 
@@ -321,14 +326,21 @@ function sizeCargoForLeg(
  *  minimumCargoFillThreshold and decays to 0 over time per cargoFillDecayPerSecond
  *  — values live in data/economy-config.ts. */
 function decayedMinimumCargoFill(ship: TradeShip, manager: TradeManager): number {
-  const idleElapsed = manager.tradeTime - ship.idleStartTime;
-  return Math.max(0, economyConfig.minimumCargoFillThreshold - idleElapsed * economyConfig.cargoFillDecayPerSecond);
+  const idleElapsed = manager.tradeTime - ship.idleSinceTradeTime;
+  return Math.max(
+    0,
+    economyConfig.minimumCargoFillThreshold - idleElapsed * economyConfig.cargoFillDecayPerSecond,
+  );
 }
 
 /** Opportunistic backhaul for the empty leg of `primary`. Returns null if
  *  nothing qualifies — ship runs the empty leg. */
-function pickSecondaryLeg(ship: TradeShip, primary: TradeTripLeg, manager: TradeManager): TradeTripLeg | null {
-  const shipTemplate = getShipTemplate(manager.requireResolvedShip(ship.orbitingShipId).shipTypeId);
+function pickSecondaryLeg(
+  ship: TradeShip,
+  primary: TradeTripLeg,
+  manager: TradeManager,
+): TradeTripLeg | null {
+  const shipTemplate = getShipTypeTemplate(manager.requireResolvedShip(ship.orbitingShipId).shipTypeId);
   const allowed = shipTemplate.allowedWares;
 
   // Backhaul flows opposite the primary leg — fill the empty return trip.
@@ -344,7 +356,11 @@ function pickSecondaryLeg(ship: TradeShip, primary: TradeTripLeg, manager: Trade
     const destinationSlot = getInventorySlot(destination, wareId);
     if (!sourceSlot || !destinationSlot) continue;
 
-    const amount = Math.min(shipTemplate.cargoCapacity, effectiveAvailable(sourceSlot), effectiveSpace(destinationSlot));
+    const amount = Math.min(
+      shipTemplate.cargoCapacity,
+      effectiveAvailable(sourceSlot),
+      effectiveSpace(destinationSlot),
+    );
     if (amount <= 0) continue;
 
     return { wareId: sourceSlot.ware.id, amount, fromStation: source, toStation: destination };

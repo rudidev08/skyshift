@@ -8,7 +8,7 @@ import type { StationTypeId } from "../data/station-types";
 import type { TimelapseFrame, TimelapseStation } from "./sim-timelapse-state";
 
 export const HISTORY_STATION_STATES = ["operational", "construction"] as const;
-export type HistoryStationState = typeof HISTORY_STATION_STATES[number];
+export type HistoryStationState = (typeof HISTORY_STATION_STATES)[number];
 
 export interface HistoryStation {
   id: string;
@@ -39,7 +39,8 @@ export interface StationHistory {
 /** Defensive deep copy: callers may JSON-stringify or mutate. Only `created`
  *  events carry a nested object (station + position); the others are flat. */
 function cloneEvent(event: StationLifecycleEvent): StationLifecycleEvent {
-  if (event.kind === "created") return { ...event, station: { ...event.station, position: { ...event.station.position } } };
+  if (event.kind === "created")
+    return { ...event, station: { ...event.station, position: { ...event.station.position } } };
   return { ...event };
 }
 

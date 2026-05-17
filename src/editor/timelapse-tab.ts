@@ -16,7 +16,7 @@ import { Download } from "lucide-static";
 import { formatElapsed } from "../render-elapsed-time-label";
 import { setTextIfChanged } from "../ui-dom-cache";
 import { downloadJsonFile, fileNameTimestamp } from "../ui-download-json";
-import { TimelapseScene, type TimelapseZoomElements } from "./timelapse-scene";
+import { TimelapseScene } from "./timelapse-scene";
 import {
   buildPresetMap,
   capturePresetInitialFrame,
@@ -42,8 +42,7 @@ import {
   type StationsTimelapseControl,
 } from "../ui-stations-timelapse-control";
 
-const PRE_RUN_BLURB =
-  "Simulate stations growing and emigrating over time.";
+const PRE_RUN_BLURB = "Simulate stations growing and emigrating over time.";
 
 interface TimelapseTabControls {
   presetSelect: HTMLSelectElement;
@@ -58,7 +57,6 @@ interface TimelapseTabControls {
   progressBar: HTMLElement;
   progressFill: HTMLElement;
   container: HTMLElement;
-  zoomElements: TimelapseZoomElements;
 }
 
 export interface TimelapseTab {
@@ -106,12 +104,12 @@ export function createTimelapseTab(): TimelapseTab {
     },
     onScrubToTime(endTime) {
       if (run.frames.length === 0) return;
-      run.currentFrameIndex = nearestFrameIndex(run.frames, endTime);
+      run.currentFrameIndex = frameIndexNearestTime(run.frames, endTime);
       renderCurrentFrame();
     },
   });
 
-  function getCachedInitialFrame(presetId: string): TimelapseFrame | null {
+  function getOrCapturePresetInitialFrame(presetId: string): TimelapseFrame | null {
     const cached = previewFrameByPresetId.get(presetId);
     if (cached) return cached;
     const fresh = capturePresetInitialFrame(presetId);
@@ -123,9 +121,9 @@ export function createTimelapseTab(): TimelapseTab {
     unmountScene();
     const map = buildPresetMap(presetId);
     if (!map) return null;
-    const initialFrame = getCachedInitialFrame(presetId);
+    const initialFrame = getOrCapturePresetInitialFrame(presetId);
     if (!initialFrame) return null;
-    scene = new TimelapseScene(map, controls.zoomElements, initialFrame);
+    scene = new TimelapseScene(map, initialFrame);
     game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: controls.container,
@@ -156,7 +154,7 @@ export function createTimelapseTab(): TimelapseTab {
     if (!game || mountedPresetId !== presetId) {
       return mountSceneFor(presetId);
     }
-    const initialFrame = getCachedInitialFrame(presetId);
+    const initialFrame = getOrCapturePresetInitialFrame(presetId);
     if (initialFrame) scene?.renderFrame(initialFrame);
     return initialFrame;
   }
@@ -166,23 +164,21 @@ export function createTimelapseTab(): TimelapseTab {
     resetRunToIdle();
   }
 
-  function dispose() {
+  /** Cancels any in-flight run (via the runner's CancelHandle) and forgets
+   *  its handle. Safe to call when no run is active. */
+  function cancelActiveRun() {
     cancelRun?.();
     cancelRun = null;
+  }
+
+  function dispose() {
+    cancelActiveRun();
     unmountScene();
   }
 
   function startRun() {
-    cancelRun?.();
-    cancelRun = null;
-
-    run.presetId = controls.presetSelect.value;
-    run.durationSeconds = Number(controls.durationSelect.value);
-    run.frames = [];
-    diagnosticsFrames = [];
-    run.status = "running";
-    run.currentFrameIndex = 0;
-    run.generation++;
+    cancelActiveRun();
+    beginFreshRunState();
 
     const generation = run.generation;
     showRunningState();
@@ -199,45 +195,60 @@ export function createTimelapseTab(): TimelapseTab {
         durationSeconds: run.durationSeconds,
         emigrationIntensity: controls.emigrationSelect.value as TimelapseEmigrationSetting,
       },
-      {
-        onFrameCaptured: (frame) => {
-          if (generation !== run.generation) return;
-          run.frames.push(frame);
-          // Track the latest frame so the control's playhead follows the run.
-          run.currentFrameIndex = run.frames.length - 1;
-          refreshControl();
-        },
-        onDiagnosticsFrameCaptured: (frame) => {
-          if (generation !== run.generation) return;
-          diagnosticsFrames.push(frame);
-        },
-        onProgress: (progress) => {
-          if (generation !== run.generation) return;
-          controls.progressFill.style.width = `${Math.round(progress * 100)}%`;
-          updateTimeLabel(run.frames[run.frames.length - 1]?.simSeconds ?? 0, run.durationSeconds);
-        },
-        onLivePreview: (frame) => {
-          if (generation !== run.generation) return;
-          scene?.renderFrame(frame);
-        },
-        onComplete: () => {
-          if (generation !== run.generation) return;
-          finishRun();
-        },
-      },
+      buildRunnerCallbacks(generation),
     );
+  }
+
+  /** Resets the in-memory run to a fresh running state and bumps the
+   *  generation so stale callbacks from a prior run drop their work. */
+  function beginFreshRunState() {
+    run.presetId = controls.presetSelect.value;
+    run.durationSeconds = Number(controls.durationSelect.value);
+    run.frames = [];
+    diagnosticsFrames = [];
+    run.status = "running";
+    run.currentFrameIndex = 0;
+    run.generation++;
+  }
+
+  /** Runner callbacks for one run; each drops its work once a newer run has
+   *  bumped the generation past `generation`. */
+  function buildRunnerCallbacks(generation: number): Parameters<typeof startTimelapseRun>[1] {
+    return {
+      onFrameCaptured: (frame) => {
+        if (generation !== run.generation) return;
+        run.frames.push(frame);
+        run.currentFrameIndex = run.frames.length - 1;
+        refreshControl();
+      },
+      onDiagnosticsFrameCaptured: (frame) => {
+        if (generation !== run.generation) return;
+        diagnosticsFrames.push(frame);
+      },
+      onProgress: (progress) => {
+        if (generation !== run.generation) return;
+        controls.progressFill.style.width = `${Math.round(progress * 100)}%`;
+        updateTimeLabel(run.frames[run.frames.length - 1]?.simSeconds ?? 0, run.durationSeconds);
+      },
+      onLivePreview: (frame) => {
+        if (generation !== run.generation) return;
+        scene?.renderFrame(frame);
+      },
+      onComplete: () => {
+        if (generation !== run.generation) return;
+        finishRun();
+      },
+    };
   }
 
   function pauseRun() {
     if (run.status !== "running") return;
-    cancelRun?.();
-    cancelRun = null;
+    cancelActiveRun();
     finishRun();
   }
 
   function resetRun() {
-    cancelRun?.();
-    cancelRun = null;
+    cancelActiveRun();
     resetRunToIdle();
   }
 
@@ -350,13 +361,12 @@ export function createTimelapseTab(): TimelapseTab {
   }
 
   function onSettingChanged() {
-    cancelRun?.();
-    cancelRun = null;
+    cancelActiveRun();
     syncPreviewToSelectedPreset();
     resetRunToIdle();
   }
 
-  wireToolbarListeners(controls, {
+  setupToolbarListeners(controls, {
     startRun,
     pauseRun,
     resetRun,
@@ -377,7 +387,7 @@ interface ToolbarHandlers {
   onSettingChanged: () => void;
 }
 
-function wireToolbarListeners(controls: TimelapseTabControls, handlers: ToolbarHandlers): void {
+function setupToolbarListeners(controls: TimelapseTabControls, handlers: ToolbarHandlers): void {
   controls.diagnosticsButton.insertAdjacentHTML("afterbegin", Download);
   controls.runButton.addEventListener("click", handlers.startRun);
   controls.pauseButton.addEventListener("click", handlers.pauseRun);
@@ -402,15 +412,10 @@ function readControls(): TimelapseTabControls {
     progressBar: document.getElementById("timelapse-progress") as HTMLElement,
     progressFill: document.getElementById("timelapse-progress-fill") as HTMLElement,
     container: document.getElementById("timelapse-container") as HTMLElement,
-    zoomElements: {
-      zoomOut: document.getElementById("timelapse-zoom-out") as HTMLElement,
-      zoomLevel: document.getElementById("timelapse-zoom-level") as HTMLElement,
-      zoomIn: document.getElementById("timelapse-zoom-in") as HTMLElement,
-    },
   };
 }
 
-function historyStationFromTimelapseStation(station: TimelapseStation): HistoryStation {
+function toHistoryStation(station: TimelapseStation): HistoryStation {
   return {
     id: station.id,
     position: station.position,
@@ -425,28 +430,36 @@ function historyStationFromTimelapseStation(station: TimelapseStation): HistoryS
  *  cap at hours-of-run × stations-per-frame. */
 function buildStationHistoryFromFrames(frames: readonly TimelapseFrame[]): StationHistory {
   const history = createStationHistory();
-  const previous = new Map<string, TimelapseStation>();
+  let previous = new Map<string, TimelapseStation>();
   for (const frame of frames) {
     const current = new Map<string, TimelapseStation>();
     for (const station of frame.stations) current.set(station.id, station);
-    for (const [id, station] of current) {
-      const prior = previous.get(id);
-      if (!prior) {
-        history.recordCreated(frame.simSeconds, historyStationFromTimelapseStation(station));
-      } else if (prior.state !== station.state) {
-        history.recordStateChanged(frame.simSeconds, id, station.state as HistoryStationState);
-      }
-    }
-    for (const id of previous.keys()) {
-      if (!current.has(id)) history.recordRemoved(frame.simSeconds, id);
-    }
-    previous.clear();
-    for (const [id, station] of current) previous.set(id, station);
+    diffFrameStationsAgainstPrior(history, frame, current, previous);
+    previous = new Map(current);
   }
   return history;
 }
 
-function nearestFrameIndex(frames: readonly TimelapseFrame[], targetSeconds: number): number {
+function diffFrameStationsAgainstPrior(
+  history: StationHistory,
+  frame: TimelapseFrame,
+  current: ReadonlyMap<string, TimelapseStation>,
+  previous: ReadonlyMap<string, TimelapseStation>,
+): void {
+  for (const [id, station] of current) {
+    const prior = previous.get(id);
+    if (!prior) {
+      history.recordCreated(frame.simSeconds, toHistoryStation(station));
+    } else if (prior.state !== station.state) {
+      history.recordStateChanged(frame.simSeconds, id, station.state as HistoryStationState);
+    }
+  }
+  for (const id of previous.keys()) {
+    if (!current.has(id)) history.recordRemoved(frame.simSeconds, id);
+  }
+}
+
+function frameIndexNearestTime(frames: readonly TimelapseFrame[], targetSeconds: number): number {
   if (frames.length === 0) return 0;
   let bestIndex = 0;
   let bestDelta = Math.abs(frames[0].simSeconds - targetSeconds);

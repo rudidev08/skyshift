@@ -16,11 +16,11 @@ import type { TradePort } from "./sim-trade-manager";
 import type { TradeShip } from "./sim-trade-types";
 import type { StationManager } from "./sim-station-manager";
 import type { NamePool } from "./sim-name-pool";
-import type { EmigrationEvent, EmigrationEventContext } from "./sim-emigration-types";
+import type { EmigrationEvent } from "./sim-emigration-types";
 import type { EmigrationManager } from "./sim-emigration-manager";
 import { EMIGRANT_SHIPS_PER_STATION_BASE, retireUnlaunched } from "./sim-emigration-types";
 import { sizeMultiplierBySize } from "../data/stations";
-import { getShipTemplate } from "./sim-ship-template";
+import { getShipTypeTemplate } from "./sim-ship-template";
 import { generateCounterId } from "./util-ids";
 import { createOrbitEndpoint } from "./sim-travel";
 
@@ -42,7 +42,8 @@ export interface LaunchDependencies {
 export function beginStationEmigration(
   station: Station,
   generationalShip: Station,
-  context: EmigrationEventContext,
+  eventId: string,
+  destinationName: string,
   dependencies: LaunchDependencies,
 ): number {
   const sizeMultiplier = sizeMultiplierBySize[station.size];
@@ -50,11 +51,11 @@ export function beginStationEmigration(
   const initialHomedShipIds: string[] = [];
   for (const tradeShip of dependencies.tradeManager.getTradeShipsByHomeStationId(station.id)) {
     initialHomedShipIds.push(tradeShip.orbitingShipId);
-    queueFerryToGenerationalShip(tradeShip, generationalShip, context.destinationName, dependencies);
+    queueFerryToGenerationalShip(tradeShip, generationalShip, destinationName, dependencies);
   }
   station.emigrationEvent = {
-    eventId: context.eventId,
-    destinationName: context.destinationName,
+    eventId,
+    destinationName,
     initialHomedShipIds,
     initialHomedShipIdSet: new Set(initialHomedShipIds),
     totalEmigrants,
@@ -67,9 +68,9 @@ export function beginStationEmigration(
 }
 
 /** Per-tick emigrant launcher. Walks emigrating stations, batches all
- *  spawned ships into one `addShips` call (single observer fan-out +
- *  path-cache rebuild), then enrolls each as a trader carrying passengers
- *  cargo and queues its ferry-to-WAY tail. */
+ *  spawned ships into one `addShips` call so onAdd observers fan out once
+ *  per tick instead of once per ship, then enrolls each as a trader
+ *  carrying passengers cargo and queues its ferry-to-WAY tail. */
 export function tickEmigrantLaunches(
   event: EmigrationEvent,
   deltaSeconds: number,
@@ -114,17 +115,18 @@ function enrollLaunchedShipsAsTraders(
     if (!tradeShip) continue; // station vanished mid-tick; observer skipped enrollment
     // Flavor cargo — passengers ware has no producer/consumer, so it never
     // touches the economy and gets destroyed with the ship on decommission.
-    tradeShip.cargoAmountByWareId.set("passengers", getShipTemplate(orbitingShip.shipTypeId).cargoCapacity);
+    tradeShip.cargoAmountByWareId.set("passengers", getShipTypeTemplate(orbitingShip.shipTypeId).cargoCapacity);
     // After enrollment's deploy-to-orbit leg, fly straight to the
     // generational ship and decommission on arrival.
     queueFerryToGenerationalShip(tradeShip, generationalShip, destinationName, dependencies);
   }
 }
 
-/** Launch this station's next batch of emigrant ships. Decrements the timer,
- *  spawns ships until the timer debt is zero or totalEmigrants is hit. If
- *  the nation has no ship type, retire the launch budget so
- *  totalExpectedShips drops in lockstep — otherwise WAY waits on phantoms.
+/** Launch this station's next batch of emigrant ships. Decrements
+ *  `secondsUntilNextLaunch` by `deltaSeconds` and spawns one ship for every
+ *  full launch interval, capped by `totalEmigrants`. If the nation has no
+ *  ship type, retires the launch budget so `totalExpectedShips` drops in
+ *  lockstep — otherwise WAY would wait on phantoms.
  *  Returns the ships built (caller batches the registration). */
 function launchEmigrantsForStation(
   station: Station,
@@ -142,7 +144,7 @@ function launchEmigrantsForStation(
   state.secondsUntilNextLaunch -= deltaSeconds;
   const orbitingShips: Ship[] = [];
   while (state.secondsUntilNextLaunch <= 0 && state.launched < state.totalEmigrants) {
-    orbitingShips.push(buildEmigrantShip(station, shipTypeId, dependencies));
+    orbitingShips.push(createEmigrantShip(station, shipTypeId, dependencies));
     state.launched++;
     state.secondsUntilNextLaunch += EMIGRANT_LAUNCH_INTERVAL_SECONDS;
   }
@@ -150,15 +152,18 @@ function launchEmigrantsForStation(
 }
 
 /** Construct (but don't register) an emigrant ship. Caller batches into a
- *  single addShips call to avoid per-ship observer fan-out. Orbit visuals
- *  are render-owned; sim carries only identity + home + inFlight. */
-function buildEmigrantShip(
+ *  single addShips call to avoid per-ship observer fan-out. */
+function createEmigrantShip(
   station: Station,
   shipTypeId: ShipTypeId,
   dependencies: LaunchDependencies,
 ): Ship {
   const nation = station.nation;
-  const id = generateCounterId(`${nation.codeName}-EMIG`, dependencies.emigrationManager.nextEmigrantShipId(), 4);
+  const id = generateCounterId(
+    `${nation.codeName}-EMIG`,
+    dependencies.emigrationManager.nextEmigrantShipId(),
+    4,
+  );
   return {
     id,
     shipTypeId,
@@ -179,7 +184,8 @@ export function queueFerryToGenerationalShip(
   // Origin = the ship's current orbiting station, resolved through
   // ShipManager so TradeShip doesn't carry a live Ship ref.
   const orbitingShip = dependencies.shipManager.getShip(tradeShip.orbitingShipId);
-  if (!orbitingShip) throw new Error(`queueFerryToGenerationalShip: ship ${tradeShip.orbitingShipId} not found`);
+  if (!orbitingShip)
+    throw new Error(`queueFerryToGenerationalShip: ship ${tradeShip.orbitingShipId} not found`);
   const origin = orbitingShip.station;
   dependencies.tradeManager.appendActionsToShip(tradeShip, [
     {

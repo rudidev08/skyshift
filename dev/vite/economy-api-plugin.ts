@@ -1,4 +1,12 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { dirname, resolve } from "node:path";
 import type { Plugin } from "vite";
@@ -14,7 +22,7 @@ type EconomyShipChange = {
   speed: number;
 };
 
-type EconomyWareChange = {
+type EconomyWareOutputChange = {
   id: string;
   productionOutput: number;
 };
@@ -37,7 +45,7 @@ type EconomySavePayload = {
   removedStationIds?: string[];
   ships?: EconomyShipChange[];
   wareInputs?: EconomyWareInputChange[];
-  wares?: EconomyWareChange[];
+  wares?: EconomyWareOutputChange[];
 };
 
 const economyDataFiles = [
@@ -49,16 +57,23 @@ const economyDataFiles = [
 ];
 
 function sanitizeDraftName(name: unknown): string {
-  return String(name ?? "").replace(/[^a-zA-Z0-9 _-]/g, "").substring(0, 64);
+  return String(name ?? "")
+    .replace(/[^a-zA-Z0-9 _-]/g, "")
+    .substring(0, 64);
 }
 
-/** Replaces the first match of `pattern` inside the 2000-char window after `anchor`. The pattern's first capture group is preserved as the prefix; the captured text plus `newValue` replaces the match. The window keeps each anchored edit local to its target declaration so a later same-name match elsewhere in the file isn't touched. */
-function replaceAfterAnchor(content: string, anchor: string, pattern: string, newValue: string | number): string {
+/** Replaces the first match of `regexSource` inside the 2000-char window after `anchor`. The regex's first capture group is preserved as the prefix; the captured text plus `newValue` replaces the match. The window keeps each anchored edit local to its target declaration so a later same-name match elsewhere in the file isn't touched. */
+function replaceAfterAnchor(
+  content: string,
+  anchor: string,
+  regexSource: string,
+  newValue: string | number,
+): string {
   const anchorIndex = content.indexOf(anchor);
   if (anchorIndex === -1) return content;
   const windowEnd = Math.min(anchorIndex + 2000, content.length);
   const region = content.substring(anchorIndex, windowEnd);
-  const updatedRegion = region.replace(new RegExp(pattern), `$1${newValue}`);
+  const updatedRegion = region.replace(new RegExp(regexSource), `$1${newValue}`);
   return content.substring(0, anchorIndex) + updatedRegion + content.substring(windowEnd);
 }
 
@@ -75,17 +90,27 @@ function applyShipChanges(repositoryRoot: string, ships: EconomyShipChange[]) {
   const filePath = resolve(repositoryRoot, "data/ships.ts");
   let content = readFileSync(filePath, "utf-8");
   for (const ship of ships) {
-    content = replaceAfterAnchor(content, `export const ${ship.id}:`, "(cargoCapacity:\\s*)[\\d.]+", ship.cargoCapacity);
+    content = replaceAfterAnchor(
+      content,
+      `export const ${ship.id}:`,
+      "(cargoCapacity:\\s*)[\\d.]+",
+      ship.cargoCapacity,
+    );
     content = replaceAfterAnchor(content, `export const ${ship.id}:`, "(speed:\\s*)[\\d.]+", ship.speed);
   }
   writeFileSync(filePath, content);
 }
 
-function applyWareOutputChanges(repositoryRoot: string, wares: EconomyWareChange[]) {
+function applyWareOutputChanges(repositoryRoot: string, wares: EconomyWareOutputChange[]) {
   const filePath = resolve(repositoryRoot, "data/wares.ts");
   let content = readFileSync(filePath, "utf-8");
   for (const ware of wares) {
-    content = replaceAfterAnchor(content, `export const ${ware.id}:`, "(productionOutput:\\s*)[\\d.]+", ware.productionOutput);
+    content = replaceAfterAnchor(
+      content,
+      `export const ${ware.id}:`,
+      "(productionOutput:\\s*)[\\d.]+",
+      ware.productionOutput,
+    );
   }
   writeFileSync(filePath, content);
 }
@@ -109,7 +134,12 @@ function applyConsumptionChanges(repositoryRoot: string, entries: EconomyConsump
   const filePath = resolve(repositoryRoot, "data/stations.ts");
   let content = readFileSync(filePath, "utf-8");
   for (const entry of entries) {
-    content = replaceAfterAnchor(content, `id: "${entry.stationTypeId}"`, `(wareId: "${entry.wareId}", amount: )[\\d.]+`, entry.amount);
+    content = replaceAfterAnchor(
+      content,
+      `id: "${entry.stationTypeId}"`,
+      `(wareId: "${entry.wareId}", amount: )[\\d.]+`,
+      entry.amount,
+    );
   }
   writeFileSync(filePath, content);
 }
@@ -131,7 +161,8 @@ function applyEconomyChanges(repositoryRoot: string, payload: EconomySavePayload
   if (payload.wares?.length) applyWareOutputChanges(repositoryRoot, payload.wares);
   if (payload.wareInputs?.length) applyWareInputChanges(repositoryRoot, payload.wareInputs);
   if (payload.consumption?.length) applyConsumptionChanges(repositoryRoot, payload.consumption);
-  if (payload.removedStationIds?.length) removeStationsFromSettledPreset(repositoryRoot, payload.removedStationIds);
+  if (payload.removedStationIds?.length)
+    removeStationsFromSettledPreset(repositoryRoot, payload.removedStationIds);
 }
 
 function backupEconomyFiles(repositoryRoot: string) {

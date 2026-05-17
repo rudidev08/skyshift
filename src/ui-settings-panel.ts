@@ -1,5 +1,8 @@
 import {
-  saveToManualSlot, loadFromSlot, exportToFile, importFromFile,
+  saveToManualSlot,
+  readSlot,
+  exportToFile,
+  readFile,
   type ValidationResult,
 } from "./ui-savegame-manager";
 import { type GameSnapshot } from "./sim-save-types";
@@ -7,12 +10,13 @@ import type { Game } from "./game";
 import { X, Volume2, VolumeX } from "lucide-static";
 import { morseBarGradient } from "./render-morse-bar";
 import { enableAudio, disableAudio, isAudioEnabled } from "./audio-announcer";
-import { saveKeyValueSetting } from "./storage-preferences";
+import { savePreference } from "./storage-preferences";
 import type { GridMode } from "./phaser/sector-grid";
 import { acquireScopedPause } from "./phaser/auto-release-pause";
-import { shieldDomSurfaceFromPhaserInput, type BindEventFunction } from "./ui-dom-input-shield";
+import { shieldDomSurfaceFromPhaserInput, type BindEventWithCleanupFunction } from "./ui-dom-input-shield";
 import { showToast } from "./ui-toast";
-import { SlotSelector, type SlotInfo } from "./ui-slot-selector";
+import { SlotSelector } from "./ui-slot-selector";
+import { type SlotSummary } from "./storage-save-slots";
 
 export interface SettingsHandle {
   open(): void;
@@ -21,8 +25,8 @@ export interface SettingsHandle {
   /** Safe to call more than once. */
   dispose(): void;
   /** Stop pointer/wheel events inside the panel from leaking into Phaser.
-   *  Caller-owned bindEvent pairs each listener with the caller's cleanup. */
-  shieldFromPhaserInput(bindEvent: BindEventFunction): void;
+   *  Caller-owned bindEventWithCleanup pairs each listener with the caller's cleanup. */
+  shieldFromPhaserInput(bindEventWithCleanup: BindEventWithCleanupFunction): void;
 }
 
 export function createSettingsPanel(
@@ -30,42 +34,31 @@ export function createSettingsPanel(
   remountWithSnapshot: (snapshot: GameSnapshot) => void,
 ): SettingsHandle {
   const overlay = buildSettingsOverlay();
-
-  // Auto-pause while open; the release fn resumes on close (does nothing if we
-  // weren't the one who paused).
-  let releasePause: (() => void) | null = null;
+  const autoPause = createAutoPause();
 
   const close = () => {
     slotSelector.clear();
     overlay.classList.add("hidden");
-    releasePause?.();
-    releasePause = null;
+    autoPause.release();
   };
 
-  const handleValidation = (result: ValidationResult) => {
-    if (!result.ok) { showToast(result.message); return; }
-    close();
-    try {
-      remountWithSnapshot(result.snapshot);
-    } catch (error) {
-      // Load failed after close — reopen (re-pauses) so the user sees the
-      // error toast and can try another slot.
-      open();
-      showToast(`Load failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
+  const applyLoadResult = createLoadResultApplier({
+    close: () => close(),
+    open: () => open(),
+    remountWithSnapshot,
+  });
 
-  wireOverlayDismiss(overlay, close);
-  const { slotSelector, refreshSlots } = setupSlotControls({ overlay, getScene, handleValidation });
+  setupOverlayDismiss(overlay, close);
+  const { slotSelector, refreshSlots } = setupSlotControls({ overlay, getScene, applyLoadResult });
   setupAudioControls(overlay);
-  const { refreshGridModeButtons, readSceneGridMode } = setupGridControls(overlay, getScene);
-  setupImportExportControls({ overlay, getScene, handleValidation });
+  const refreshGridModeButtonsFromScene = setupGridControls(overlay, getScene);
+  setupImportExportControls({ overlay, getScene, applyLoadResult });
 
   const open = () => {
     overlay.classList.remove("hidden");
-    if (!releasePause) releasePause = acquireScopedPause();
+    autoPause.acquireIfNeeded();
     refreshSlots();
-    refreshGridModeButtons(readSceneGridMode(getScene()));
+    refreshGridModeButtonsFromScene(getScene());
   };
 
   const isOpen = () => !overlay.classList.contains("hidden");
@@ -80,8 +73,8 @@ export function createSettingsPanel(
     overlay.remove();
   };
 
-  const shieldFromPhaserInput = (bindEvent: BindEventFunction) => {
-    shieldDomSurfaceFromPhaserInput(bindEvent, overlay);
+  const shieldFromPhaserInput = (bindEventWithCleanup: BindEventWithCleanupFunction) => {
+    shieldDomSurfaceFromPhaserInput(bindEventWithCleanup, overlay);
   };
 
   return {
@@ -90,6 +83,43 @@ export function createSettingsPanel(
     isOpen,
     dispose,
     shieldFromPhaserInput,
+  };
+}
+
+/** Auto-pause while the panel is open; resume on close (does nothing if we
+ *  weren't the one who paused). */
+function createAutoPause(): { acquireIfNeeded: () => void; release: () => void } {
+  let releasePause: (() => void) | null = null;
+  return {
+    acquireIfNeeded() {
+      if (!releasePause) releasePause = acquireScopedPause();
+    },
+    release() {
+      releasePause?.();
+      releasePause = null;
+    },
+  };
+}
+
+function createLoadResultApplier(deps: {
+  close: () => void;
+  open: () => void;
+  remountWithSnapshot: (snapshot: GameSnapshot) => void;
+}): (result: ValidationResult) => void {
+  return (result) => {
+    if (!result.ok) {
+      showToast(result.message);
+      return;
+    }
+    deps.close();
+    try {
+      deps.remountWithSnapshot(result.snapshot);
+    } catch (error) {
+      // Load failed after close — reopen (re-pauses) so the user sees the
+      // error toast and can try another slot.
+      deps.open();
+      showToast(`Load failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 }
 
@@ -136,34 +166,42 @@ function buildSettingsOverlay(): HTMLDivElement {
   `;
 
   const modal = overlay.querySelector<HTMLElement>(".settings-modal")!;
-  modal.style.setProperty("--morse-bar", morseBarGradient("Settings", { letterCount: 8, color: "var(--paper-mute)" }));
+  modal.style.setProperty(
+    "--morse-bar",
+    morseBarGradient("Settings", { letterCount: 8, color: "var(--paper-mute)" }),
+  );
   overlay.querySelector<HTMLElement>(".settings-close")!.innerHTML = X;
 
   return overlay;
 }
 
-function wireOverlayDismiss(overlay: HTMLElement, close: () => void): void {
+function setupOverlayDismiss(overlay: HTMLElement, close: () => void): void {
   overlay.querySelector(".settings-close")!.addEventListener("click", close);
-  overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
 }
 
 interface SlotControlsDependencies {
   overlay: HTMLElement;
   getScene: () => Game | null;
-  handleValidation: (result: ValidationResult) => void;
+  applyLoadResult: (result: ValidationResult) => void;
 }
 
 function setupSlotControls(dependencies: SlotControlsDependencies): {
   slotSelector: SlotSelector;
   refreshSlots: () => void;
 } {
-  const { overlay, getScene, handleValidation } = dependencies;
+  const { overlay, getScene, applyLoadResult } = dependencies;
   const slotSelector = new SlotSelector({
     slotList: overlay.querySelector<HTMLElement>('[data-role="slot-list"]')!,
     actionBar: overlay.querySelector<HTMLElement>('[data-role="slot-action-bar"]')!,
-    onSave(slot: SlotInfo) {
+    onSave(slot: SlotSummary) {
       const scene = getScene();
-      if (!scene) { showToast("Game not ready."); return; }
+      if (!scene) {
+        showToast("Game not ready.");
+        return;
+      }
       try {
         saveToManualSlot(scene, slot.index);
         slotSelector.refresh();
@@ -172,10 +210,10 @@ function setupSlotControls(dependencies: SlotControlsDependencies): {
         showToast(error instanceof Error ? error.message : "Save failed.");
       }
     },
-    onLoad(slot: SlotInfo) {
-      return loadFromSlot(slot.kind, slot.index);
+    onLoad(slot: SlotSummary) {
+      return readSlot(slot.kind, slot.index);
     },
-    onLoadResult: handleValidation,
+    onLoadResult: applyLoadResult,
   });
   return { slotSelector, refreshSlots: () => slotSelector.refresh() };
 }
@@ -192,53 +230,52 @@ function setupAudioControls(overlay: HTMLElement): void {
     const next = !isAudioEnabled();
     if (next) enableAudio();
     else disableAudio();
-    saveKeyValueSetting("audioEnabled", String(next));
+    savePreference("audioEnabled", String(next));
     refreshAudioButton();
   });
   refreshAudioButton();
 }
 
-function setupGridControls(overlay: HTMLElement, getScene: () => Game | null): {
-  refreshGridModeButtons: (mode: GridMode | null) => void;
-  readSceneGridMode: (scene: Game | null) => GridMode | null;
-} {
-  // Scene's sector-grid is the source of truth; mirror its mode into is-on
-  // classes on open and after clicks.
+/** Scene's sector-grid is the source of truth; mirror its mode into is-on
+ *  classes on open and after clicks. */
+function setupGridControls(overlay: HTMLElement, getScene: () => Game | null): (scene: Game | null) => void {
   const gridModeSegment = overlay.querySelector<HTMLElement>('[data-role="grid-mode"]')!;
   const gridModeButtons = gridModeSegment.querySelectorAll<HTMLButtonElement>("button[data-grid-mode]");
-  // gridSystem is assigned in Game.create(); getScene() can return the scene
-  // before create() finishes, so guard the read.
-  const readSceneGridMode = (scene: Game | null): GridMode | null =>
-    scene?.gridSystem?.gridMode ?? null;
-  const refreshGridModeButtons = (mode: GridMode | null) => {
+  /** sectorGrid is assigned in Game.create(); getScene() can return the scene
+   *  before create() finishes, so guard the read. */
+  function refreshGridModeButtonsFromScene(scene: Game | null): void {
+    const mode = scene?.sectorGrid?.gridMode ?? null;
     for (const button of gridModeButtons) {
       button.classList.toggle("is-on", mode !== null && button.dataset.gridMode === mode);
     }
-  };
+  }
   for (const button of gridModeButtons) {
     button.addEventListener("click", () => {
       const mode = button.dataset.gridMode as GridMode | undefined;
       if (!mode) return;
       const scene = getScene();
-      if (!scene || readSceneGridMode(scene) === null) return;
+      if (!scene || !scene.sectorGrid) return;
       scene.setSectorGridMode(mode);
-      refreshGridModeButtons(readSceneGridMode(scene));
+      refreshGridModeButtonsFromScene(scene);
     });
   }
-  return { refreshGridModeButtons, readSceneGridMode };
+  return refreshGridModeButtonsFromScene;
 }
 
 interface ImportExportDependencies {
   overlay: HTMLElement;
   getScene: () => Game | null;
-  handleValidation: (result: ValidationResult) => void;
+  applyLoadResult: (result: ValidationResult) => void;
 }
 
 function setupImportExportControls(dependencies: ImportExportDependencies): void {
-  const { overlay, getScene, handleValidation } = dependencies;
+  const { overlay, getScene, applyLoadResult } = dependencies;
   overlay.querySelector('[data-action="export"]')!.addEventListener("click", () => {
     const scene = getScene();
-    if (!scene) { showToast("Game not ready."); return; }
+    if (!scene) {
+      showToast("Game not ready.");
+      return;
+    }
     exportToFile(scene);
     showToast("Exported.", { ok: true });
   });
@@ -250,8 +287,8 @@ function setupImportExportControls(dependencies: ImportExportDependencies): void
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       if (!file) return;
-      const result = await importFromFile(file);
-      handleValidation(result);
+      const result = await readFile(file);
+      applyLoadResult(result);
     });
     input.click();
   });

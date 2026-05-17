@@ -52,7 +52,7 @@ export interface StationsTimelapseControl {
   destroy(): void;
 }
 
-const STEP_KINDS: TimelapseStep[] = ["-1d", "-8h", "-1h", "+1h", "+8h", "+1d"];
+const STEP_ORDER: TimelapseStep[] = ["-1d", "-8h", "-1h", "+1h", "+8h", "+1d"];
 const STEP_LABELS: Record<TimelapseStep, string> = {
   "-1d": "−1d",
   "-8h": "−8h",
@@ -76,7 +76,9 @@ const BAR_NATIONS: ReadonlyArray<{ nation: NationTemplate; segClass: string }> =
   { nation: hubNation, segClass: "stations-timelapse-bar__seg--hub" },
 ];
 
-export function createStationsTimelapseControl(options: StationsTimelapseControlOptions): StationsTimelapseControl {
+export function createStationsTimelapseControl(
+  options: StationsTimelapseControlOptions,
+): StationsTimelapseControl {
   const { parent, onStep, onScrubToTime } = options;
 
   const root = document.createElement("div");
@@ -87,7 +89,7 @@ export function createStationsTimelapseControl(options: StationsTimelapseControl
 
   const stepRow = document.createElement("div");
   stepRow.className = "stations-timelapse-controls hud-segment hud-segment--row";
-  for (const step of STEP_KINDS) {
+  for (const step of STEP_ORDER) {
     stepRow.appendChild(createStepButton(step, onStep));
   }
 
@@ -124,7 +126,9 @@ export function createStationsTimelapseControl(options: StationsTimelapseControl
     for (const { nation } of BAR_NATIONS) {
       const count = counts.get(nation.id) ?? 0;
       if (count === 0) continue;
-      nationSegments.push(`<span class="stations-timelapse-counts-nation">${nationColoredCodeSpan(nation)} ${count}</span>`);
+      nationSegments.push(
+        `<span class="stations-timelapse-counts-nation">${nationColoredCodeSpan(nation)} ${count}</span>`,
+      );
     }
     const separator = ` <span class="stations-timelapse-counts-sep">•</span> `;
     setHtmlIfChanged(countsElement, nationSegments.join(separator));
@@ -140,12 +144,12 @@ export function createStationsTimelapseControl(options: StationsTimelapseControl
       return;
     }
     barsElement.classList.remove("is-empty");
-    const max = Math.max(1, ...buckets.map((bucket) => bucket.total));
+    const maxBucketTotal = Math.max(1, ...buckets.map((bucket) => bucket.total));
     const html: string[] = [];
     for (const bucket of buckets) {
       html.push(buildBarHtml(bucket, playheadTime));
     }
-    barsElement.style.setProperty("--bars-max", String(max));
+    barsElement.style.setProperty("--bars-max", String(maxBucketTotal));
     setHtmlIfChanged(barsElement, html.join("") + `<span class="stations-timelapse-playhead"></span>`);
   }
 
@@ -154,18 +158,16 @@ export function createStationsTimelapseControl(options: StationsTimelapseControl
     const startLabel = totalDays >= 1 ? `−${totalDays}d` : `−${Math.round(bindings.windowSeconds / 3600)}h`;
     const midLabel = totalDays >= 4 ? `−${Math.round(totalDays / 2)}d` : "";
     const endLabel = "now";
-    setHtmlIfChanged(axisElement, `<span>${startLabel}</span>${midLabel ? `<span>${midLabel}</span>` : ""}<span>${endLabel}</span>`);
+    setHtmlIfChanged(
+      axisElement,
+      `<span>${startLabel}</span>${midLabel ? `<span>${midLabel}</span>` : ""}<span>${endLabel}</span>`,
+    );
   }
 
   function renderPlayhead(buckets: ChartBucket[], playheadTime: number, bucketDurationSeconds: number): void {
-    const head = barsElement.querySelector<HTMLElement>(".stations-timelapse-playhead");
-    if (!head || buckets.length === 0) return;
-    const startTime = buckets[0].endTime - bucketDurationSeconds;
-    const endTime = buckets[buckets.length - 1].endTime;
-    const span = endTime - startTime;
-    const positionFraction = span === 0 ? 1 : (playheadTime - startTime) / span;
-    const clampedPosition = Math.max(0, Math.min(1, positionFraction));
-    head.style.left = `${clampedPosition * 100}%`;
+    const playheadElement = barsElement.querySelector<HTMLElement>(".stations-timelapse-playhead");
+    if (!playheadElement || buckets.length === 0) return;
+    playheadElement.style.left = `${computePlayheadFraction(buckets, playheadTime, bucketDurationSeconds) * 100}%`;
   }
 
   function destroy(): void {
@@ -175,10 +177,19 @@ export function createStationsTimelapseControl(options: StationsTimelapseControl
   return { update, destroy };
 }
 
-function createStepButton(
-  step: TimelapseStep,
-  onStep: (step: TimelapseStep) => void,
-): HTMLButtonElement {
+function computePlayheadFraction(
+  buckets: ChartBucket[],
+  playheadTime: number,
+  bucketDurationSeconds: number,
+): number {
+  const startTime = buckets[0].endTime - bucketDurationSeconds;
+  const endTime = buckets[buckets.length - 1].endTime;
+  const span = endTime - startTime;
+  const positionFraction = span === 0 ? 1 : (playheadTime - startTime) / span;
+  return Math.max(0, Math.min(1, positionFraction));
+}
+
+function createStepButton(step: TimelapseStep, onStep: (step: TimelapseStep) => void): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "hud-btn";

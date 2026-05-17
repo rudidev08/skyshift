@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+coverage
+
+dev/phaser-docs.local
+dev/phaser-skills.local
+
+strings.html

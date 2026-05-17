@@ -4,7 +4,12 @@ export interface ElapsedTimeLabel {
 
 const REFRESH_MS = 500;
 
-function decomposeSeconds(seconds: number): { days: number; hours: number; minutes: number; seconds: number } {
+function decomposeSeconds(seconds: number): {
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+} {
   const total = Math.max(0, Math.floor(seconds));
   return {
     days: Math.floor(total / 86400),
@@ -29,22 +34,27 @@ export function formatElapsed(seconds: number): string {
  *  reads as ticking, unlike formatElapsed which drops seconds at h+. */
 export function formatHoursMinutesSeconds(seconds: number): string {
   const parts = decomposeSeconds(seconds);
-  if (parts.hours > 0) return `${parts.hours}:${padToTwoDigits(parts.minutes)}:${padToTwoDigits(parts.seconds)}`;
+  if (parts.hours > 0)
+    return `${parts.hours}:${padToTwoDigits(parts.minutes)}:${padToTwoDigits(parts.seconds)}`;
   return `${parts.minutes}:${padToTwoDigits(parts.seconds)}`;
 }
 
 export function createElapsedTimeLabel(
-  root: ParentNode,
+  root: Document,
   getSimTime: () => number,
   options?: { offsetSeconds?: number },
 ): ElapsedTimeLabel {
   const host = root.querySelector<HTMLElement>("#speed-hud-elapsed");
   const numberElement = host?.querySelector<HTMLElement>(".num");
   if (!host || !numberElement) {
-    return { destroy() { /* does nothing on pages without the speed HUD */ } };
+    return {
+      destroy() {
+        /* does nothing on pages without the speed HUD */
+      },
+    };
   }
   // Hide warmup pre-ticks from the player clock — callers pass
-  // simulationWarmup so boot-time advancement doesn't show up as elapsed time.
+  // simulationWarmupSeconds so boot-time advancement doesn't show up as elapsed time.
   const offset = options?.offsetSeconds ?? 0;
   let lastText = "";
   const update = () => {

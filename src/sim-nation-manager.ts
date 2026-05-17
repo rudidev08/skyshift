@@ -12,12 +12,12 @@ import type { Station } from "./sim-station-types";
 import type { Nation } from "./sim-nation";
 import type { StationZone } from "./sim-station-zone-types";
 import type { NationExpansionSnapshot } from "./sim-save-types";
-import { ENVIRONMENT_ALLOWED_TYPES } from "../data/map-environments";
-import { allowedStationTypesForZone } from "./sim-map-environments";
+import { sectorEnvironmentById } from "../data/map-sector-environments";
+import { allowedStationTypesForZone } from "./sim-map-sector-environments";
 import { allNations } from "../data/nations";
-import { getStationTemplate } from "./sim-station-template";
+import { getStationTypeTemplate } from "./sim-station-template";
 import { getWareTemplate } from "./sim-ware-template";
-import { sectorScorerByNation } from "../data/nation-personality";
+import { sectorScorerByNation, type SectorScorer } from "../data/nation-personality";
 import { isStationProducing } from "./sim-station";
 import type { NamePool } from "./sim-name-pool";
 import type { StationManager } from "./sim-station-manager";
@@ -28,11 +28,15 @@ import { allWares } from "../data/wares";
 // instantaneous `waresRequired` total.
 const NOMINAL_BUILD_DURATION_SECONDS = 40 * 60; // 40 sim-minutes
 
-// All station types any nation can ever build, deduped across environments.
-// Computed once since ENVIRONMENT_ALLOWED_TYPES is a frozen authored const.
-const ALL_BUILDABLE_STATION_TYPES: StationTypeId[] = Object.keys(ENVIRONMENT_ALLOWED_TYPES)
-  .flatMap((environment) => ENVIRONMENT_ALLOWED_TYPES[environment as keyof typeof ENVIRONMENT_ALLOWED_TYPES])
-  .filter((typeId, index, all) => all.indexOf(typeId) === index);
+// All station types any nation can ever build, deduped across sector environments.
+// Computed once at module load since sectorEnvironmentById never changes at runtime.
+const ALL_BUILDABLE_STATION_TYPES: StationTypeId[] = [
+  ...new Set(
+    Object.values(sectorEnvironmentById).flatMap(
+      (sectorEnvironment) => sectorEnvironment.allowedStationTypeIds,
+    ),
+  ),
+];
 
 /** Shared inputs for scoring every candidate station type in one pickNextBuildType run. */
 interface BuildScoringContext {
@@ -43,9 +47,9 @@ interface BuildScoringContext {
 }
 
 export class NationManager {
-  /** Per-nation in-flight build station id; missing key means no current build. */
-  private currentBuildStationIdByNation = new Map<string, string | undefined>();
-  /** Runtime zone list built from map.stationZones + sectors. */
+  /** Per-nation in-flight build station id; undefined or missing means no current build. */
+  private inFlightBuildStationIdByNation = new Map<string, string | undefined>();
+  /** Runtime zone list created from map.stationZones + sectors. */
   private readonly zones: StationZone[];
   private readonly sectors: Sector[];
   private readonly stationManager: StationManager;
@@ -76,13 +80,13 @@ export class NationManager {
       .sort((leftNation, rightNation) => leftNation.id.localeCompare(rightNation.id));
     for (const nation of nations) {
       const placedId = this.startNextStationBuild(nation);
-      this.currentBuildStationIdByNation.set(nation.id, placedId ?? undefined);
+      this.inFlightBuildStationIdByNation.set(nation.id, placedId ?? undefined);
     }
   }
 
-  /** Slow tick — driven from game.ts on the dynamic-nations cadence (~5 sim seconds), not every frame. */
+  /** Runs on the slow simulation tick (~5 sim seconds), not every frame. */
   tick(_deltaSeconds: number): void {
-    for (const [nationId, currentBuildStationId] of this.currentBuildStationIdByNation) {
+    for (const [nationId, currentBuildStationId] of this.inFlightBuildStationIdByNation) {
       const nation = allNations.find((candidateNation) => candidateNation.id === nationId);
       if (!nation) continue;
 
@@ -100,13 +104,12 @@ export class NationManager {
         if (placedId) liveBuildStationId = placedId;
       }
 
-      this.currentBuildStationIdByNation.set(nationId, liveBuildStationId);
+      this.inFlightBuildStationIdByNation.set(nationId, liveBuildStationId);
     }
   }
 
   /** Pick build type, pick preferred zone, place the building station.
-   *  Returns the new station id, or null if no sitable zone exists.
-   *  placeBuild emits the "Construction started" log entry. */
+   *  Returns the new station id, or null if no sitable zone exists. */
   private startNextStationBuild(nation: Nation): string | null {
     // Compute occupied-zone ids once and thread through per-type checks —
     // otherwise pickNextBuildType rescans the roster per candidate type.
@@ -140,24 +143,14 @@ export class NationManager {
     typeId: StationTypeId,
     occupiedZoneIds: Set<string>,
   ): StationZone | null {
-    const scorer = sectorScorerByNation[nation.id];
+    const scorer = (sectorScorerByNation as Record<string, SectorScorer | undefined>)[nation.id];
     if (!scorer) return null;
 
     const ownStations = this.ownStations(nation);
     const candidateZones = this.freeZonesAllowingType(typeId, occupiedZoneIds);
     if (candidateZones.length === 0) return null;
 
-    // Group + sort candidate zones by sector once so the per-sector loop
-    // below does O(1) lookups instead of re-filtering per iteration.
-    const zonesBySectorId = new Map<string, StationZone[]>();
-    for (const zone of candidateZones) {
-      const list = zonesBySectorId.get(zone.sector.id);
-      if (list) list.push(zone);
-      else zonesBySectorId.set(zone.sector.id, [zone]);
-    }
-    for (const list of zonesBySectorId.values()) {
-      list.sort((a, b) => a.id.localeCompare(b.id));
-    }
+    const zonesBySectorId = groupZonesBySectorId(candidateZones);
 
     const candidates: { zone: StationZone; score: number }[] = [];
     for (const sector of this.sectors) {
@@ -177,7 +170,7 @@ export class NationManager {
       candidates.push({ zone: zonesInSector[0], score });
     }
     if (candidates.length === 0) return null;
-    candidates.sort((a, b) => b.score - a.score);
+    candidates.sort((leftCandidate, rightCandidate) => rightCandidate.score - leftCandidate.score);
     return candidates[0].zone;
   }
 
@@ -200,7 +193,7 @@ export class NationManager {
   private freeZonesAllowingType(typeId: StationTypeId, occupiedZoneIds: Set<string>): StationZone[] {
     return this.zones.filter((zone) => {
       if (occupiedZoneIds.has(zone.id)) return false;
-      const allowed = allowedStationTypesForZone(zone.environmentOverride, zone.sector.environment);
+      const allowed = allowedStationTypesForZone(zone);
       return allowed.includes(typeId);
     });
   }
@@ -209,7 +202,7 @@ export class NationManager {
   private hasFreeZoneAllowingType(typeId: StationTypeId, occupiedZoneIds: Set<string>): boolean {
     for (const zone of this.zones) {
       if (occupiedZoneIds.has(zone.id)) continue;
-      const allowed = allowedStationTypesForZone(zone.environmentOverride, zone.sector.environment);
+      const allowed = allowedStationTypesForZone(zone);
       if (allowed.includes(typeId)) return true;
     }
     return false;
@@ -217,7 +210,9 @@ export class NationManager {
 
   /** Does any nation have the blueprint for this type? */
   private anyNationHasBlueprint(typeId: StationTypeId): boolean {
-    return allNations.some((nation) => nation.buildsStations && nation.buildableStationTypeIds.includes(typeId));
+    return allNations.some(
+      (nation) => nation.buildsStations && nation.buildableStationTypeIds.includes(typeId),
+    );
   }
 
   /** Pick a contractor nation for a type the requester can't self-build —
@@ -239,42 +234,12 @@ export class NationManager {
     const production = new Map<string, number>();
     const consumption = new Map<string, number>();
 
-    const addWareLoad = (station: Station): void => {
-      for (const producedWareId of station.stationType.produces) {
-        const produced = getWareTemplate(producedWareId);
-        if (produced.productionOutput > 0) {
-          production.set(
-            producedWareId,
-            (production.get(producedWareId) ?? 0) + produced.productionOutput * station.sizeMultiplier,
-          );
-        }
-        for (const input of produced.productionInputs) {
-          consumption.set(
-            input.wareId,
-            (consumption.get(input.wareId) ?? 0) + input.unitsPerTick * station.sizeMultiplier,
-          );
-        }
-      }
-    };
-
-    const stations = this.stationManager.getStations();
-    for (const station of stations) {
+    for (const station of this.stationManager.getStations()) {
       const isOnline = isStationProducing(station);
       const isBuilding = station.state === "building";
       // Online producers' rate plus in-flight builds' eventual production/consumption.
-      if (isOnline || isBuilding) addWareLoad(station);
-      // Transient build consumption — spread waresRequired across
-      // NOMINAL_BUILD_DURATION_SECONDS so scarcity scoring isn't spiked by the
-      // instantaneous total. Iterate generically so adding a new build ware
-      // doesn't require touching this loop.
-      if (isBuilding && station.build) {
-        for (const [buildWareId, amount] of Object.entries(station.build.waresRequired)) {
-          consumption.set(
-            buildWareId,
-            (consumption.get(buildWareId) ?? 0) + amount / NOMINAL_BUILD_DURATION_SECONDS,
-          );
-        }
-      }
+      if (isOnline || isBuilding) addOnlineProductionAndConsumption(station, production, consumption);
+      if (isBuilding) addTransientBuildConsumption(station, consumption);
     }
 
     const scarcity = new Map<string, number>();
@@ -310,18 +275,17 @@ export class NationManager {
     if (!isBlueprint && !this.anyNationHasBlueprint(typeId)) return null;
     if (!this.hasFreeZoneAllowingType(typeId, occupiedZoneIds)) return null;
 
-    const stationType = getStationTemplate(typeId);
+    const stationType = getStationTypeTemplate(typeId);
     const ownCount = ownCountByType.get(typeId) ?? 0;
     const isPrimary = typeId === nation.primaryBuildableStationTypeId;
 
     // First two primaries get a thumb on the scale so a nation seeds its
     // identity type before chasing scarcity. After that the ×3 scarcity weight
     // dominates — universe needs trump nation flavor.
-    const primaryBonus = (isPrimary && ownCount < 2) ? 2 : 0;
+    const primaryBonus = isPrimary && ownCount < 2 ? 2 : 0;
     const wareScores = stationType.produces.map((wareId) => scarcity.get(wareId) ?? 0);
-    const wareScarcity = wareScores.length > 0
-      ? wareScores.reduce((sum, score) => sum + score, 0) / wareScores.length
-      : 0;
+    const wareScarcity =
+      wareScores.length > 0 ? wareScores.reduce((sum, score) => sum + score, 0) / wareScores.length : 0;
     const scarcityBonus = 3 * wareScarcity;
 
     const score = 1 + primaryBonus + scarcityBonus;
@@ -356,25 +320,74 @@ export class NationManager {
 
   /** Station id of this nation's in-flight build, or undefined if none. */
   getCurrentBuildStationId(nationId: string): string | undefined {
-    return this.currentBuildStationIdByNation.get(nationId);
+    return this.inFlightBuildStationIdByNation.get(nationId);
   }
 
   toSnapshot(): NationExpansionSnapshot[] {
     const expansions: NationExpansionSnapshot[] = [];
-    for (const [nationId, currentBuildStationId] of this.currentBuildStationIdByNation) {
+    for (const [nationId, currentBuildStationId] of this.inFlightBuildStationIdByNation) {
       expansions.push({ nationId, currentBuildStationId });
     }
     return expansions;
   }
 
   fromSnapshot(expansions: NationExpansionSnapshot[]): void {
-    this.currentBuildStationIdByNation.clear();
+    this.inFlightBuildStationIdByNation.clear();
     for (const snapshot of expansions) {
-      this.currentBuildStationIdByNation.set(snapshot.nationId, snapshot.currentBuildStationId);
+      this.inFlightBuildStationIdByNation.set(snapshot.nationId, snapshot.currentBuildStationId);
     }
   }
 
   reset(): void {
-    this.currentBuildStationIdByNation.clear();
+    this.inFlightBuildStationIdByNation.clear();
+  }
+}
+
+/** Group candidate zones by sector id once so the per-sector scoring loop
+ *  does O(1) lookups instead of re-filtering. Each bucket is sorted by zone id
+ *  so the chosen zone (first in the bucket) is deterministic across runs. */
+function groupZonesBySectorId(candidateZones: StationZone[]): Map<string, StationZone[]> {
+  const zonesBySectorId = new Map<string, StationZone[]>();
+  for (const zone of candidateZones) {
+    const list = zonesBySectorId.get(zone.sector.id);
+    if (list) list.push(zone);
+    else zonesBySectorId.set(zone.sector.id, [zone]);
+  }
+  for (const list of zonesBySectorId.values()) {
+    list.sort((leftZone, rightZone) => leftZone.id.localeCompare(rightZone.id));
+  }
+  return zonesBySectorId;
+}
+
+function addOnlineProductionAndConsumption(
+  station: Station,
+  production: Map<string, number>,
+  consumption: Map<string, number>,
+): void {
+  for (const producedWareId of station.stationType.produces) {
+    const produced = getWareTemplate(producedWareId);
+    if (produced.productionOutput > 0) {
+      production.set(
+        producedWareId,
+        (production.get(producedWareId) ?? 0) + produced.productionOutput * station.sizeMultiplier,
+      );
+    }
+    for (const input of produced.productionInputs) {
+      consumption.set(
+        input.wareId,
+        (consumption.get(input.wareId) ?? 0) + input.unitsPerTick * station.sizeMultiplier,
+      );
+    }
+  }
+}
+
+/** Spread `waresRequired` across NOMINAL_BUILD_DURATION_SECONDS so scarcity scoring isn't spiked by the instantaneous total. */
+function addTransientBuildConsumption(station: Station, consumption: Map<string, number>): void {
+  if (!station.build) return;
+  for (const [buildWareId, amount] of Object.entries(station.build.waresRequired)) {
+    consumption.set(
+      buildWareId,
+      (consumption.get(buildWareId) ?? 0) + amount / NOMINAL_BUILD_DURATION_SECONDS,
+    );
   }
 }

@@ -10,27 +10,40 @@ import { reserveIncoming, reserveOutgoing, releaseIncoming, releaseOutgoing } fr
 import { type TradeShip } from "./sim-trade-types";
 
 export function addReservation(ship: TradeShip, reservation: TradeReservation) {
-  if (reservation.cargoDirection === "incoming") reserveIncoming(reservation.station, reservation.wareId, reservation.amount);
+  if (reservation.cargoDirection === "incoming")
+    reserveIncoming(reservation.station, reservation.wareId, reservation.amount);
   else reserveOutgoing(reservation.station, reservation.wareId, reservation.amount);
   ship.reservations.push({ ...reservation });
 }
 
 /** Reduce a reservation when cargo is physically transferred. Fully-settled
- *  entries are removed so save capture doesn't trip over stale entries whose
- *  station was demolished. Partial fulfilment keeps residual — clearReservations
- *  at trip-end releases the rest if the ship never finishes the leg. */
+ *  entries are pruned so the ship's reservations array doesn't accumulate
+ *  zero-amount entries across trips. Partial fulfilment keeps residual —
+ *  clearReservations at trip-end releases the rest if the ship never finishes
+ *  the leg. */
 export function fulfillReservation(ship: TradeShip, reservation: TradeReservation) {
-  let amount = reservation.amount;
-  if (reservation.cargoDirection === "incoming") releaseIncoming(reservation.station, reservation.wareId, amount);
-  else releaseOutgoing(reservation.station, reservation.wareId, amount);
+  if (reservation.cargoDirection === "incoming")
+    releaseIncoming(reservation.station, reservation.wareId, reservation.amount);
+  else releaseOutgoing(reservation.station, reservation.wareId, reservation.amount);
+
+  let remaining = reservation.amount;
   for (const existing of ship.reservations) {
-    if (existing.station === reservation.station && existing.wareId === reservation.wareId && existing.cargoDirection === reservation.cargoDirection && existing.amount > 0) {
-      const fulfilled = Math.min(existing.amount, amount);
+    if (
+      existing.station === reservation.station &&
+      existing.wareId === reservation.wareId &&
+      existing.cargoDirection === reservation.cargoDirection &&
+      existing.amount > 0
+    ) {
+      const fulfilled = Math.min(existing.amount, remaining);
       existing.amount -= fulfilled;
-      amount -= fulfilled;
-      if (amount <= 0) break;
+      remaining -= fulfilled;
+      if (remaining <= 0) break;
     }
   }
+  removeSettledReservations(ship);
+}
+
+function removeSettledReservations(ship: TradeShip): void {
   for (let i = ship.reservations.length - 1; i >= 0; i--) {
     if (ship.reservations[i].amount <= 0) ship.reservations.splice(i, 1);
   }
@@ -44,7 +57,8 @@ export function fulfillReservation(ship: TradeShip, reservation: TradeReservatio
 export function clearReservations(ship: TradeShip): void {
   for (const reservation of ship.reservations) {
     if (reservation.amount <= 0) continue;
-    if (reservation.cargoDirection === "incoming") releaseIncoming(reservation.station, reservation.wareId, reservation.amount);
+    if (reservation.cargoDirection === "incoming")
+      releaseIncoming(reservation.station, reservation.wareId, reservation.amount);
     else releaseOutgoing(reservation.station, reservation.wareId, reservation.amount);
   }
   ship.reservations.length = 0;

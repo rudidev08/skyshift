@@ -24,8 +24,7 @@ function recordCurrentSlotPercents(station: Station, slotResults: SlotResult[]) 
 }
 
 /** Runs the live simulation for `hours` and collects per-station per-slot
- *  inventory ranges (min, max, final). Disposes the simulation before
- *  returning so callers don't need a finally block. */
+ *  inventory ranges (min, max, final). */
 function simulateInventoryRangesOverHours(
   map: GameMap,
   hours: number,
@@ -37,10 +36,13 @@ function simulateInventoryRangesOverHours(
 
   const ranges = new Map<string, SlotResult[]>();
   for (const station of simulation.stations) {
-    ranges.set(station.id, getAllInventorySlots(station).map(slot => {
-      const percent = slot.max > 0 ? (slot.current / slot.max) * 100 : 0;
-      return { minPercent: percent, maxPercent: percent, finalPercent: 0 };
-    }));
+    ranges.set(
+      station.id,
+      getAllInventorySlots(station).map((slot) => {
+        const percent = slot.max > 0 ? (slot.current / slot.max) * 100 : 0;
+        return { minPercent: percent, maxPercent: percent, finalPercent: 0 };
+      }),
+    );
   }
 
   try {
@@ -64,19 +66,24 @@ export interface SimulationRunDependencies {
   applyReadOnlyMode: () => void;
 }
 
-/** Reads the hours input, runs the simulation off-frame so the "Running..." status paints first, then refreshes the fleet + station tables. */
+function readSimulationHoursInput(): number | null {
+  const hoursInput = document.getElementById("simulation-hours") as HTMLInputElement;
+  const hours = parseFloat(hoursInput.value);
+  if (isNaN(hours) || hours <= 0) return null;
+  return hours;
+}
+
+/** Runs the simulation for the hours-input value and refreshes the fleet + station tables. */
 export function runEditorSimulation(dependencies: SimulationRunDependencies) {
   const { mapState, simulationSession, allPlayableNations, applyReadOnlyMode } = dependencies;
 
-  const hoursInput = document.getElementById("simulation-hours") as HTMLInputElement;
-  const hours = parseFloat(hoursInput.value);
-  if (isNaN(hours) || hours <= 0) return;
+  const hours = readSimulationHoursInput();
+  if (hours === null) return;
 
   simulationSession.cancelPending();
   const runGeneration = simulationSession.runGeneration;
   simulationSession.setStatus("Running...");
 
-  // The generation token cancels older queued runs on edit / re-click.
   simulationSession.scheduleRun(() => {
     const { ranges, shipCount } = simulateInventoryRangesOverHours(mapState.currentMap(), hours);
 

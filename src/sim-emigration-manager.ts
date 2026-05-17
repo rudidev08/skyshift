@@ -16,7 +16,7 @@
 // sim-emigration-start.ts. Shared types + tunables live in
 // sim-emigration-types.ts. Consumers thread emigrationManager through.
 
-import type { StationPlacement, StationSize } from "../data/station-types";
+import type { PlacedStation, StationSize } from "../data/station-types";
 import type { Station } from "./sim-station-types";
 import type { EmigrationManagerSnapshot, EmigrationEventSnapshot } from "./sim-save-types";
 import type { GameMap } from "./sim-map-types";
@@ -27,16 +27,11 @@ import { generateCounterId } from "./util-ids";
 import type { NamePool } from "./sim-name-pool";
 import type { DecommissionEvent, TradePort } from "./sim-trade-manager";
 import type { ShipManager } from "./sim-ship-manager";
-import type {
-  EmigrationEvent,
-  EmigrationEventContext,
-  Intensity,
-  TriggerMode,
-} from "./sim-emigration-types";
+import type { EmigrationEvent, EmigrationIntensity, EmigrationTriggerMode } from "./sim-emigration-types";
 import { computeEmigrationFraction } from "./sim-emigration-types";
 import {
   countEligibleStations,
-  drawDestination,
+  drawAndRecordDestination,
   emptyZoneCount,
   selectStationsForEmigration,
 } from "./sim-emigration-decision";
@@ -57,9 +52,9 @@ export class EmigrationManager {
   private activeEvent: EmigrationEvent | null = null;
   /** ID-only handle; the Station lives in StationManager. */
   private activeGenerationalShipId: string | null = null;
-  private simTime = 0;
-  private mode: TriggerMode = "auto";
-  private intensity: Intensity = "medium";
+  private clockSeconds = 0;
+  private mode: EmigrationTriggerMode = "auto";
+  private intensity: EmigrationIntensity = "medium";
   private usedDestinations: string[] = [];
   private nextGenerationalShipArrivalAt: number | null = null;
   private readonly autoTriggerThreshold: number;
@@ -98,7 +93,7 @@ export class EmigrationManager {
 
   /** Spawn the initial generational ship at game start at a random map position. */
   spawnInitialGenerationalShip(): void {
-    const generationalShip = this.createAndRegisterGenerationalShip();
+    const generationalShip = this.createGenerationalShip();
     this.activeGenerationalShipId = generationalShip.id;
   }
 
@@ -107,7 +102,9 @@ export class EmigrationManager {
     return this.stationManager.getStation(this.activeGenerationalShipId) ?? null;
   }
 
-  getActiveEvent(): EmigrationEvent | null { return this.activeEvent; }
+  getActiveEvent(): EmigrationEvent | null {
+    return this.activeEvent;
+  }
 
   /** Refresh render-visible caches each tick (and post-snapshot): per-station
    *  progressFraction from each station's emigrationEvent. */
@@ -134,9 +131,10 @@ export class EmigrationManager {
   private syncGenerationalShipArrival(event: EmigrationEvent): void {
     const generationalShip = this.getActiveGenerationalShip();
     if (!generationalShip || !generationalShip.generationalShipBuild) return;
-    generationalShip.generationalShipBuild.arrivalFraction = event.totalExpectedShips === 0
-      ? 1
-      : Math.max(0, Math.min(1, event.shipsArrived / event.totalExpectedShips));
+    generationalShip.generationalShipBuild.arrivalFraction =
+      event.totalExpectedShips === 0
+        ? 1
+        : Math.max(0, Math.min(1, event.shipsArrived / event.totalExpectedShips));
   }
 
   /** Per-tick handler. When an event is active: advances launches, demolishes
@@ -145,7 +143,7 @@ export class EmigrationManager {
    *  ship after the cooldown elapses, and auto-triggers a new event when
    *  empty zones run low. */
   tick(deltaSeconds: number): void {
-    this.simTime += deltaSeconds;
+    this.clockSeconds += deltaSeconds;
 
     if (this.activeEvent) {
       // Resolved once — body never spawns/jumps the generational ship before tickEmigrantLaunches.
@@ -153,13 +151,13 @@ export class EmigrationManager {
       if (generationalShip) {
         tickEmigrantLaunches(this.activeEvent, deltaSeconds, generationalShip, this.launchDependencies());
       }
-      this.checkStationDemolition(this.activeEvent);
+      this.demolishFinishedStations(this.activeEvent);
       // Sync caches before the jump check so render sees up-to-date fractions
       // even on the frame the generational ship vanishes.
       this.syncStationCaches(this.activeEvent);
       this.syncGenerationalShipArrival(this.activeEvent);
       if (this.activeEvent.shipsArrived >= this.activeEvent.totalExpectedShips) {
-        this.executeJump(this.activeEvent);
+        this.jumpGenerationalShipAway(this.activeEvent);
       }
     }
 
@@ -170,8 +168,8 @@ export class EmigrationManager {
   private spawnNextGenerationalShipIfDue(): void {
     if (this.activeGenerationalShipId !== null) return;
     if (this.nextGenerationalShipArrivalAt === null) return;
-    if (this.simTime < this.nextGenerationalShipArrivalAt) return;
-    const generationalShip = this.createAndRegisterGenerationalShip();
+    if (this.clockSeconds < this.nextGenerationalShipArrivalAt) return;
+    const generationalShip = this.createGenerationalShip();
     this.activeGenerationalShipId = generationalShip.id;
     this.nextGenerationalShipArrivalAt = null;
   }
@@ -185,9 +183,9 @@ export class EmigrationManager {
   }
 
   /** Fire an emigration event; returns null if nothing eligible. */
-  triggerEvent(options: { intensity?: Intensity } = {}): EmigrationEvent | null {
+  triggerEvent(options: { intensity?: EmigrationIntensity } = {}): EmigrationEvent | null {
     const intensity = options.intensity ?? this.intensity;
-    if (this.activeEvent !== null) return null;   // at-most-one invariant
+    if (this.activeEvent !== null) return null; // at-most-one invariant
     const generationalShip = this.getActiveGenerationalShip();
     if (!generationalShip) return null;
 
@@ -203,15 +201,25 @@ export class EmigrationManager {
     // One batched setStationStates call so the trade path cache rebuilds once instead of per-station.
     this.stationManager.setStationStates(selected, "emigrating");
 
-    const context: EmigrationEventContext = {
-      eventId: generateCounterId("EMIG", ++this.nextEventCounter, 6),
-      destinationName: drawDestination(this.usedDestinations),
-    };
+    // Departing stations must not linger as ghost routes in the overview once
+    // they're on their way out — clear trade-route history now so the overview
+    // starts fresh. Suppression in recordRouteDeliveryFromTransfer keeps
+    // in-flight deliveries from re-adding them.
+    this.tradeManager.clearTradeRouteHistory();
 
-    const totalExpectedShips = this.beginAllStationEmigrations(selected, generationalShip, context);
+    const eventId = generateCounterId("EMIG", ++this.nextEventCounter, 6);
+    const destinationName = drawAndRecordDestination(this.usedDestinations);
+
+    const totalExpectedShips = this.beginAllStationEmigrations(
+      selected,
+      generationalShip,
+      eventId,
+      destinationName,
+    );
 
     const event = this.createEmigrationEvent({
-      context,
+      eventId,
+      destinationName,
       generationalShipId: generationalShip.id,
       stationIds: selected.map((station) => station.id),
       nationIds: Array.from(nationIds),
@@ -219,7 +227,7 @@ export class EmigrationManager {
     });
     this.activeEvent = event;
 
-    this.attachGenerationalShipBuild(generationalShip, event);
+    this.setGenerationalShipBuild(generationalShip, event);
     return event;
   }
 
@@ -228,12 +236,19 @@ export class EmigrationManager {
   private beginAllStationEmigrations(
     selected: Station[],
     generationalShip: Station,
-    context: EmigrationEventContext,
+    eventId: string,
+    destinationName: string,
   ): number {
     const launchDeps = this.launchDependencies();
     let totalExpectedShips = 0;
     for (const station of selected) {
-      totalExpectedShips += beginStationEmigration(station, generationalShip, context, launchDeps);
+      totalExpectedShips += beginStationEmigration(
+        station,
+        generationalShip,
+        eventId,
+        destinationName,
+        launchDeps,
+      );
     }
     return totalExpectedShips;
   }
@@ -242,32 +257,33 @@ export class EmigrationManager {
    *  fired, no station mutated. Caller decides when to commit it as
    *  this.activeEvent. */
   private createEmigrationEvent(parts: {
-    context: EmigrationEventContext;
+    eventId: string;
+    destinationName: string;
     generationalShipId: string;
     stationIds: string[];
     nationIds: string[];
     totalExpectedShips: number;
   }): EmigrationEvent {
     return {
-      id: parts.context.eventId,
+      id: parts.eventId,
       nationIds: parts.nationIds,
       generationalShipId: parts.generationalShipId,
       stationIds: parts.stationIds,
       stationIdSet: new Set(parts.stationIds),
       shipsArrived: 0,
       totalExpectedShips: parts.totalExpectedShips,
-      destinationName: parts.context.destinationName,
-      eventStartAt: this.simTime,
+      destinationName: parts.destinationName,
+      startAt: this.clockSeconds,
     };
   }
 
   /** Stamp the generational-ship's render-visible build state so the WAY
    *  HUD can show the destination, station count, and arrival fraction. */
-  private attachGenerationalShipBuild(generationalShip: Station, event: EmigrationEvent): void {
+  private setGenerationalShipBuild(generationalShip: Station, event: EmigrationEvent): void {
     generationalShip.generationalShipBuild = {
       eventId: event.id,
       destinationName: event.destinationName,
-      stationCount: event.stationIds.length,
+      emigratingStationCount: event.stationIds.length,
       arrivalFraction: 0,
     };
   }
@@ -303,9 +319,7 @@ export class EmigrationManager {
 
   /** Manual trigger fireable right now? Generational ship present, no active event. */
   canManualTrigger(): boolean {
-    return this.mode === "manual"
-      && this.activeEvent === null
-      && this.activeGenerationalShipId !== null;
+    return this.mode === "manual" && this.activeEvent === null && this.activeGenerationalShipId !== null;
   }
 
   /** Stations that would be selected if a trigger fired right now. Drives the
@@ -325,7 +339,7 @@ export class EmigrationManager {
    *  pre-existing homed ships have all departed. Ferry ships still mid-flight
    *  survive — they already have a `decommission` action queued and will
    *  remove themselves on arrival at the generational ship. */
-  private checkStationDemolition(event: EmigrationEvent): void {
+  private demolishFinishedStations(event: EmigrationEvent): void {
     for (const stationId of event.stationIds) {
       const station = this.stationManager.getStation(stationId);
       if (!station || !station.emigrationEvent) continue; // demolished in a previous tick
@@ -358,8 +372,8 @@ export class EmigrationManager {
 
   /** Execute the jump — remove the generational ship, clear the event, schedule
    *  the next arrival. By the time arrivals complete, every event station has
-   *  already been demolished by `checkStationDemolition`. */
-  private executeJump(event: EmigrationEvent): void {
+   *  already been demolished by `demolishFinishedStations`. */
+  private jumpGenerationalShipAway(event: EmigrationEvent): void {
     if (this.activeGenerationalShipId === event.generationalShipId) {
       const generationalShip = this.stationManager.getStation(this.activeGenerationalShipId);
       if (generationalShip) generationalShip.generationalShipBuild = null;
@@ -367,16 +381,16 @@ export class EmigrationManager {
       this.activeGenerationalShipId = null;
     }
     this.activeEvent = null;
-    this.nextGenerationalShipArrivalAt = this.simTime + POST_JUMP_GAP_SECONDS;
+    this.nextGenerationalShipArrivalAt = this.clockSeconds + POST_JUMP_GAP_SECONDS;
   }
 
   /** Generate a unique id, build the generational-ship Station, register with
    *  StationManager so the shared render / selection pipeline handles it. */
-  private createAndRegisterGenerationalShip(): Station {
+  private createGenerationalShip(): Station {
     const position = this.randomPositionOutsideStations();
     const id = generateCounterId("WAY", ++this.nextGenerationalShipCounter, 3);
     const name = this.namePool.claimStationName(wayNation);
-    const placement: StationPlacement = {
+    const placement: PlacedStation = {
       id,
       name,
       x: position.x,
@@ -385,9 +399,9 @@ export class EmigrationManager {
       stationTypeId: "generational-ship",
       size: GENERATIONAL_SHIP_SIZE,
     };
-    const stationData = createStation(placement, 0);
-    this.stationManager.addStation(stationData);
-    return stationData;
+    const generationalShip = createStation(placement, 0);
+    this.stationManager.addStation(generationalShip);
+    return generationalShip;
   }
 
   private randomPositionOutsideStations(): { x: number; y: number } {
@@ -414,31 +428,47 @@ export class EmigrationManager {
     };
   }
 
-  getMode(): TriggerMode { return this.mode; }
-  setMode(mode: TriggerMode): void { this.mode = mode; }
-  getIntensity(): Intensity { return this.intensity; }
-  setIntensity(intensity: Intensity): void { this.intensity = intensity; }
-  getNextGenerationalShipArrivalAt(): number | null { return this.nextGenerationalShipArrivalAt; }
+  getMode(): EmigrationTriggerMode {
+    return this.mode;
+  }
+  setMode(mode: EmigrationTriggerMode): void {
+    this.mode = mode;
+  }
+  getIntensity(): EmigrationIntensity {
+    return this.intensity;
+  }
+  setIntensity(intensity: EmigrationIntensity): void {
+    this.intensity = intensity;
+  }
+  getNextGenerationalShipArrivalAt(): number | null {
+    return this.nextGenerationalShipArrivalAt;
+  }
 
   /** Sim-seconds until next generational ship, or 0 if one is already present. */
   getSecondsUntilNextGenerationalShip(): number {
     if (this.nextGenerationalShipArrivalAt === null) return 0;
-    return Math.max(0, this.nextGenerationalShipArrivalAt - this.simTime);
+    return Math.max(0, this.nextGenerationalShipArrivalAt - this.clockSeconds);
   }
   /** Length of the post-jump cooldown — for arrival-progress rendering. */
-  getPostJumpGapSeconds(): number { return POST_JUMP_GAP_SECONDS; }
-  getAutoTriggerThreshold(): number { return this.autoTriggerThreshold; }
-  getSimTime(): number { return this.simTime; }
+  getPostJumpGapSeconds(): number {
+    return POST_JUMP_GAP_SECONDS;
+  }
+  getAutoTriggerThreshold(): number {
+    return this.autoTriggerThreshold;
+  }
+  getClockSeconds(): number {
+    return this.clockSeconds;
+  }
 
   toSnapshot(): EmigrationManagerSnapshot {
     return {
-      activeEvent: this.activeEvent ? eventToSnapshot(this.activeEvent) : null,
+      activeEvent: this.activeEvent ? emigrationEventToSnapshot(this.activeEvent) : null,
       activeGenerationalShipId: this.activeGenerationalShipId,
       mode: this.mode,
       intensity: this.intensity,
       usedDestinations: [...this.usedDestinations],
       nextGenerationalShipArrivalAt: this.nextGenerationalShipArrivalAt,
-      simTime: this.simTime,
+      clockSeconds: this.clockSeconds,
       nextGenerationalShipCounter: this.nextGenerationalShipCounter,
       nextEmigrantShipCounter: this.nextEmigrantShipCounter,
       nextEventCounter: this.nextEventCounter,
@@ -446,23 +476,23 @@ export class EmigrationManager {
   }
 
   fromSnapshot(snapshot: EmigrationManagerSnapshot): void {
-    this.activeEvent = snapshot.activeEvent ? eventFromSnapshot(snapshot.activeEvent) : null;
+    this.activeEvent = snapshot.activeEvent ? emigrationEventFromSnapshot(snapshot.activeEvent) : null;
     this.activeGenerationalShipId = snapshot.activeGenerationalShipId;
     this.mode = snapshot.mode;
     this.intensity = snapshot.intensity;
     this.usedDestinations = [...snapshot.usedDestinations];
     this.nextGenerationalShipArrivalAt = snapshot.nextGenerationalShipArrivalAt;
-    this.simTime = snapshot.simTime;
+    this.clockSeconds = snapshot.clockSeconds;
     this.nextGenerationalShipCounter = snapshot.nextGenerationalShipCounter;
     this.nextEmigrantShipCounter = snapshot.nextEmigrantShipCounter;
     this.nextEventCounter = snapshot.nextEventCounter;
 
-    // Per-station state rides on StationSnapshot.emigrationEvent — applySnapshot
+    // Per-station state rides on StationSnapshot.emigrationEvent — restoreSavedGame
     // already populated each station's emigrationEvent before this method runs.
     // Note: at this point StationManager.seed has NOT yet happened (Game.create
-    // seeds it after applySnapshot returns), so syncStationCaches cannot resolve
+    // seeds it after restoreSavedGame returns), so syncStationCaches cannot resolve
     // stations through this.stationManager. progressFraction / arrivalFraction
-    // stay at their snapshotted values until the first dynamics tick re-runs
+    // stay at their snapshotted values until the first slow simulation tick re-runs
     // syncStationCaches with seeded managers.
   }
 
@@ -472,7 +502,7 @@ export class EmigrationManager {
   dispose(): void {
     this.activeEvent = null;
     this.activeGenerationalShipId = null;
-    this.simTime = 0;
+    this.clockSeconds = 0;
     this.mode = "auto";
     this.intensity = "medium";
     this.usedDestinations = [];
@@ -486,7 +516,7 @@ export class EmigrationManager {
   }
 }
 
-function eventToSnapshot(event: EmigrationEvent): EmigrationEventSnapshot {
+function emigrationEventToSnapshot(event: EmigrationEvent): EmigrationEventSnapshot {
   return {
     id: event.id,
     nationIds: [...event.nationIds],
@@ -495,11 +525,11 @@ function eventToSnapshot(event: EmigrationEvent): EmigrationEventSnapshot {
     shipsArrived: event.shipsArrived,
     totalExpectedShips: event.totalExpectedShips,
     destinationName: event.destinationName,
-    eventStartAt: event.eventStartAt,
+    startAt: event.startAt,
   };
 }
 
-function eventFromSnapshot(snapshot: EmigrationEventSnapshot): EmigrationEvent {
+function emigrationEventFromSnapshot(snapshot: EmigrationEventSnapshot): EmigrationEvent {
   const stationIds = [...snapshot.stationIds];
   return {
     id: snapshot.id,
@@ -510,6 +540,6 @@ function eventFromSnapshot(snapshot: EmigrationEventSnapshot): EmigrationEvent {
     shipsArrived: snapshot.shipsArrived,
     totalExpectedShips: snapshot.totalExpectedShips,
     destinationName: snapshot.destinationName,
-    eventStartAt: snapshot.eventStartAt,
+    startAt: snapshot.startAt,
   };
 }

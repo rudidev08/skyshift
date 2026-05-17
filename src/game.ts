@@ -3,9 +3,9 @@ import type { GameMap } from "./sim-map-types";
 import { backgroundConfig } from "../data/visuals-map-background";
 import {
   preloadBackgrounds,
-  createBackgrounds,
+  createBackgroundVisualBundle,
   updateParallax,
-  type BackgroundLayers,
+  type BackgroundVisualBundle,
 } from "./phaser/backgrounds-render";
 import { preloadStationIcons } from "./phaser/texture-cache";
 import {
@@ -14,7 +14,11 @@ import {
   type StationZoneVisualBundle,
   type StationZoneSelectionTarget,
 } from "./phaser/station-zone-render";
-import { createGameViewModeController, type GameViewMode, type GameViewModeController } from "./game-view-mode";
+import {
+  createGameViewModeController,
+  type GameViewMode,
+  type GameViewModeController,
+} from "./game-view-mode";
 import {
   updateStationLabels,
   updateStationDetails,
@@ -25,28 +29,18 @@ import {
   createSectorGrid,
   updateSectorCorners,
   type GridMode,
-  type SectorGridSystem,
+  type SectorGrid,
 } from "./phaser/sector-grid";
-import {
-  setupTimeControls,
-  type TimeController,
-} from "./phaser/time-controls";
+import { setupTimeControls, type TimeController } from "./phaser/time-controls";
 import type { PausedIndicator } from "./ui-game-paused-indicator";
 import type { ElapsedTimeLabel } from "./render-elapsed-time-label";
-import type { AmbientTrafficSystem } from "./phaser/ambient-traffic-render";
+import type { AmbientTraffic } from "./phaser/ambient-traffic-render";
 import type { Station } from "./sim-station";
-import {
-  createStationRenderPool,
-  type StationRenderPool,
-} from "./phaser/station-render";
+import { createStationRenderPool, type StationRenderPool } from "./phaser/station-render";
 import type { ScrollBounds, CameraControlsHandle } from "./phaser/camera-controls";
 import { setupCameraControls } from "./phaser/camera-controls";
 import type { Ship } from "./sim-ships";
-import {
-  hideShipForOverview,
-  ShipSelectionTarget,
-  type ShipVisualBundle,
-} from "./phaser/ship-visual-bundle";
+import { hideShipForOverview, ShipSelectionTarget, type ShipVisualBundle } from "./phaser/ship-visual-bundle";
 import { createShipOrbitPool, type ShipOrbitPool } from "./phaser/ship-orbit-pool";
 import { createShipVisualBundles, type ShipVisualBundlesByShipId } from "./phaser/ship-visual-bundles";
 import type { Simulation } from "./sim-lifecycle";
@@ -54,14 +48,17 @@ import { Selection, type SelectionTarget } from "./phaser/selection-input";
 import { SelectionRingRender } from "./phaser/selection-ring-render";
 import { resetCullingCache } from "./phaser/viewport-culling";
 import { getTradeLog } from "./sim-trade-log";
-import { createOverviewSystem, type OverviewSystem } from "./phaser/overview-system";
-import { cameraMinZoom } from "../data/controls-camera";
+import { createOverviewMode, type OverviewMode } from "./phaser/overview-mode";
+import { cameraMinZoomPhaserClamp, cameraMaxZoomPhaserClamp } from "../data/controls-camera";
 import { findSectorAtPosition } from "./sim-sector-lookup";
 import { setupZoomControls, type ZoomControls } from "./phaser/zoom-controls";
 import { updateGameHud } from "./ui-game-hud";
-import { applyViewMode as applyViewModeRender, syncSectorGridVisibilityForViewMode } from "./phaser/game-view-mode-render";
+import {
+  applyViewMode as applyViewModeRender,
+  syncSectorGridVisibility,
+} from "./phaser/game-view-mode-render";
 import type { GameSnapshot } from "./sim-save-types";
-import { registerToastSelectionHook } from "./ui-toast";
+import { registerToastSelectionHook, unregisterToastSelectionHook } from "./ui-toast";
 import {
   setupHudOverlay,
   setupGameplaySpeedAndTimeHud,
@@ -69,7 +66,7 @@ import {
   createGameSimulationForFreshUniverse,
   setInitialCameraView,
 } from "./game-setup";
-import { tickSimulation, updateShipVisuals } from "./game-loop";
+import { gameSecondsThisFrame, tickSimulation, updateShipVisuals } from "./game-loop";
 
 export const GAME_SCENE_KEY = "Game";
 
@@ -82,6 +79,10 @@ export class Game extends Scene {
   zoomControls?: ZoomControls;
   stationLabelsVisible = true;
   timeScale = 1;
+  /** Render-side game clock in seconds — accumulates the per-frame game time
+   *  from {@link gameSecondsThisFrame}, so it freezes on pause and scales with
+   *  speed. Ship orbits read this instead of the wall clock. */
+  gameClockSeconds = 0;
   timeController!: TimeController;
   selection!: Selection;
   selectionRingRender!: SelectionRingRender;
@@ -94,7 +95,7 @@ export class Game extends Scene {
   loreEl!: HTMLElement;
   loreTitleEl!: HTMLElement;
   infoPanelEl!: HTMLElement;
-  hudSealEl!: HTMLElement;
+  hudIconEl!: HTMLElement;
   loreToggleEl!: HTMLElement;
   logToggleEl!: HTMLElement;
   detailsContentEl!: HTMLElement;
@@ -103,22 +104,27 @@ export class Game extends Scene {
   lastSelectionTarget: SelectionTarget | null = null;
   // CSS custom properties don't go through dom-cache's WeakMap diffing, so
   // iconUri and accentColor need their own per-write last* fields.
-  lastSealUri = "";
+  lastIconUri = "";
   lastAccentColor = "";
+
+  // Coarser-grained throttling state read by ui-game-hud.ts — "tick changed",
+  // "panel just opened", and "viewed sector changed" gates that drive
+  // selective HUD refresh.
   lastDetailsPanelOpen = false;
   lastHudTick = -1;
+  lastHudSectorKey = "";
   stations: Station[] = [];
   stationBundles: StationVisualBundle[] = [];
   stationBundleByStation = new Map<Station, StationVisualBundle>();
   ships: Ship[] = [];
-  shipRenders: ShipVisualBundle[] = [];
+  shipBundles: ShipVisualBundle[] = [];
   shipOrbitPool: ShipOrbitPool = createShipOrbitPool();
-  shipBundles: ShipVisualBundlesByShipId = createShipVisualBundles();
+  shipBundlesById: ShipVisualBundlesByShipId = createShipVisualBundles();
   stationRenderPool!: StationRenderPool;
-  bg!: BackgroundLayers;
+  background!: BackgroundVisualBundle;
   overviewGrid?: Phaser.GameObjects.Graphics;
-  gridSystem!: SectorGridSystem;
-  ambientTraffic!: AmbientTrafficSystem;
+  sectorGrid!: SectorGrid;
+  ambientTraffic!: AmbientTraffic;
   stationZoneVisualBundles: StationZoneVisualBundle[] = [];
   stationZoneSelectionTargets: StationZoneSelectionTarget[] = [];
   viewMode: GameViewModeController = createGameViewModeController("normal");
@@ -128,13 +134,13 @@ export class Game extends Scene {
   unsubscribeSpeedObserver?: () => void;
   readonly stationZonesVisibleRef = { value: false };
   private cleanedUp = false;
-  overviewSystem?: OverviewSystem;
+  overviewMode?: OverviewMode;
 
   map!: GameMap;
   /** Sim graph for the active session — wired up in create(), torn down in cleanupScene. Undefined before create() and after teardown. */
   simulation?: Simulation;
-  /** Accumulator for the slow dynamic-nations tick (~5s sim). */
-  dynamicsTickAccumulator = 0;
+  /** Accumulator for the slow simulation tick (~5s sim). */
+  secondsSinceLastSlowSimulationTick = 0;
   initialSnapshot: GameSnapshot | undefined = undefined;
   initialGridMode: GridMode | undefined = undefined;
   persistGridMode = true;
@@ -185,10 +191,10 @@ export class Game extends Scene {
     if (!this.isEditorMode) setupGameplaySpeedAndTimeHud(this);
 
     const simulation = this.initialSnapshot
-      ? createGameSimulationForSnapshot(this)
+      ? createGameSimulationForSnapshot(this, this.initialSnapshot)
       : createGameSimulationForFreshUniverse(this);
 
-    this.setupOverviewSystem(simulation);
+    this.setupOverviewMode(simulation);
     this.setupViewModeRender();
     this.setupCameraAndZoomControls();
     setInitialCameraView(this);
@@ -207,18 +213,18 @@ export class Game extends Scene {
 
   private setupCameraAndBackground(): void {
     this.camera = this.cameras.main;
-    this.camera.setBackgroundColor(backgroundConfig.backgroundColor);
-    this.bg = createBackgrounds(this, this.map.nebulas);
-    this.nebulaImages = this.bg.nebulaImages;
+    this.camera.setBackgroundColor(backgroundConfig.color);
+    this.background = createBackgroundVisualBundle(this, this.map.nebulas);
+    this.nebulaImages = this.background.nebulaImages;
   }
 
   private setupSelectionAndCaches(): void {
     this.selection = new Selection(this);
     this.selectionRingRender = new SelectionRingRender(this, this.selection);
     // Blocking toasts tuck the selection indicator away until they clear.
-    registerToastSelectionHook((hidden) => this.selectionRingRender?.setExternallyHidden(hidden));
+    registerToastSelectionHook((hidden) => this.selectionRingRender?.setHiddenByToast(hidden));
     // Name-pool reset and assignStationNames both happen per-branch in the
-    // simulation factory (snapshot stations carry names; authored stations
+    // simulation factory (snapshot stations carry names; the map's stations
     // draw from the freshly constructed simulation.namePool). Nothing global
     // to reset here.
     resetStationZoomDetailCache();
@@ -226,15 +232,10 @@ export class Game extends Scene {
   }
 
   private setupSectorGridAndTimeControls(): void {
-    this.gridSystem = createSectorGrid(
-      this,
-      this.map.sectors,
-      this.map,
-      {
-        initialMode: this.initialGridMode,
-        persistMode: this.persistGridMode,
-      },
-    );
+    this.sectorGrid = createSectorGrid(this, this.map.sectors, this.map, {
+      initialMode: this.initialGridMode,
+      persistMode: this.persistGridMode,
+    });
     this.timeController = setupTimeControls(this, (scale) => {
       this.timeScale = scale;
     });
@@ -243,10 +244,10 @@ export class Game extends Scene {
   /** Built after Simulation construction so the ware → producers index is
    *  populated for the ware dropdown filter. Editor doesn't run
    *  nations/emigration, so the overlay is gameplay-only. */
-  private setupOverviewSystem(simulation: Simulation): void {
+  private setupOverviewMode(simulation: Simulation): void {
     const uiRoot = document.getElementById("trade-route-overlay");
     if (!uiRoot || this.isEditorMode) return;
-    this.overviewSystem = createOverviewSystem({
+    this.overviewMode = createOverviewMode({
       scene: this,
       uiRoot,
       getStations: () => this.stations.map((station) => ({ id: station.id, x: station.x, y: station.y })),
@@ -275,9 +276,10 @@ export class Game extends Scene {
       minY: 0,
       maxY: this.map.gridSizeY * this.map.sectorSize,
     };
-    const minimumZoom = cameraMinZoom;
+    const minimumZoom = cameraMinZoomPhaserClamp;
     this.zoomControls = setupZoomControls(this, {
-      presets: [minimumZoom, 0.4, 1.0],
+      minZoom: minimumZoom,
+      maxZoom: cameraMaxZoomPhaserClamp,
     });
     this.stationRenderPool = createStationRenderPool(this);
     this.cameraControls = setupCameraControls(this, bounds, {
@@ -286,23 +288,26 @@ export class Game extends Scene {
     });
   }
 
-  update(_time: number, delta: number) {
+  update(time: number, delta: number) {
     const deltaSeconds = delta / 1000;
     const viewMode = this.viewMode.getViewMode();
     const inOverview = viewMode === "overview";
 
-    updateParallax(this.bg, this.camera);
+    updateParallax(this.background, this.camera);
     const sector = this.refreshCurrentSectorHud(inOverview);
-    if (!inOverview) updateSectorCorners(this.gridSystem, this.map.sectors, this.camera);
+    if (!inOverview) updateSectorCorners(this.sectorGrid, this.map.sectors, this.camera);
 
     const labelState = this.updateLabelsAndDetails(viewMode);
-    this.tickSimulationIfRunning(deltaSeconds, _time, inOverview);
 
-    const currentTick = this.simulation?.economyTimer.tick ?? 0;
-    this.renderStations(_time, viewMode, currentTick);
+    const frameGameSeconds = gameSecondsThisFrame(deltaSeconds, this.timeScale, this.isEditorMode);
+    this.gameClockSeconds += frameGameSeconds;
+    if (frameGameSeconds > 0) tickSimulation(this, frameGameSeconds, time, inOverview);
+
+    const currentTick = this.simulation?.economyTimer.tickCount ?? 0;
+    this.renderStations(time, viewMode, currentTick);
     this.renderShipsForFrame(inOverview, labelState, currentTick);
 
-    this.selection.update();
+    this.selection.pruneStaleTarget();
     this.selectionRingRender.update(this.camera.zoom);
     updateGameHud(this, sector);
 
@@ -325,22 +330,11 @@ export class Game extends Scene {
   }
 
   private updateLabelsAndDetails(viewMode: GameViewMode): { visible: boolean; alpha: number } {
-    const labelState = updateStationLabels(
-      this.stationBundles,
-      this.camera.zoom,
-      this.stationLabelsVisible,
-    );
+    const labelState = updateStationLabels(this.stationBundles, this.camera.zoom, this.stationLabelsVisible);
     this.stationLabelsVisible = labelState.visible;
     updateStationZoneLabels(this.stationZoneVisualBundles, this.camera.zoom, viewMode === "zones");
     updateStationDetails(this.stationBundles, this.camera.zoom);
     return labelState;
-  }
-
-  /** Editor is static (no sim ticks at all); pause freezes everything together. */
-  private tickSimulationIfRunning(deltaSeconds: number, time: number, inOverview: boolean): void {
-    if (this.timeScale <= 0 || this.isEditorMode) return;
-    const scaledDelta = deltaSeconds * this.timeScale;
-    tickSimulation(this, scaledDelta, time, inOverview);
   }
 
   private renderStations(time: number, viewMode: GameViewMode, currentTick: number): void {
@@ -365,7 +359,7 @@ export class Game extends Scene {
   ): void {
     if (inOverview) {
       // Overview mode draws its own ship layer, so the regular per-ship visuals stay hidden.
-      for (const shipRender of this.shipRenders) hideShipForOverview(shipRender);
+      for (const shipRender of this.shipBundles) hideShipForOverview(shipRender);
       return;
     }
     updateShipVisuals(this, labelState, currentTick);
@@ -380,7 +374,7 @@ export class Game extends Scene {
   }
 
   getSelectionDetailsLog(): string {
-    const target = this.selection.target;
+    const target = this.selection.selectedTarget;
     if (target instanceof ShipSelectionTarget) {
       const tradeManager = this.simulation?.tradeManager;
       if (!tradeManager) return "";
@@ -391,12 +385,12 @@ export class Game extends Scene {
   }
 
   setSectorGridMode(mode: GridMode): void {
-    this.gridSystem.setMode(mode);
-    syncSectorGridVisibilityForViewMode(this, this.viewMode.getViewMode());
+    this.sectorGrid.setMode(mode);
+    syncSectorGridVisibility(this, this.viewMode.getViewMode());
   }
 
   currentSector() {
-    // Screen-space center (scrollX + width/2) to match clampCamera bounds logic.
+    // Phaser 4 world-space center is scrollX + width/2 (zoom-independent) — matches the formula clampCamera uses for bounds.
     const centerX = this.camera.scrollX + this.camera.width / 2;
     const centerY = this.camera.scrollY + this.camera.height / 2;
     return findSectorAtPosition(this.map.sectors, centerX, centerY);
@@ -412,8 +406,8 @@ export class Game extends Scene {
     this.stationRenderPool?.destroy();
     this.unsubscribeSpeedObserver?.();
     this.unsubscribeSpeedObserver = undefined;
-    this.overviewSystem?.destroy();
-    this.overviewSystem = undefined;
+    this.overviewMode?.destroy();
+    this.overviewMode = undefined;
     this.pausedIndicator?.destroy();
     this.pausedIndicator = undefined;
     this.elapsedTimeLabel?.destroy();
@@ -424,7 +418,7 @@ export class Game extends Scene {
     // keeps a reference to this scene's destroyed selection ring, and its
     // activeBlockingToasts counter stays >0 so the next scene's first blocking
     // toast won't fire the hide.
-    registerToastSelectionHook(null);
+    unregisterToastSelectionHook();
     this.simulation?.dispose();
     this.simulation = undefined;
   }

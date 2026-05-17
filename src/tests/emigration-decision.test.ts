@@ -3,15 +3,11 @@ import {
   selectStationsForEmigration,
   countEligibleStations,
   emptyZoneCount,
-  drawDestination,
+  drawAndRecordDestination,
 } from "../sim-emigration-decision.ts";
 import { hubNation, bioNation, oreNation } from "../../data/nations.ts";
 import { createStation } from "../sim-station.ts";
-import type {
-  StationPlacement,
-  StationState,
-  StationTypeId,
-} from "../../data/station-types.ts";
+import type { PlacedStation, StationState, StationTypeId } from "../../data/station-types.ts";
 import type { Station } from "../sim-station-types.ts";
 import type { NationTemplate } from "../../data/nation-types.ts";
 import type { GameMap } from "../sim-map-types.ts";
@@ -25,7 +21,7 @@ function fakeStationManager(stations: Station[]): StationManager {
   return { getStations: () => stations } as unknown as StationManager;
 }
 
-function withSeededRandom(sequence: number[], run: () => void): void {
+function withScriptedMathRandom(sequence: number[], run: () => void): void {
   // Math.random replacement that yields the next value from `sequence` each
   // call, then loops. Lets shuffle/pick steps land on a known index without
   // touching production code.
@@ -36,11 +32,14 @@ function withSeededRandom(sequence: number[], run: () => void): void {
     cursor++;
     return value;
   };
-  try { run(); }
-  finally { Math.random = original; }
+  try {
+    run();
+  } finally {
+    Math.random = original;
+  }
 }
 
-function makeRealStation(
+function makeStation(
   id: string,
   nation: NationTemplate,
   stationTypeId: StationTypeId,
@@ -49,7 +48,7 @@ function makeRealStation(
   // Uses real createStation so stationType.id matches stationTypeId — needed
   // because the eligibility checks key off candidate.stationType.id, and the
   // shared makeStation factory hardcodes that field to "mine".
-  const placement: StationPlacement = {
+  const placement: PlacedStation = {
     id,
     name: id,
     x: 0,
@@ -63,28 +62,28 @@ function makeRealStation(
   return createStation(placement, 0);
 }
 
-function bioFarm(idSuffix: string): Station {
-  return makeRealStation(`BIO-F${idSuffix}`, bioNation, "farm");
+function bioFarm(index: string): Station {
+  return makeStation(`BIO-F${index}`, bioNation, "farm");
 }
 
-function bioHabitat(idSuffix: string): Station {
-  return makeRealStation(`BIO-H${idSuffix}`, bioNation, "habitat");
+function bioHabitat(index: string): Station {
+  return makeStation(`BIO-H${index}`, bioNation, "habitat");
 }
 
-function bioMedicalLab(idSuffix: string): Station {
-  return makeRealStation(`BIO-L${idSuffix}`, bioNation, "medical-lab");
+function bioMedicalLab(index: string): Station {
+  return makeStation(`BIO-L${index}`, bioNation, "medical-lab");
 }
 
-function hubHabitat(idSuffix: string): Station {
-  return makeRealStation(`HUB-H${idSuffix}`, hubNation, "habitat");
+function hubHabitat(index: string): Station {
+  return makeStation(`HUB-H${index}`, hubNation, "habitat");
 }
 
-function hubTechFactory(idSuffix: string): Station {
-  return makeRealStation(`HUB-T${idSuffix}`, hubNation, "tech-factory");
+function hubTechFactory(index: string): Station {
+  return makeStation(`HUB-T${index}`, hubNation, "tech-factory");
 }
 
-function oreMine(idSuffix: string): Station {
-  return makeRealStation(`ORE-M${idSuffix}`, oreNation, "mine");
+function oreMine(index: string): Station {
+  return makeStation(`ORE-M${index}`, oreNation, "mine");
 }
 
 test("eligibility skips a station that would violate G1 (universe's last producer of its type)", () => {
@@ -115,13 +114,14 @@ test("G2 blocks the last-copy primary even when G1 wouldn't (peer of same type l
   // producing farm in ORE) hasn't been picked yet during BIO's iteration.
   // Without `<=`, BIO-F1 ends up selected and ORE-G doesn't.
   const stations: Station[] = [
-    bioFarm("1"),         // BIO's only farm; BIO primary is "farm"
-    bioHabitat("1"),      // BIO has another type so it isn't all-primary
-    makeRealStation("ORE-G", oreNation, "farm"),  // ORE farm — non-primary for ORE (primary=mine), so G2 doesn't block ORE-G
-    oreMine("1"), oreMine("2"),  // ORE primary — count >=2 so G2 doesn't block these
+    bioFarm("1"), // BIO's only farm; BIO primary is "farm"
+    bioHabitat("1"), // BIO has another type so it isn't all-primary
+    makeStation("ORE-G", oreNation, "farm"), // ORE farm — non-primary for ORE (primary=mine), so G2 doesn't block ORE-G
+    oreMine("1"),
+    oreMine("2"), // ORE primary — count >=2 so G2 doesn't block these
   ];
   const stationManager = fakeStationManager(stations);
-  withSeededRandom([0], () => {
+  withScriptedMathRandom([0], () => {
     const result = selectStationsForEmigration(stationManager, "high");
     // Selected stations: ORE-G is the only one that survives both guards.
     // BIO-F1 is blocked by G2 (last BIO farm). ORE-mines survive (G2 primaryCount=2).
@@ -145,9 +145,9 @@ test("eligibility skips a station that would violate G2 (nation's primary type, 
     bioMedicalLab("2"),
     // HUB-G is a farm to give the universe a second farm (G1 won't trip on BIO-F1).
     // Two HUB tech-factories so HUB has primary stations beyond HUB-G.
-    makeRealStation("HUB-G", hubNation, "farm"),
-    makeRealStation("HUB-T1", hubNation, "tech-factory"),
-    makeRealStation("HUB-T2", hubNation, "tech-factory"),
+    makeStation("HUB-G", hubNation, "farm"),
+    makeStation("HUB-T1", hubNation, "tech-factory"),
+    makeStation("HUB-T2", hubNation, "tech-factory"),
   ];
   const stationManager = fakeStationManager(stations);
   const eligible = countEligibleStations(stationManager);
@@ -174,14 +174,26 @@ test("eligibility passes when each nation has multiple stations of every type", 
   // candidates still see plenty of universe producers.
   const stations: Station[] = [
     // BIO: 3 farms (primary), 3 habitats, 3 medical-labs
-    bioFarm("1"), bioFarm("2"), bioFarm("3"),
-    bioHabitat("1"), bioHabitat("2"), bioHabitat("3"),
-    bioMedicalLab("1"), bioMedicalLab("2"), bioMedicalLab("3"),
+    bioFarm("1"),
+    bioFarm("2"),
+    bioFarm("3"),
+    bioHabitat("1"),
+    bioHabitat("2"),
+    bioHabitat("3"),
+    bioMedicalLab("1"),
+    bioMedicalLab("2"),
+    bioMedicalLab("3"),
     // HUB: 3 habitats, 3 tech-factories (primary)
-    hubHabitat("1"), hubHabitat("2"), hubHabitat("3"),
-    hubTechFactory("1"), hubTechFactory("2"), hubTechFactory("3"),
+    hubHabitat("1"),
+    hubHabitat("2"),
+    hubHabitat("3"),
+    hubTechFactory("1"),
+    hubTechFactory("2"),
+    hubTechFactory("3"),
     // ORE: 3 mines (primary)
-    oreMine("1"), oreMine("2"), oreMine("3"),
+    oreMine("1"),
+    oreMine("2"),
+    oreMine("3"),
   ];
   const stationManager = fakeStationManager(stations);
   const eligible = countEligibleStations(stationManager);
@@ -191,18 +203,21 @@ test("eligibility passes when each nation has multiple stations of every type", 
   assertEqual(eligible, 18, "with 3-of-each-type per nation, all 18 stations are eligible");
 });
 
-test("eligibility skips claimed/building/emigrating stations (only producing counts)", () => {
+test("eligibility skips building/emigrating stations (only producing counts)", () => {
   // isStationProducing returns true only for state==="producing". Other states
   // must be filtered out before G1/G2 ever get a chance to apply.
-  const claimedFarm = makeRealStation("BIO-F-C", bioNation, "farm", "claimed");
-  const buildingHabitat = makeRealStation("BIO-H-B", bioNation, "habitat", "building");
-  const emigratingMedical = makeRealStation("BIO-L-E", bioNation, "medical-lab", "emigrating");
+  const buildingHabitat = makeStation("BIO-H-B", bioNation, "habitat", "building");
+  const emigratingMedical = makeStation("BIO-L-E", bioNation, "medical-lab", "emigrating");
 
   const stations: Station[] = [
-    bioFarm("1"), bioFarm("2"),
-    claimedFarm, buildingHabitat, emigratingMedical,
-    bioHabitat("1"), bioHabitat("2"),
-    bioMedicalLab("1"), bioMedicalLab("2"),
+    bioFarm("1"),
+    bioFarm("2"),
+    buildingHabitat,
+    emigratingMedical,
+    bioHabitat("1"),
+    bioHabitat("2"),
+    bioMedicalLab("1"),
+    bioMedicalLab("2"),
   ];
   const stationManager = fakeStationManager(stations);
   const eligible = countEligibleStations(stationManager);
@@ -210,7 +225,7 @@ test("eligibility skips claimed/building/emigrating stations (only producing cou
   // `primaryCount <= 1` against the remaining (non-picked) primaries — with
   // 2 farms total and the candidate not-yet-picked, primaryCount=2, so G2
   // doesn't trip. All 6 producing stations stay eligible.
-  assertEqual(eligible, 6, "claimed/building/emigrating excluded; 6 producing stations remain eligible");
+  assertEqual(eligible, 6, "building/emigrating excluded; 6 producing stations remain eligible");
 });
 
 test("selectStationsForEmigration: G1 holds when one nation has 2+ of a sparse type (per-pick recheck regression)", () => {
@@ -224,17 +239,27 @@ test("selectStationsForEmigration: G1 holds when one nation has 2+ of a sparse t
   // pick once the first drops universe count to 1.
   const stations: Station[] = [
     // HUB filler so HUB iterates first and burns picks unrelated to medical-labs.
-    makeRealStation("HUB-T1", hubNation, "tech-factory"), makeRealStation("HUB-T2", hubNation, "tech-factory"), makeRealStation("HUB-T3", hubNation, "tech-factory"),
-    makeRealStation("HUB-W1", hubNation, "water-processing"), makeRealStation("HUB-W2", hubNation, "water-processing"),
+    makeStation("HUB-T1", hubNation, "tech-factory"),
+    makeStation("HUB-T2", hubNation, "tech-factory"),
+    makeStation("HUB-T3", hubNation, "tech-factory"),
+    makeStation("HUB-W1", hubNation, "water-processing"),
+    makeStation("HUB-W2", hubNation, "water-processing"),
     // BIO: 3 medical-labs + filler so BIO's eligible list is large enough that
     // round(0.75 * eligible.length) covers all 3 medical-labs in some shuffles.
-    bioFarm("1"), bioFarm("2"),
-    bioMedicalLab("1"), bioMedicalLab("2"), bioMedicalLab("3"),
-    makeRealStation("BIO-W1", bioNation, "water-processing"), makeRealStation("BIO-W2", bioNation, "water-processing"),
+    bioFarm("1"),
+    bioFarm("2"),
+    bioMedicalLab("1"),
+    bioMedicalLab("2"),
+    bioMedicalLab("3"),
+    makeStation("BIO-W1", bioNation, "water-processing"),
+    makeStation("BIO-W2", bioNation, "water-processing"),
     // ORE: 2 medical-labs + filler. The bug surfaces here — pre-fix, both ORE
     // medical-labs end up in eligible at snapshot time and both get picked.
-    oreMine("1"), oreMine("2"), oreMine("3"),
-    makeRealStation("ORE-L1", oreNation, "medical-lab"), makeRealStation("ORE-L2", oreNation, "medical-lab"),
+    oreMine("1"),
+    oreMine("2"),
+    oreMine("3"),
+    makeStation("ORE-L1", oreNation, "medical-lab"),
+    makeStation("ORE-L2", oreNation, "medical-lab"),
   ];
   const stationManager = fakeStationManager(stations);
   // Run many trials so the random shuffle covers the bug-prone orderings.
@@ -260,12 +285,17 @@ test("selectStationsForEmigration: G2 holds when a nation has 3+ of its primary 
     // HUB: 3 tech-factories (primary) + filler. With high intensity and ~6
     // eligible, count = round(0.75*6) = 5 — enough that all 3 tech-factories
     // could land in the picks without the recheck.
-    makeRealStation("HUB-T1", hubNation, "tech-factory"), makeRealStation("HUB-T2", hubNation, "tech-factory"), makeRealStation("HUB-T3", hubNation, "tech-factory"),
-    makeRealStation("HUB-W1", hubNation, "water-processing"), makeRealStation("HUB-W2", hubNation, "water-processing"),
+    makeStation("HUB-T1", hubNation, "tech-factory"),
+    makeStation("HUB-T2", hubNation, "tech-factory"),
+    makeStation("HUB-T3", hubNation, "tech-factory"),
+    makeStation("HUB-W1", hubNation, "water-processing"),
+    makeStation("HUB-W2", hubNation, "water-processing"),
     hubHabitat("1"),
     // Other-nation tech-factories so G1 doesn't independently block HUB's primary picks.
-    makeRealStation("BIO-T1", bioNation, "tech-factory"), makeRealStation("BIO-T2", bioNation, "tech-factory"),
-    bioFarm("1"), bioFarm("2"),
+    makeStation("BIO-T1", bioNation, "tech-factory"),
+    makeStation("BIO-T2", bioNation, "tech-factory"),
+    bioFarm("1"),
+    bioFarm("2"),
   ];
   const stationManager = fakeStationManager(stations);
   for (let trial = 0; trial < 200; trial++) {
@@ -294,7 +324,7 @@ test("intensity-fraction picker rounds to at least 1 station for non-empty eligi
   ];
   const stationManager = fakeStationManager(stations);
   // Force the shuffle to leave order alone — every Math.random() returns 0.
-  withSeededRandom([0], () => {
+  withScriptedMathRandom([0], () => {
     const result = selectStationsForEmigration(stationManager, "low");
     // HUB iterates first (allNations order). HUB has 1 eligible (HUB-H1:
     // not primary, G1 universe count = 2 with BIO-H1). round(0.25*1)=0 →
@@ -311,7 +341,7 @@ test("intensity-fraction picker selects empty when eligible list is empty (no un
   // (Other nations have 0 stations too, so 0 eligible everywhere.)
   const stations: Station[] = [bioFarm("1")];
   const stationManager = fakeStationManager(stations);
-  withSeededRandom([0], () => {
+  withScriptedMathRandom([0], () => {
     const result = selectStationsForEmigration(stationManager, "high");
     assertEqual(result.selected.length, 0, "no stations selected when every nation has 0 eligible");
     assertEqual(result.nationIds.size, 0, "no nation ids accumulated");
@@ -332,8 +362,12 @@ test("per-nation cap honors targetCount (no over-pick) and records the picking n
   // the increment would pick all 3; skipping `nationIds.add` would leave the
   // event UI unable to name the nation that just emigrated.
   const stations: Station[] = [
-    hubHabitat("1"), hubHabitat("2"), hubHabitat("3"),
-    bioHabitat("1"), bioHabitat("2"), bioHabitat("3"),
+    hubHabitat("1"),
+    hubHabitat("2"),
+    hubHabitat("3"),
+    bioHabitat("1"),
+    bioHabitat("2"),
+    bioHabitat("3"),
     // BIO primary filler so BIO itself contributes 0 eligible (only 1 farm and
     // it's last-of-type universe-wide, blocked by G1).
     bioFarm("1"),
@@ -341,11 +375,52 @@ test("per-nation cap honors targetCount (no over-pick) and records the picking n
     hubTechFactory("1"),
   ];
   const stationManager = fakeStationManager(stations);
-  withSeededRandom([0], () => {
+  withScriptedMathRandom([0], () => {
     const result = selectStationsForEmigration(stationManager, "low");
     const hubPicks = result.selected.filter((station) => station.nation.id === "hub");
     assertEqual(hubPicks.length, 1, "low intensity caps HUB at round(0.25 * 3) = 1");
     assertTrue(result.nationIds.has("hub"), "HUB id recorded in nationIds when HUB pick committed");
+  });
+});
+
+test("intensity-fraction picker picks distinct counts per intensity (pins low=0.25, medium=0.5, high=0.75)", () => {
+  // Pin INTENSITY_FRACTIONS values. With 4 eligible HUB habitats:
+  //   low    → round(0.25 * 4) = 1
+  //   medium → round(0.5  * 4) = 2
+  //   high   → round(0.75 * 4) = 3
+  // A mutation to high=0.5 would let high pick the same count as medium (2);
+  // a mutation to low=0.5 would pick 2 instead of 1; etc. The 4-station setup
+  // is the smallest size where all three fractions resolve to distinct counts.
+  const stations: Station[] = [
+    hubHabitat("1"),
+    hubHabitat("2"),
+    hubHabitat("3"),
+    hubHabitat("4"),
+    bioHabitat("1"),
+    bioHabitat("2"),
+    bioHabitat("3"),
+    bioHabitat("4"),
+    // Primary filler so each nation contributes 0 eligible from primary types
+    // (single primary is last-of-universe-type, blocked by G1).
+    bioFarm("1"),
+    hubTechFactory("1"),
+  ];
+  const stationManager = fakeStationManager(stations);
+  // Math.random sequence kept stable across runs so picks are deterministic.
+  withScriptedMathRandom([0], () => {
+    const lowResult = selectStationsForEmigration(stationManager, "low");
+    const lowHubPicks = lowResult.selected.filter((station) => station.nation.id === "hub").length;
+    assertEqual(lowHubPicks, 1, "low intensity picks round(0.25 * 4) = 1 from HUB");
+  });
+  withScriptedMathRandom([0], () => {
+    const mediumResult = selectStationsForEmigration(stationManager, "medium");
+    const mediumHubPicks = mediumResult.selected.filter((station) => station.nation.id === "hub").length;
+    assertEqual(mediumHubPicks, 2, "medium intensity picks round(0.5 * 4) = 2 from HUB");
+  });
+  withScriptedMathRandom([0], () => {
+    const highResult = selectStationsForEmigration(stationManager, "high");
+    const highHubPicks = highResult.selected.filter((station) => station.nation.id === "hub").length;
+    assertEqual(highHubPicks, 3, "high intensity picks round(0.75 * 4) = 3 from HUB");
   });
 });
 
@@ -356,10 +431,17 @@ test("countEligibleStations sums per-nation eligible counts across the producing
   // what triggerEvent actually picks. The "draws from" count is the union
   // of eligible per nation BEFORE the per-nation count cap.
   const stations: Station[] = [
-    bioFarm("1"), bioFarm("2"), bioHabitat("1"), bioHabitat("2"),
-    bioMedicalLab("1"), bioMedicalLab("2"),
-    hubHabitat("1"), hubTechFactory("1"), hubTechFactory("2"),
-    oreMine("1"), oreMine("2"),
+    bioFarm("1"),
+    bioFarm("2"),
+    bioHabitat("1"),
+    bioHabitat("2"),
+    bioMedicalLab("1"),
+    bioMedicalLab("2"),
+    hubHabitat("1"),
+    hubTechFactory("1"),
+    hubTechFactory("2"),
+    oreMine("1"),
+    oreMine("2"),
   ];
   const stationManager = fakeStationManager(stations);
   // High intensity = 0.75 fraction, so most eligible are picked. Use a Random
@@ -385,16 +467,51 @@ test("emptyZoneCount returns count of zones not occupied by any live station", (
   // stations don't decrement the count — only zoneId-tagged ones count.
   const map = {
     stationZones: [
-      { id: "a-1", sectorId: "a", x: 0, y: 0, size: "M" as const },
-      { id: "a-2", sectorId: "a", x: 1, y: 1, size: "S" as const },
-      { id: "a-3", sectorId: "a", x: 2, y: 2, size: "L" as const },
-      { id: "a-4", sectorId: "a", x: 3, y: 3, size: "M" as const },
+      { id: "a-1", x: 0, y: 0, size: "M" as const },
+      { id: "a-2", x: 1, y: 1, size: "S" as const },
+      { id: "a-3", x: 2, y: 2, size: "L" as const },
+      { id: "a-4", x: 3, y: 3, size: "M" as const },
     ],
   } as unknown as GameMap;
 
-  const occupiedA1 = createStation({ id: "BIO-1", name: "BIO-1", x: 0, y: 0, nation: bioNation, stationTypeId: "habitat", size: "M", zoneId: "a-1" }, 0);
-  const occupiedA3 = createStation({ id: "BIO-3", name: "BIO-3", x: 0, y: 0, nation: bioNation, stationTypeId: "habitat", size: "M", zoneId: "a-3" }, 0);
-  const zonelessTransient = createStation({ id: "BIO-T", name: "BIO-T", x: 0, y: 0, nation: bioNation, stationTypeId: "habitat", size: "M" }, 0);
+  const occupiedA1 = createStation(
+    {
+      id: "BIO-1",
+      name: "BIO-1",
+      x: 0,
+      y: 0,
+      nation: bioNation,
+      stationTypeId: "habitat",
+      size: "M",
+      zoneId: "a-1",
+    },
+    0,
+  );
+  const occupiedA3 = createStation(
+    {
+      id: "BIO-3",
+      name: "BIO-3",
+      x: 0,
+      y: 0,
+      nation: bioNation,
+      stationTypeId: "habitat",
+      size: "M",
+      zoneId: "a-3",
+    },
+    0,
+  );
+  const zonelessTransient = createStation(
+    {
+      id: "BIO-T",
+      name: "BIO-T",
+      x: 0,
+      y: 0,
+      nation: bioNation,
+      stationTypeId: "habitat",
+      size: "M",
+    },
+    0,
+  );
 
   const stationManager = fakeStationManager([occupiedA1, occupiedA3, zonelessTransient]);
   // Pin the Math.max(0, …) clamp + zoneId filter. A station without a zoneId
@@ -406,22 +523,46 @@ test("emptyZoneCount clamps to zero when somehow more stations claim zones than 
   // Defensive Math.max(0, …) in source. A 1-zone map with 2 station-claims
   // shouldn't return -1.
   const map = {
-    stationZones: [{ id: "a-1", sectorId: "a", x: 0, y: 0, size: "M" as const }],
+    stationZones: [{ id: "a-1", x: 0, y: 0, size: "M" as const }],
   } as unknown as GameMap;
-  const stationA = createStation({ id: "BIO-1", name: "BIO-1", x: 0, y: 0, nation: bioNation, stationTypeId: "habitat", size: "M", zoneId: "a-1" }, 0);
-  const stationB = createStation({ id: "BIO-2", name: "BIO-2", x: 0, y: 0, nation: bioNation, stationTypeId: "habitat", size: "M", zoneId: "a-2" }, 0);
+  const stationA = createStation(
+    {
+      id: "BIO-1",
+      name: "BIO-1",
+      x: 0,
+      y: 0,
+      nation: bioNation,
+      stationTypeId: "habitat",
+      size: "M",
+      zoneId: "a-1",
+    },
+    0,
+  );
+  const stationB = createStation(
+    {
+      id: "BIO-2",
+      name: "BIO-2",
+      x: 0,
+      y: 0,
+      nation: bioNation,
+      stationTypeId: "habitat",
+      size: "M",
+      zoneId: "a-2",
+    },
+    0,
+  );
   const stationManager = fakeStationManager([stationA, stationB]);
   assertEqual(emptyZoneCount(map, stationManager), 0, "clamps to 0 instead of returning -1");
 });
 
-test("drawDestination does not pick the same destination twice within a pool cycle", () => {
+test("drawAndRecordDestination does not pick the same destination twice within a pool cycle", () => {
   // Pool is 16 names — 16 calls before the reset. Pin the
   // `usedDestinations.includes` filter — dropping it would let the random
   // draw repeat names within a cycle.
   const used: string[] = [];
   const seen = new Set<string>();
   for (let call = 0; call < 16; call++) {
-    const pick = drawDestination(used);
+    const pick = drawAndRecordDestination(used);
     assertTrue(!seen.has(pick), `pick "${pick}" must not repeat within a single cycle`);
     seen.add(pick);
   }
@@ -429,33 +570,32 @@ test("drawDestination does not pick the same destination twice within a pool cyc
   assertEqual(used.length, 16, "usedDestinations contains all 16 picks");
 });
 
-test("drawDestination resets the used-set when the pool is exhausted", () => {
+test("drawAndRecordDestination resets the used-set when the pool is exhausted", () => {
   // After 16 picks, the 17th call sees `usedDestinations.length === pool.length`
   // and clears it before drawing. Pin `usedDestinations.length = 0`.
   const used: string[] = [];
-  for (let call = 0; call < 16; call++) drawDestination(used);
+  for (let call = 0; call < 16; call++) drawAndRecordDestination(used);
   assertEqual(used.length, 16, "preconditions: pool exhausted");
 
-  drawDestination(used);
+  drawAndRecordDestination(used);
   // The 17th call: array was cleared at entry, then this pick was pushed.
   // So used.length === 1 after the call.
   assertEqual(used.length, 1, "reset clears the used-set, then pushes the fresh pick");
 });
 
-test("drawDestination after reset can pick a destination from the prior cycle", () => {
+test("drawAndRecordDestination after reset can pick a destination from the prior cycle", () => {
   // After a full reset, every destination is fair game again — including
   // ones picked in the prior cycle. This pins that the reset is an actual
   // length=0, not a "filter out prior picks" half-reset.
   const used: string[] = [];
   const firstCycle = new Set<string>();
-  for (let call = 0; call < 16; call++) firstCycle.add(drawDestination(used));
+  for (let call = 0; call < 16; call++) firstCycle.add(drawAndRecordDestination(used));
 
   // Force the next pick by seeding Math.random to land on index 0 of the
   // 16-name pool. After reset, that's a valid name (one we've seen before).
-  withSeededRandom([0], () => {
-    const pick = drawDestination(used);
+  withScriptedMathRandom([0], () => {
+    const pick = drawAndRecordDestination(used);
     assertTrue(firstCycle.has(pick), "post-reset pick can come from prior cycle (full reset, not a filter)");
     assertEqual(used.length, 1, "post-reset usedDestinations starts fresh with this single pick");
   });
 });
-

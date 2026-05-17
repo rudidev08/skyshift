@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -16,8 +16,13 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/ui.css" />
     <style>
-      :root { color-scheme: dark; }
-      * { box-sizing: border-box; margin: 0; }
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
 
       /* overflow-x: clip (not hidden) — hidden establishes a scroll
          container on <body> that kills iOS inertial scroll in PWA mode. */
@@ -43,11 +48,7 @@
         width: 100%;
         max-width: 520px;
         margin: 0 auto;
-        padding:
-          0
-          max(24px, var(--safe-right))
-          64px
-          max(24px, var(--safe-left));
+        padding: 0 max(24px, var(--safe-right)) 64px max(24px, var(--safe-left));
         display: flex;
         flex-direction: column;
         gap: 40px;
@@ -92,8 +93,16 @@
          hatch header with a letter key (A/B/C), matching the in-game
          `.settings-section h3` look so the flow lands as "one step of
          the game system" rather than a page-level heading. ── */
-      .flow-stack { display: flex; flex-direction: column; gap: 28px; }
-      .flow-step { display: flex; flex-direction: column; gap: 10px; }
+      .flow-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 28px;
+      }
+      .flow-step {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
       .flow-step-head {
         display: flex;
         align-items: center;
@@ -101,7 +110,11 @@
         margin: 0 0 2px;
         padding: 8px 14px 9px;
         background:
-          repeating-linear-gradient(43deg, color-mix(in srgb, var(--accent) 10%, transparent) 0 1px, transparent 1px 5px),
+          repeating-linear-gradient(
+            43deg,
+            color-mix(in srgb, var(--accent) 10%, transparent) 0 1px,
+            transparent 1px 5px
+          ),
           var(--ink-0);
         font-family: var(--font-mono);
         font-size: 11px;
@@ -195,7 +208,6 @@
     </style>
   </head>
   <body>
-
     <canvas id="bg"></canvas>
 
     <main class="help-page">
@@ -206,8 +218,8 @@
         </div>
         <h1 class="page-masthead-title"><span class="page-masthead-brand">Skyshift</span> Orientation</h1>
         <p class="page-masthead-sub">
-          Five nations share a cluster of sectors. Each one has what others
-          need, and needs what others have. Enjoy the universe as it evolves.
+          Five nations share a cluster of sectors. Each one has what others need, and needs what others have.
+          Enjoy the universe as it evolves.
         </p>
       </header>
 
@@ -217,16 +229,14 @@
           <span class="label">A day in the cluster</span>
         </h2>
         <div class="flow-stack">
-
           <article class="flow-step">
             <div class="flow-step-head">
               <span class="flow-step-letter">A</span>
               <h3 class="flow-step-title">Trade</h3>
             </div>
             <p class="flow-step-text">
-              Nations trade what they need most, from what they have most.
-              Each route is an answer to supply and demand, drawn between the
-              stations that need it most.
+              Nations trade what they need most, from what they have most. Each route is an answer to supply
+              and demand, drawn between the stations that need it most.
             </p>
             <div class="flow-step-canvas surface-blur"><canvas data-scene="trade"></canvas></div>
           </article>
@@ -237,9 +247,8 @@
               <h3 class="flow-step-title">Build</h3>
             </div>
             <p class="flow-step-text">
-              Nations build new stations directly, or contract another nation
-              to do it. Traders ferry hulls to the new site — which shows up
-              with its own final-station icon, just emptier than the parent.
+              Nations build new stations directly, or contract another nation to do it. Traders ferry hulls to
+              the new site — which shows up with its own final-station icon, just emptier than the parent.
             </p>
             <div class="flow-step-canvas surface-blur"><canvas data-scene="build"></canvas></div>
           </article>
@@ -250,14 +259,12 @@
               <h3 class="flow-step-title">Emigrate</h3>
             </div>
             <p class="flow-step-text">
-              When a cluster fills up, emigration happens via a Wayfair
-              Generational Ship. Nearby stations transfer their people
-              aboard, and once it departs, space opens up for the cluster
-              to keep growing.
+              When a cluster fills up, emigration happens via a Wayfair Generational Ship. Nearby stations
+              transfer their people aboard, and once it departs, space opens up for the cluster to keep
+              growing.
             </p>
             <div class="flow-step-canvas surface-blur"><canvas data-scene="emigrate"></canvas></div>
           </article>
-
         </div>
       </section>
 

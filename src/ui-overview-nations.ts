@@ -4,8 +4,8 @@ import type { NationManager } from "./sim-nation-manager";
 import type { EmigrationManager } from "./sim-emigration-manager";
 import type { StationManager } from "./sim-station-manager";
 import type { StationZone } from "./sim-station-zone-types";
-import { buildingNations, wayNation } from "../data/nations";
-import { getStationTemplate, displayStationTypePlural } from "./sim-station-template";
+import { stationBuilderNations, wayNation } from "../data/nations";
+import { getStationTypeTemplate } from "./sim-station-template";
 import { getInventorySlot, type Station } from "./sim-station";
 import type { Nation } from "./sim-nation";
 import { getStationHudIcon, getSectorHudIcon } from "./render-hud-icon";
@@ -20,7 +20,7 @@ export interface NationsPane {
 }
 
 /** Managers + zone-name lookup the nations pane reads each render. */
-export interface NationsPaneDependencies {
+export interface NationsPaneContext {
   nationManager: NationManager;
   emigrationManager: EmigrationManager;
   stationManager: StationManager;
@@ -77,13 +77,13 @@ interface NationsCardPane {
 function createNationsCardPane(
   tabNations: Nation[],
   initialActiveNationId: string,
-  dependencies: NationsPaneDependencies,
+  dependencies: NationsPaneContext,
 ): NationsCardPane {
   const cardsContainer = document.createElement("div");
   cardsContainer.className = "nations-pane-cards";
   const cardsByNationId = new Map<string, HTMLElement>();
   for (const nation of tabNations) {
-    const card = buildEmptyCard(nation);
+    const card = createEmptyNationCard(nation);
     cardsContainer.appendChild(card);
     cardsByNationId.set(nation.id, card);
   }
@@ -103,33 +103,28 @@ function createNationsCardPane(
 
 export function createNationsPane(options: NationsPaneOptions): NationsPane {
   const { root, nationManager, emigrationManager, stationManager, zones } = options;
-  // Zone id → sector display name. Lets the build progress row label the
-  // build location without re-walking the zone list each render.
-  const sectorNameByZoneId = new Map<string, string>();
-  for (const zone of zones) sectorNameByZoneId.set(zone.id, zone.sector.name);
   root.innerHTML = "";
 
-  const pane = document.createElement("div");
-  pane.className = "nations-pane";
-  root.appendChild(pane);
-
-  const tabNations: Nation[] = [...buildingNations, wayNation];
+  const tabNations: Nation[] = [...stationBuilderNations, wayNation];
   const initialActiveNationId = tabNations[0]?.id ?? "";
-  const dependencies: NationsPaneDependencies = {
+  const context: NationsPaneContext = {
     nationManager,
     emigrationManager,
     stationManager,
-    sectorNameByZoneId,
+    sectorNameByZoneId: buildSectorNameByZoneId(zones),
   };
 
-  const cardPane = createNationsCardPane(tabNations, initialActiveNationId, dependencies);
+  const cardPane = createNationsCardPane(tabNations, initialActiveNationId, context);
   const tabBar = createNationsTabBar(tabNations, initialActiveNationId, (nationId) => {
     tabBar.setActive(nationId);
     cardPane.setActive(nationId);
   });
 
+  const pane = document.createElement("div");
+  pane.className = "nations-pane";
   pane.appendChild(tabBar.root);
   pane.appendChild(cardPane.root);
+  root.appendChild(pane);
 
   cardPane.update();
 
@@ -141,7 +136,16 @@ export function createNationsPane(options: NationsPaneOptions): NationsPane {
   };
 }
 
-function buildEmptyCard(nation: Nation): HTMLElement {
+/** Zone id → sector display name. Lets the build-progress row label the build location without re-walking the zone list per render. */
+function buildSectorNameByZoneId(
+  zones: ReadonlyArray<{ id: string; sector: { name: string } }>,
+): Map<string, string> {
+  const sectorNameByZoneId = new Map<string, string>();
+  for (const zone of zones) sectorNameByZoneId.set(zone.id, zone.sector.name);
+  return sectorNameByZoneId;
+}
+
+function createEmptyNationCard(nation: Nation): HTMLElement {
   const card = document.createElement("div");
   card.className = "nation-card";
   card.setAttribute("data-nation", nation.id);
@@ -150,9 +154,7 @@ function buildEmptyCard(nation: Nation): HTMLElement {
   // Footer is gated on buildsStations, not the blueprint list — WAY has
   // a generational ship in its blueprints (drives the seal + stat line) but runs no
   // build cycle, so its footer reads "none" while the row stays for layout parity.
-  const buildsList = nation.buildsStations
-    ? nation.buildableStationTypeIds.join(" · ")
-    : "none";
+  const buildsList = nation.buildsStations ? nation.buildableStationTypeIds.join(" · ") : "none";
   card.innerHTML = `
     <div class="id-header">
       <div class="id-title">
@@ -171,20 +173,16 @@ function buildEmptyCard(nation: Nation): HTMLElement {
   // Seal glyph — each nation's primary buildable station as a ghosted
   // outline behind the code stamp. Empty-blueprint nations fall back to the
   // sector glyph.
-  const sealUri = nation.buildableStationTypeIds.length > 0
-    ? getStationHudIcon(nation.primaryBuildableStationTypeId)
-    : getSectorHudIcon();
+  const sealUri =
+    nation.buildableStationTypeIds.length > 0
+      ? getStationHudIcon(nation.primaryBuildableStationTypeId)
+      : getSectorHudIcon();
   const seal = card.querySelector<HTMLElement>(".id-seal");
   if (seal) seal.style.backgroundImage = `url("${sealUri}")`;
   return card;
 }
 
-
-function updateCardContent(
-  card: HTMLElement,
-  nation: Nation,
-  dependencies: NationsPaneDependencies,
-): void {
+function updateCardContent(card: HTMLElement, nation: Nation, dependencies: NationsPaneContext): void {
   const { nationManager, emigrationManager, stationManager, sectorNameByZoneId } = dependencies;
   const stats = card.querySelector<HTMLElement>('[data-role="stats"]');
   const activity = card.querySelector<HTMLElement>('[data-role="activity"]');
@@ -195,7 +193,10 @@ function updateCardContent(
   if (nation.id === "way") {
     setHtmlIfChanged(activity, wayActivityHtml(emigrationManager));
   } else {
-    setHtmlIfChanged(activity, buildingActivityHtml({ nation, nationManager, stationManager, sectorNameByZoneId }));
+    setHtmlIfChanged(
+      activity,
+      buildingActivityHtml({ nation, nationManager, stationManager, sectorNameByZoneId }),
+    );
   }
 }
 
@@ -210,7 +211,7 @@ function statsHtml(nation: Nation, stationManager: StationManager): string {
   const stationsForNation = stationManager.getStations().filter((station) => station.nation.id === nation.id);
   const totalCount = stationsForNation.length;
   const primaryCount = stationsForNation.filter((station) => station.stationType.id === primaryType).length;
-  const primaryName = displayStationTypePlural(getStationTemplate(primaryType));
+  const primaryName = getStationTypeTemplate(primaryType).namePlural;
   return `${escapeHtml(primaryName)}: <span class="pill-cyan">${primaryCount}</span><span class="sep">·</span>Stations: <span class="pill-gold">${totalCount}</span>`;
 }
 
@@ -218,9 +219,7 @@ function statsHtml(nation: Nation, stationManager: StationManager): string {
 function wayCountdownHtml(emigrationManager: EmigrationManager): string {
   const totalGap = emigrationManager.getPostJumpGapSeconds();
   const secondsRemaining = Math.ceil(emigrationManager.getSecondsUntilNextGenerationalShip());
-  const progress = totalGap > 0
-    ? Math.max(0, Math.min(1, 1 - secondsRemaining / totalGap))
-    : 0;
+  const progress = totalGap > 0 ? Math.max(0, Math.min(1, 1 - secondsRemaining / totalGap)) : 0;
   const percent = Math.floor(progress * 100);
   return `
     <div class="cargo-row">
@@ -274,9 +273,7 @@ interface BuildingActivityContext {
 function buildingActivityHtml(context: BuildingActivityContext): string {
   const { nation, nationManager, stationManager, sectorNameByZoneId } = context;
   const currentBuildStationId = nationManager.getCurrentBuildStationId(nation.id);
-  const buildStation = currentBuildStationId
-    ? stationManager.getStation(currentBuildStationId)
-    : null;
+  const buildStation = currentBuildStationId ? stationManager.getStation(currentBuildStationId) : null;
   if (!buildStation || !buildStation.build) {
     return `
       <div class="cargo-note">
@@ -288,7 +285,7 @@ function buildingActivityHtml(context: BuildingActivityContext): string {
   const build = buildStation.build;
   const percent = buildProgressPercent(buildStation);
   const zoneId = buildStation.zoneId;
-  const sectorName = zoneId ? sectorNameByZoneId.get(zoneId) ?? "—" : "—";
+  const sectorName = zoneId ? (sectorNameByZoneId.get(zoneId) ?? "—") : "—";
   const typeLabel = buildStation.stationType.name;
   const label = build.contractingNationId
     ? `Building via contract with ${build.contractingNationId.toUpperCase()}`
@@ -301,4 +298,3 @@ function buildingActivityHtml(context: BuildingActivityContext): string {
     </div>
   `;
 }
-

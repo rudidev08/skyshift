@@ -1,32 +1,46 @@
 import { test, assertEqual, assertTrue, assertNotUndefined } from "./test-utils.ts";
 import { map } from "../../data/map";
-import { sectors } from "../../data/map-sectors";
 import { zones } from "../../data/map-zones";
+import { createMapFromTemplate } from "../sim-map-create";
+import { createStationZones } from "../sim-station-zone";
 import { presets } from "../../data/map-presets";
-import { presetById } from "../util-map-preset";
+import { getPresetById, getPresetLabel } from "../util-map-preset";
 import { allNations } from "../../data/nations";
-import { stationTypes } from "../../data/stations";
+import { allStationTypes } from "../../data/stations";
 import { allShips } from "../../data/ships";
 import { allWares, passengers } from "../../data/wares";
-import { ENVIRONMENT_ALLOWED_TYPES } from "../../data/map-environments";
+import { sectorEnvironmentById } from "../../data/map-sector-environments";
+import { allowedStationTypesForZone } from "../sim-map-sector-environments";
+import type { StationZone } from "../sim-station-zone-types";
+import type { Sector } from "../sim-map-types";
 import type { WareId } from "../../data/ware-types";
 import type { StationTypeId } from "../../data/station-types";
 
-// Pins invariants that hold across authored data in `data/`. The test runtime
+// Pins invariants that hold across the data files. The test runtime
 // loads real data, not fixtures: a typo or stale reference in `data/` should
 // fail one of these tests.
 
-test("every zone.sectorId references an existing sector", () => {
-  const sectorIds = new Set(sectors.map((sector) => sector.id));
-  for (const zone of zones) {
-    assertTrue(sectorIds.has(zone.sectorId), `zone "${zone.id}" references unknown sector "${zone.sectorId}"`);
+// Resolve every zone through the real seed path. createStationZones derives
+// each zone's sector from its x/y and throws if a zone is outside every sector
+// or lands in one its `<sector-id>-<n>` id prefix doesn't name — so this also
+// asserts the data files stay spatially consistent.
+function buildRealRuntimeZones(): StationZone[] {
+  return createStationZones([...zones], createMapFromTemplate(map, presets[0]).sectors);
+}
+
+test("every zone's position resolves to the sector its id prefix names", () => {
+  const runtimeZones = buildRealRuntimeZones();
+  assertEqual(runtimeZones.length, zones.length, "every zone resolved to a sector");
+  for (const zone of runtimeZones) {
+    const namedSectorId = zone.id.replace(/-\d+$/, "");
+    assertEqual(zone.sector.id, namedSectorId, `zone "${zone.id}" should sit in sector "${namedSectorId}"`);
   }
 });
 
 test("every preset station references an existing zoneId", () => {
   const zoneIds = new Set(zones.map((zone) => zone.id));
   for (const preset of presets) {
-    for (const station of preset.stations) {
+    for (const station of preset.presetStations) {
       assertTrue(
         zoneIds.has(station.zoneId),
         `preset "${preset.id}" station "${station.stationId}" references unknown zone "${station.zoneId}"`,
@@ -38,7 +52,7 @@ test("every preset station references an existing zoneId", () => {
 test("every preset station references an existing nationId", () => {
   const nationIds = new Set(allNations.map((nation) => nation.id));
   for (const preset of presets) {
-    for (const station of preset.stations) {
+    for (const station of preset.presetStations) {
       assertTrue(
         nationIds.has(station.nationId),
         `preset "${preset.id}" station "${station.stationId}" references unknown nation "${station.nationId}"`,
@@ -48,9 +62,9 @@ test("every preset station references an existing nationId", () => {
 });
 
 test("every preset station references an existing stationTypeId", () => {
-  const stationTypeIds = new Set(stationTypes.map((stationType) => stationType.id));
+  const stationTypeIds = new Set(allStationTypes.map((stationType) => stationType.id));
   for (const preset of presets) {
-    for (const station of preset.stations) {
+    for (const station of preset.presetStations) {
       assertTrue(
         stationTypeIds.has(station.stationTypeId),
         `preset "${preset.id}" station "${station.stationId}" references unknown stationType "${station.stationTypeId}"`,
@@ -80,8 +94,8 @@ test("every ware.productionInputs[].wareId exists in allWares", () => {
   }
 });
 
-test("every nation.buildableStationTypeIds id exists in stationTypes", () => {
-  const stationTypeIds = new Set(stationTypes.map((stationType) => stationType.id));
+test("every nation.buildableStationTypeIds id exists in allStationTypes", () => {
+  const stationTypeIds = new Set(allStationTypes.map((stationType) => stationType.id));
   for (const nation of allNations) {
     for (const stationTypeId of nation.buildableStationTypeIds) {
       assertTrue(
@@ -92,8 +106,8 @@ test("every nation.buildableStationTypeIds id exists in stationTypes", () => {
   }
 });
 
-test("every nation.primaryBuildableStationTypeId exists in stationTypes and is in buildableStationTypeIds", () => {
-  const stationTypeIds = new Set(stationTypes.map((stationType) => stationType.id));
+test("every nation.primaryBuildableStationTypeId exists in allStationTypes and is in buildableStationTypeIds", () => {
+  const stationTypeIds = new Set(allStationTypes.map((stationType) => stationType.id));
   for (const nation of allNations) {
     assertTrue(
       stationTypeIds.has(nation.primaryBuildableStationTypeId),
@@ -135,26 +149,26 @@ test("every nation.stationConstructionShipTypeId is null or exists in allShips",
 test("ware production graph is acyclic", () => {
   // Build adjacency: ware → list of input wareIds it depends on. A cycle here
   // would mean a ware (transitively) consumes itself, breaking economy chains.
-  const inputsByWare = new Map<WareId, WareId[]>(
+  const inputWareIdsByWare = new Map<WareId, WareId[]>(
     allWares.map((ware) => [ware.id, ware.productionInputs.map((input) => input.wareId)]),
   );
   const visited = new Set<WareId>();
   const onStack = new Set<WareId>();
 
-  function visit(wareId: WareId, path: WareId[]): void {
+  function walkProductionInputsFrom(wareId: WareId, path: WareId[]): void {
     if (onStack.has(wareId)) {
       throw new Error(`production cycle detected: ${[...path, wareId].join(" → ")}`);
     }
     if (visited.has(wareId)) return;
     visited.add(wareId);
     onStack.add(wareId);
-    for (const inputWareId of inputsByWare.get(wareId) ?? []) {
-      visit(inputWareId, [...path, wareId]);
+    for (const inputWareId of inputWareIdsByWare.get(wareId) ?? []) {
+      walkProductionInputsFrom(inputWareId, [...path, wareId]);
     }
     onStack.delete(wareId);
   }
 
-  for (const ware of allWares) visit(ware.id, []);
+  for (const ware of allWares) walkProductionInputsFrom(ware.id, []);
 });
 
 test("every ware consumed in production has at least one producing station type", () => {
@@ -166,7 +180,7 @@ test("every ware consumed in production has at least one producing station type"
     for (const input of ware.productionInputs) consumedWareIds.add(input.wareId);
   }
   const producedWareIds = new Set<WareId>();
-  for (const stationType of stationTypes) {
+  for (const stationType of allStationTypes) {
     for (const wareId of stationType.produces) producedWareIds.add(wareId);
   }
   for (const consumedWareId of consumedWareIds) {
@@ -182,7 +196,7 @@ test("passengers ware has no producer and no consumer", () => {
   // consumer would put it into normal trade flows it isn't designed for.
   assertEqual(passengers.productionInputs.length, 0, "passengers must have no productionInputs");
   assertEqual(passengers.productionOutput, 0, "passengers must have productionOutput=0");
-  for (const stationType of stationTypes) {
+  for (const stationType of allStationTypes) {
     assertTrue(
       !stationType.produces.includes("passengers"),
       `stationType "${stationType.id}" must not produce passengers`,
@@ -213,31 +227,33 @@ test("ware.productionInputs lists each wareId at most once per ware", () => {
   }
 });
 
-test("every nation that buildsStations has at least one buildable zone in the blank preset", () => {
-  // Blank preset leaves every zone empty — so a nation with no buildable zone
-  // there can never build, in any preset. Verifies the cross-product of:
-  // nation buildable types × allowed environments × authored sectors/zones.
-  const sectorById = new Map(sectors.map((sector) => [sector.id, sector]));
+test("every nation that buildsStations has at least one buildable zone on the base map", () => {
+  // If a nation has no buildable zone on the base map, it can never build in
+  // any preset. Verifies the cross-product of:
+  // nation buildable types × allowed environments × resolved sectors/zones.
+  const runtimeZones = buildRealRuntimeZones();
   for (const nation of allNations) {
     if (!nation.buildsStations) continue;
     let hasBuildableZone = false;
-    for (const zone of zones) {
-      const sector = assertNotUndefined(sectorById.get(zone.sectorId), `zone "${zone.id}" sector lookup`);
-      const environment = zone.environmentOverride ?? sector.environment;
-      const allowedTypes = ENVIRONMENT_ALLOWED_TYPES[environment];
+    for (const zone of runtimeZones) {
+      const sectorEnvironment = zone.sector.environment;
+      const allowedTypes = sectorEnvironmentById[sectorEnvironment].allowedStationTypeIds;
       const overlap = nation.buildableStationTypeIds.some((typeId) => allowedTypes.includes(typeId));
       if (overlap) {
         hasBuildableZone = true;
         break;
       }
     }
-    assertTrue(hasBuildableZone, `nation "${nation.id}" has no zone in any sector environment that allows its buildable types`);
+    assertTrue(
+      hasBuildableZone,
+      `nation "${nation.id}" has no zone in any sector environment that allows its buildable types`,
+    );
   }
 });
 
-test("every buildable station type is placeable in at least one environment", () => {
+test("every buildable station type is placeable in at least one sector environment", () => {
   // Collect every stationTypeId any nation can build, then verify
-  // ENVIRONMENT_ALLOWED_TYPES has at least one environment that lists it —
+  // sectorEnvironmentById has at least one environment that lists it —
   // otherwise the nation can declare it buildable but never actually place it.
   const buildableTypeIds = new Set<StationTypeId>();
   for (const nation of allNations) {
@@ -246,19 +262,22 @@ test("every buildable station type is placeable in at least one environment", ()
   }
   for (const buildableTypeId of buildableTypeIds) {
     let placeableSomewhere = false;
-    for (const allowedTypes of Object.values(ENVIRONMENT_ALLOWED_TYPES)) {
-      if (allowedTypes.includes(buildableTypeId)) {
+    for (const sectorEnvironment of Object.values(sectorEnvironmentById)) {
+      if (sectorEnvironment.allowedStationTypeIds.includes(buildableTypeId)) {
         placeableSomewhere = true;
         break;
       }
     }
-    assertTrue(placeableSomewhere, `buildable stationType "${buildableTypeId}" is not allowed in any environment`);
+    assertTrue(
+      placeableSomewhere,
+      `buildable stationType "${buildableTypeId}" is not allowed in any sector environment`,
+    );
   }
 });
 
 test("every stationType.produces[] references existing wares with no duplicates", () => {
   const wareIds = new Set(allWares.map((ware) => ware.id));
-  for (const stationType of stationTypes) {
+  for (const stationType of allStationTypes) {
     const seen = new Set<WareId>();
     for (const wareId of stationType.produces) {
       assertTrue(wareIds.has(wareId), `stationType "${stationType.id}" produces unknown ware "${wareId}"`);
@@ -268,23 +287,65 @@ test("every stationType.produces[] references existing wares with no duplicates"
   }
 });
 
-test("presetById('blank') returns non-null", () => {
-  // game-entry's continueUniverse composes restored saves on top of the blank
-  // preset's empty-zone layout — a missing 'blank' would crash continue at init.
-  const blank = presetById("blank");
-  assertTrue(blank !== null, "presetById('blank') must not return null");
-  assertEqual(blank?.id, "blank", "blank preset id");
-});
-
-test("presetById returns null for unknown id", () => {
+test("getPresetById returns null for unknown id", () => {
   // Pin the negative branch — a typo in a preset URL must not silently fall
   // through to some other preset.
-  assertEqual(presetById("not-a-preset"), null, "unknown preset id");
+  assertEqual(getPresetById("not-a-preset"), null, "unknown preset id");
+});
+
+test("getPresetLabel returns the preset's name and falls back to the id for unknown ids", () => {
+  // Pin both branches of the optional-chain fallback. Dropping the `?? presetId`
+  // would route unknown ids to `undefined` and UI labels would render as "undefined".
+  const firstPreset = presets[0];
+  assertNotUndefined(firstPreset, "at least one preset exists");
+  assertEqual(getPresetLabel(firstPreset.id), firstPreset.name, "known id returns the preset's display name");
+  assertEqual(getPresetLabel("not-a-preset"), "not-a-preset", "unknown id falls back to the raw id string");
+});
+
+function makeZoneWithSectorEnvironment(sectorEnvironment: Sector["environment"]): StationZone {
+  const sector = {
+    id: "test-sector",
+    name: "Test Sector",
+    lore: "",
+    gridX: 0,
+    gridY: 0,
+    environment: sectorEnvironment,
+    x: 0,
+    y: 0,
+    size: 1000,
+  } satisfies Sector;
+  return {
+    id: "test-sector-1",
+    sector,
+    x: 0,
+    y: 0,
+    size: "M",
+    name: "Test Zone",
+    nameSuffix: "Alpha",
+    code: "TST-1",
+  };
+}
+
+test("allowedStationTypesForZone resolves the allow list from the zone's sector environment", () => {
+  // Pin the lookup. Pointing this at the wrong environment would let nations
+  // build station types the sector is supposed to forbid.
+  const deepSpaceZone = makeZoneWithSectorEnvironment("deep-space");
+  const bioNebulaZone = makeZoneWithSectorEnvironment("bio-nebula");
+  assertEqual(
+    allowedStationTypesForZone(deepSpaceZone),
+    sectorEnvironmentById["deep-space"].allowedStationTypeIds,
+    "deep-space zone uses the deep-space allow list",
+  );
+  assertEqual(
+    allowedStationTypesForZone(bioNebulaZone),
+    sectorEnvironmentById["bio-nebula"].allowedStationTypeIds,
+    "bio-nebula zone uses the bio-nebula allow list",
+  );
 });
 
 test("map.zones references same zones array used by data-integrity tests", () => {
-  // Sanity-check the import wiring — if map.zones diverged from
-  // ./map/zones.ts, the other tests in this file would silently validate a
-  // different dataset than the one the engine consumes.
+  // Check the import wiring — if map.zones diverged from ./map-zones.ts, the
+  // other tests in this file would silently validate a different dataset than
+  // the one the engine consumes.
   assertEqual(map.zones, zones, "map.zones identity");
 });

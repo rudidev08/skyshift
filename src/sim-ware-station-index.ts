@@ -7,7 +7,12 @@
 // every slot on a building station, since construction is inbound-only.
 
 import type { WareId } from "../data/ware-types";
-import { canStationTrade, getAllInventorySlots, isStationUnderConstruction, type Station } from "./sim-station";
+import {
+  canStationTrade,
+  getAllInventorySlots,
+  isStationUnderConstruction,
+  type Station,
+} from "./sim-station";
 
 export class WareStationIndex {
   private producersByWare = new Map<WareId, Station[]>();

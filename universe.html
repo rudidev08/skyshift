@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -19,7 +19,8 @@
       /* Game page overrides: full-viewport canvas, no scrolling.
          touch-action: none prevents mobile browsers from hijacking
          vertical swipes for page scroll — all touch input goes to Phaser. */
-      html, body {
+      html,
+      body {
         height: 100%;
         overflow: hidden;
         background: #000;
@@ -72,13 +73,21 @@
       /* Lore / log buttons hide by default; game.ts adds .is-available
          whenever the selection has lore / details of that type. */
       #lore-toggle,
-      #log-toggle { display: none; }
+      #log-toggle {
+        display: none;
+      }
       #lore-toggle.is-available,
-      #log-toggle.is-available { display: flex; }
+      #log-toggle.is-available {
+        display: flex;
+      }
       /* Collapsed state beats availability via higher specificity, so the
          rail shows only the collapse toggle when the card is collapsed. */
-      #overlay-info-card.is-collapsed { width: auto; }
-      #info-rail.is-collapsed > :not(#collapse-toggle) { display: none; }
+      #overlay-info-card.is-collapsed {
+        width: auto;
+      }
+      #info-rail.is-collapsed > :not(#collapse-toggle) {
+        display: none;
+      }
 
       /* Lore / log drawers — blurred cards. JS positions them below the
          id-card and toggles display: flex when open. */
@@ -93,8 +102,12 @@
         gap: 6px;
         align-items: stretch;
       }
-      #lore-box { width: 300px; }
-      #details-box { width: 340px; }
+      #lore-box {
+        width: 300px;
+      }
+      #details-box {
+        width: 340px;
+      }
 
       /* HUD bar stacks toggle row → speed rack → zoom dial bottom-left,
          each wrapped as a labeled stack-item. The extra gap accommodates
@@ -114,7 +127,9 @@
       .hud-btn:focus,
       .speed-pill:focus,
       .zoom-btn:focus,
-      .zoom-level:focus { outline: none; }
+      .zoom-level:focus {
+        outline: none;
+      }
 
       /* Loading screen — covers the top-left id-card slot while the scene
          is booting. game.ts flips body.game-ready on the first update()
@@ -170,10 +185,24 @@
           <span class="speed-pill__icon"></span>
           <span class="speed-pill__text">1×</span>
         </button>
-        <button id="speed-dev-20" class="speed-pill speed-pill--dev" type="button" data-dev-speed="20" title="Dev speed 20× (≈3 real min per game hour)" hidden>
+        <button
+          id="speed-dev-20"
+          class="speed-pill speed-pill--dev"
+          type="button"
+          data-dev-speed="20"
+          title="Dev speed 20× (≈3 real min per game hour)"
+          hidden
+        >
           <span class="speed-pill__text">20×</span>
         </button>
-        <button id="speed-dev-60" class="speed-pill speed-pill--dev" type="button" data-dev-speed="60" title="Dev speed 60× (≈1 real min per game hour)" hidden>
+        <button
+          id="speed-dev-60"
+          class="speed-pill speed-pill--dev"
+          type="button"
+          data-dev-speed="60"
+          title="Dev speed 60× (≈1 real min per game hour)"
+          hidden
+        >
           <span class="speed-pill__text">60×</span>
         </button>
       </div>
@@ -206,7 +235,7 @@
               <div id="selected-type" class="id-type"></div>
             </div>
             <div class="icon-code">
-              <div id="hud-seal" class="id-seal"></div>
+              <div id="hud-icon" class="id-seal"></div>
               <div id="serial-code" class="id-serial-code id-serial-code--stamp"></div>
             </div>
           </div>

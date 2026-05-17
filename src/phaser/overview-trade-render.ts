@@ -6,8 +6,8 @@
 import type { Scene } from "phaser";
 import type { WareId } from "../../data/ware-types";
 import { overviewTradeVisuals } from "../../data/visuals-overview";
-import { Layer } from "./depth-layers";
-import { MONO_FONT_FAMILY } from "./viewport-culling";
+import { Layer } from "../../data/visuals-layers";
+import { MONO_FONT_FAMILY } from "./text-styles";
 
 // Arrow head geometry scales with line stroke so the head stays proportional.
 const ARROW_LENGTH = overviewTradeVisuals.lineStroke * overviewTradeVisuals.arrowLengthMultiplier;
@@ -17,7 +17,11 @@ const ARROW_HALF_WIDTH = overviewTradeVisuals.lineStroke * overviewTradeVisuals.
 export type WareSelection = WareId | "none";
 export const NONE: WareSelection = "none";
 
-export interface StationPosition { id: string; x: number; y: number; }
+export interface StationPosition {
+  id: string;
+  x: number;
+  y: number;
+}
 
 export interface TradeRouteData {
   fromStationId: string;
@@ -45,7 +49,7 @@ interface LabelSlot {
   text: Phaser.GameObjects.Text;
 }
 
-function formatTradeCount(activity: number): string | null {
+function formatShipmentLabel(activity: number): string | null {
   if (activity < 0.05) return null;
   // Under 10, show one decimal — the tenths matter at low volumes (2.3 vs 2.7).
   // ≥10 rounds to an integer.
@@ -71,13 +75,17 @@ function computeGreenSelectionSets(
 
 interface RouteLineGeometry {
   /** Unit vector along the line, from→to. */
-  ux: number; uy: number;
+  unitX: number;
+  unitY: number;
   /** Perpendicular unit vector (rotated 90°), used for parallel-line offsetting. */
-  px: number; py: number;
+  perpendicularX: number;
+  perpendicularY: number;
   /** From-side endpoint, pulled inward by endpointPad so lines stop at the station ring. */
-  sx: number; sy: number;
+  startX: number;
+  startY: number;
   /** To-side endpoint, pulled inward by endpointPad so lines stop at the station ring. */
-  ex: number; ey: number;
+  endX: number;
+  endY: number;
   /** Number of wares on the route — drives parallel-line stacking. */
   wareCount: number;
 }
@@ -89,104 +97,185 @@ function computeRouteLineGeometry(
   const from = stationById.get(route.fromStationId);
   const to = stationById.get(route.toStationId);
   if (!from || !to) return null;
-  const dx = to.x - from.x, dy = to.y - from.y;
+  const dx = to.x - from.x,
+    dy = to.y - from.y;
   const lineLength = Math.hypot(dx, dy);
   if (lineLength < 1) return null;
-  const ux = dx / lineLength, uy = dy / lineLength;
-  const px = -uy, py = ux;
-  const sx = from.x + ux * overviewTradeVisuals.endpointPad;
-  const sy = from.y + uy * overviewTradeVisuals.endpointPad;
-  const ex = to.x - ux * overviewTradeVisuals.endpointPad;
-  const ey = to.y - uy * overviewTradeVisuals.endpointPad;
-  return { ux, uy, px, py, sx, sy, ex, ey, wareCount: route.wares.length };
+  const unitX = dx / lineLength,
+    unitY = dy / lineLength;
+  const perpendicularX = -unitY,
+    perpendicularY = unitX;
+  const startX = from.x + unitX * overviewTradeVisuals.endpointPad;
+  const startY = from.y + unitY * overviewTradeVisuals.endpointPad;
+  const endX = to.x - unitX * overviewTradeVisuals.endpointPad;
+  const endY = to.y - unitY * overviewTradeVisuals.endpointPad;
+  return {
+    unitX,
+    unitY,
+    perpendicularX,
+    perpendicularY,
+    startX,
+    startY,
+    endX,
+    endY,
+    wareCount: route.wares.length,
+  };
 }
 
 interface LineSegment {
-  startX: number; startY: number;
-  endX: number; endY: number;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
 }
 
 interface ArrowGeometry {
-  tipX: number; tipY: number;
+  tipX: number;
+  tipY: number;
   /** Unit vector pointing from the line tail toward the tip. */
-  directionX: number; directionY: number;
+  directionX: number;
+  directionY: number;
 }
 
-/** Stepped sub-segments give the alpha gradient that brightens into the destination ring, encoding trade direction. */
+/** Stepped sub-segments give the alpha gradient that brightens into the destination ring, encoding trade direction. `alphaMultiplier` scales the whole gradient (1 = full; <1 dims, e.g. baseline lines while a ware is selected). */
 function drawGradientLine(
   linesGraphics: Phaser.GameObjects.Graphics,
   segment: LineSegment,
   color: number,
+  alphaMultiplier: number,
 ): void {
   const segmentDeltaX = segment.endX - segment.startX;
   const segmentDeltaY = segment.endY - segment.startY;
   const segments = overviewTradeVisuals.gradientSegments;
   const alphaMin = overviewTradeVisuals.lineAlphaProducer;
   const alphaMax = overviewTradeVisuals.lineAlphaConsumer;
-  for (let k = 0; k < segments; k++) {
-    const t0 = k / segments;
-    const t1 = (k + 1) / segments;
-    const alpha = alphaMin + (alphaMax - alphaMin) * ((t0 + t1) / 2);
+  for (let i = 0; i < segments; i++) {
+    const t0 = i / segments;
+    const t1 = (i + 1) / segments;
+    const alpha = (alphaMin + (alphaMax - alphaMin) * ((t0 + t1) / 2)) * alphaMultiplier;
     linesGraphics.lineStyle(overviewTradeVisuals.lineStroke, color, alpha);
     linesGraphics.lineBetween(
-      segment.startX + segmentDeltaX * t0, segment.startY + segmentDeltaY * t0,
-      segment.startX + segmentDeltaX * t1, segment.startY + segmentDeltaY * t1,
+      segment.startX + segmentDeltaX * t0,
+      segment.startY + segmentDeltaY * t0,
+      segment.startX + segmentDeltaX * t1,
+      segment.startY + segmentDeltaY * t1,
     );
   }
 }
 
-/** Filled triangle at the consumer end: tip at (tipX, tipY) along (directionX, directionY); back edge perpendicular at ARROW_LENGTH. */
+/** Filled triangle at the consumer end: tip at (tipX, tipY) along (directionX, directionY); back edge perpendicular at ARROW_LENGTH. `alphaMultiplier` matches the line it caps (1 = full; <1 dims). */
 function drawArrowHead(
   linesGraphics: Phaser.GameObjects.Graphics,
   arrow: ArrowGeometry,
   color: number,
+  alphaMultiplier: number,
 ): void {
-  const px = -arrow.directionY, py = arrow.directionX;
+  const px = -arrow.directionY,
+    py = arrow.directionX;
   const baseX = arrow.tipX - arrow.directionX * ARROW_LENGTH;
   const baseY = arrow.tipY - arrow.directionY * ARROW_LENGTH;
-  const lx = baseX + px * ARROW_HALF_WIDTH;
-  const ly = baseY + py * ARROW_HALF_WIDTH;
-  const rx = baseX - px * ARROW_HALF_WIDTH;
-  const ry = baseY - py * ARROW_HALF_WIDTH;
-  linesGraphics.fillStyle(color, overviewTradeVisuals.arrowAlpha);
-  linesGraphics.fillTriangle(arrow.tipX, arrow.tipY, lx, ly, rx, ry);
+  const leftX = baseX + px * ARROW_HALF_WIDTH;
+  const leftY = baseY + py * ARROW_HALF_WIDTH;
+  const rightX = baseX - px * ARROW_HALF_WIDTH;
+  const rightY = baseY - py * ARROW_HALF_WIDTH;
+  linesGraphics.fillStyle(color, overviewTradeVisuals.arrowHeadAlpha * alphaMultiplier);
+  linesGraphics.fillTriangle(arrow.tipX, arrow.tipY, leftX, leftY, rightX, rightY);
 }
 
 /** Compute the parallel-line offset for the i-th ware out of `wareCount` lanes on a route. */
 function laneOffsetFor(laneIndex: number, wareCount: number): number {
-  return (laneIndex - (wareCount - 1) / 2) * overviewTradeVisuals.lineStroke * overviewTradeVisuals.lineGapMultiplier;
+  return (
+    (laneIndex - (wareCount - 1) / 2) *
+    overviewTradeVisuals.lineStroke *
+    overviewTradeVisuals.lineGapMultiplier
+  );
 }
 
-/** Gray baseline: one line per ware per route. Shares the gradient and arrow head with accent lines so direction reads everywhere. */
+/** The from→to endpoints shifted onto lane `laneIndex` of `geometry.wareCount`
+ *  parallel lanes, so a route's wares stack as evenly-spaced parallel lines. */
+function offsetLineEndpoints(geometry: RouteLineGeometry, laneIndex: number): LineSegment {
+  const laneOffset = laneOffsetFor(laneIndex, geometry.wareCount);
+  return {
+    startX: geometry.startX + geometry.perpendicularX * laneOffset,
+    startY: geometry.startY + geometry.perpendicularY * laneOffset,
+    endX: geometry.endX + geometry.perpendicularX * laneOffset,
+    endY: geometry.endY + geometry.perpendicularY * laneOffset,
+  };
+}
+
+/** Gray baseline: one line per ware per route. Shares the gradient and arrow head with accent lines so direction reads everywhere. `alphaMultiplier` dims the whole baseline pass while a ware is selected, so the green accent reads above it. */
 function drawBaselineRoutes(
   linesGraphics: Phaser.GameObjects.Graphics,
   routes: TradeRouteData[],
   stationById: Map<string, StationPosition>,
+  alphaMultiplier: number,
 ): void {
   for (const route of routes) {
-    const geom = computeRouteLineGeometry(route, stationById);
-    if (geom === null) continue;
-    const { ux, uy, px, py, sx, sy, ex, ey, wareCount } = geom;
-    for (let i = 0; i < wareCount; i++) {
-      const lineOffset = laneOffsetFor(i, wareCount);
-      const startX = sx + px * lineOffset, startY = sy + py * lineOffset;
-      const endX = ex + px * lineOffset, endY = ey + py * lineOffset;
-      drawGradientLine(linesGraphics, { startX, startY, endX, endY }, overviewTradeVisuals.baselineLineRgb);
-      drawArrowHead(linesGraphics, { tipX: endX, tipY: endY, directionX: ux, directionY: uy }, overviewTradeVisuals.baselineLineRgb);
+    const lineGeometry = computeRouteLineGeometry(route, stationById);
+    if (lineGeometry === null) continue;
+    for (let laneIndex = 0; laneIndex < lineGeometry.wareCount; laneIndex++) {
+      const segment = offsetLineEndpoints(lineGeometry, laneIndex);
+      drawGradientLine(linesGraphics, segment, overviewTradeVisuals.baselineLineRgb, alphaMultiplier);
+      drawArrowHead(
+        linesGraphics,
+        {
+          tipX: segment.endX,
+          tipY: segment.endY,
+          directionX: lineGeometry.unitX,
+          directionY: lineGeometry.unitY,
+        },
+        overviewTradeVisuals.baselineLineRgb,
+        alphaMultiplier,
+      );
     }
   }
 }
 
-interface LabelCandidate { cx: number; cy: number; text: string; activity: number; }
+interface LabelCandidate {
+  centerX: number;
+  centerY: number;
+  text: string;
+  activity: number;
+}
 
 interface HighlightSelection {
   highlightWare: WareId;
   greenRouteKeys: Set<string>;
 }
 
-/** Green overlay: paints over the baseline at the same offset so stacking stays aligned. Returns label candidates for centered "N shipments" placement. */
-function drawHighlightedRoutesAndCollectLabels(
+/** Green overlay: paints over the baseline at the same lane offset so stacking stays aligned. */
+function drawHighlightedRoutes(
   linesGraphics: Phaser.GameObjects.Graphics,
+  routes: TradeRouteData[],
+  selection: HighlightSelection,
+  stationById: Map<string, StationPosition>,
+): void {
+  const { highlightWare, greenRouteKeys } = selection;
+  for (const route of routes) {
+    if (!greenRouteKeys.has(`${route.fromStationId}::${route.toStationId}`)) continue;
+    const laneIndex = route.wares.indexOf(highlightWare);
+    if (laneIndex < 0) continue;
+    const lineGeometry = computeRouteLineGeometry(route, stationById);
+    if (lineGeometry === null) continue;
+    const segment = offsetLineEndpoints(lineGeometry, laneIndex);
+    drawGradientLine(linesGraphics, segment, overviewTradeVisuals.accentRgb, 1);
+    drawArrowHead(
+      linesGraphics,
+      {
+        tipX: segment.endX,
+        tipY: segment.endY,
+        directionX: lineGeometry.unitX,
+        directionY: lineGeometry.unitY,
+      },
+      overviewTradeVisuals.accentRgb,
+      1,
+    );
+  }
+}
+
+/** Pure: one centered "N shipments" label candidate per highlighted route,
+ *  positioned at the midpoint of that route's offset lane line. No Phaser. */
+function collectHighlightedRouteLabels(
   routes: TradeRouteData[],
   selection: HighlightSelection,
   stationById: Map<string, StationPosition>,
@@ -195,27 +284,20 @@ function drawHighlightedRoutesAndCollectLabels(
   const labelCandidates: LabelCandidate[] = [];
   for (const route of routes) {
     if (!greenRouteKeys.has(`${route.fromStationId}::${route.toStationId}`)) continue;
-    const index = route.wares.indexOf(highlightWare);
-    if (index < 0) continue;
-    const geom = computeRouteLineGeometry(route, stationById);
-    if (geom === null) continue;
-    const { ux, uy, px, py, sx, sy, ex, ey, wareCount } = geom;
-    const lineOffset = laneOffsetFor(index, wareCount);
-    const startX = sx + px * lineOffset, startY = sy + py * lineOffset;
-    const endX = ex + px * lineOffset, endY = ey + py * lineOffset;
-    drawGradientLine(linesGraphics, { startX, startY, endX, endY }, overviewTradeVisuals.accentRgb);
-    drawArrowHead(linesGraphics, { tipX: endX, tipY: endY, directionX: ux, directionY: uy }, overviewTradeVisuals.accentRgb);
-
+    const laneIndex = route.wares.indexOf(highlightWare);
+    if (laneIndex < 0) continue;
+    const lineGeometry = computeRouteLineGeometry(route, stationById);
+    if (lineGeometry === null) continue;
+    const segment = offsetLineEndpoints(lineGeometry, laneIndex);
     const activity = route.wareActivity.get(highlightWare) ?? 0;
-    const labelText = formatTradeCount(activity);
-    if (labelText !== null) {
-      labelCandidates.push({
-        cx: (startX + endX) / 2,
-        cy: (startY + endY) / 2,
-        text: labelText,
-        activity,
-      });
-    }
+    const labelText = formatShipmentLabel(activity);
+    if (labelText === null) continue;
+    labelCandidates.push({
+      centerX: (segment.startX + segment.endX) / 2,
+      centerY: (segment.startY + segment.endY) / 2,
+      text: labelText,
+      activity,
+    });
   }
   return labelCandidates;
 }
@@ -229,24 +311,29 @@ function drawStationRings(
   for (const [id, station] of stationById) {
     const isGreen = greenStations.has(id);
     const color = isGreen ? overviewTradeVisuals.accentRgb : overviewTradeVisuals.neutralRingRgb;
-    const alpha = isGreen ? overviewTradeVisuals.fullAlpha : 0.75;
+    const alpha = isGreen ? overviewTradeVisuals.selectedRingAlpha : 0.75;
     ringsGraphics.lineStyle(overviewTradeVisuals.stationRingStroke, color, alpha);
     ringsGraphics.strokeCircle(station.x, station.y, overviewTradeVisuals.endpointPad);
   }
 }
 
-interface LabelBox { left: number; top: number; right: number; bottom: number; }
+interface LabelBox {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
 
 interface LabelPool {
   acquire(): LabelSlot;
   /** Pretend the most recently acquired slot was never acquired — used when the caller rejects a placement. */
-  releaseLastAcquired(slot: LabelSlot): void;
+  unacquireLast(slot: LabelSlot): void;
   hideUnused(): void;
   clearAll(): void;
   destroy(): void;
 }
 
-/** Owns the pool of pooled label slots that grow monotonically across redraws. */
+/** Builds the label-slot pool plus its acquire/release/cleanup methods. */
 function createLabelPool(scene: Scene): LabelPool {
   // Pool grows monotonically; excess slots hidden between redraws.
   const labelPool: LabelSlot[] = [];
@@ -260,7 +347,7 @@ function createLabelPool(scene: Scene): LabelPool {
       return slot;
     }
     const background = scene.add.graphics();
-    background.setDepth(Layer.TradeRouteLabels);
+    background.setDepth(Layer.TradeRouteLabelBackground);
     const text = scene.add.text(0, 0, "", {
       fontFamily: MONO_FONT_FAMILY,
       fontSize: `${overviewTradeVisuals.tradeLabelFontPixels}px`,
@@ -268,14 +355,14 @@ function createLabelPool(scene: Scene): LabelPool {
       fontStyle: "bold",
     });
     text.setOrigin(0.5, 0.5);
-    text.setDepth(Layer.TradeRouteLabels + 0.01);
+    text.setDepth(Layer.TradeRouteLabelText);
     const slot: LabelSlot = { background, text };
     labelPool.push(slot);
     activeLabelCount++;
     return slot;
   }
 
-  function releaseLastAcquired(slot: LabelSlot): void {
+  function unacquireLast(slot: LabelSlot): void {
     activeLabelCount--;
     slot.background.setVisible(false);
     slot.text.setVisible(false);
@@ -306,33 +393,36 @@ function createLabelPool(scene: Scene): LabelPool {
     activeLabelCount = 0;
   }
 
-  return { acquire, releaseLastAcquired, hideUnused, clearAll, destroy };
+  return { acquire, unacquireLast, hideUnused, clearAll, destroy };
 }
 
-function placeLabel(
-  pool: LabelPool,
-  candidate: LabelCandidate,
-  placedBoxes: LabelBox[],
-): void {
+function placeLabel(pool: LabelPool, candidate: LabelCandidate, placedBoxes: LabelBox[]): void {
   const slot = pool.acquire();
   slot.text.setText(candidate.text);
-  slot.text.setPosition(candidate.cx, candidate.cy);
+  slot.text.setPosition(candidate.centerX, candidate.centerY);
   const backgroundWidth = slot.text.width + overviewTradeVisuals.tradeLabelPadX * 2;
   const backgroundHeight = slot.text.height + overviewTradeVisuals.tradeLabelPadY * 2;
-  const left = candidate.cx - backgroundWidth / 2;
-  const top = candidate.cy - backgroundHeight / 2;
+  const left = candidate.centerX - backgroundWidth / 2;
+  const top = candidate.centerY - backgroundHeight / 2;
   const right = left + backgroundWidth;
   const bottom = top + backgroundHeight;
-  const overlaps = placedBoxes.some((placedBox) =>
-    left < placedBox.right && right > placedBox.left && top < placedBox.bottom && bottom > placedBox.top,
+  const overlaps = placedBoxes.some(
+    (placedBox) =>
+      left < placedBox.right && right > placedBox.left && top < placedBox.bottom && bottom > placedBox.top,
   );
   if (overlaps) {
-    pool.releaseLastAcquired(slot);
+    pool.unacquireLast(slot);
     return;
   }
   slot.background.clear();
   slot.background.fillStyle(overviewTradeVisuals.accentRgb, 1);
-  slot.background.fillRoundedRect(left, top, backgroundWidth, backgroundHeight, overviewTradeVisuals.tradeLabelRadius);
+  slot.background.fillRoundedRect(
+    left,
+    top,
+    backgroundWidth,
+    backgroundHeight,
+    overviewTradeVisuals.tradeLabelRadius,
+  );
   placedBoxes.push({ left, top, right, bottom });
 }
 
@@ -372,23 +462,21 @@ export function createTradeRouteRender(scene: Scene): TradeRouteRender {
     selectedWare: WareSelection,
     stationById: Map<string, StationPosition>,
   ): void {
-    linesGraphics.clear();
-    ringsGraphics.clear();
-    labelPool.clearAll();
+    clear();
 
     const highlightWare = selectedWare === NONE ? null : (selectedWare as WareId);
     const { greenStations, greenRouteKeys } = computeGreenSelectionSets(routes, highlightWare);
 
-    drawBaselineRoutes(linesGraphics, routes, stationById);
+    // Dim the gray baseline only while a ware is selected, so the green accent
+    // overlay isn't competing with full-strength gray.
+    const baselineAlphaMultiplier =
+      highlightWare === null ? 1 : overviewTradeVisuals.baselineDimMultiplier;
+    drawBaselineRoutes(linesGraphics, routes, stationById, baselineAlphaMultiplier);
 
     if (highlightWare !== null) {
-      const labelCandidates = drawHighlightedRoutesAndCollectLabels(
-        linesGraphics,
-        routes,
-        { highlightWare, greenRouteKeys },
-        stationById,
-      );
-      placeLabelsBusiestFirst(labelPool, labelCandidates);
+      const selection: HighlightSelection = { highlightWare, greenRouteKeys };
+      drawHighlightedRoutes(linesGraphics, routes, selection, stationById);
+      placeLabelsBusiestFirst(labelPool, collectHighlightedRouteLabels(routes, selection, stationById));
     } else {
       labelPool.hideUnused();
     }

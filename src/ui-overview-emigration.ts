@@ -1,7 +1,7 @@
 /** Emigration tab in the overview sidebar — mode toggle (auto/manual), intensity selector (25/50/75%), manual trigger, and "next generational ship in…" countdown. */
 
 import type { EmigrationManager } from "./sim-emigration-manager";
-import type { TriggerMode, Intensity } from "./sim-emigration-types";
+import type { EmigrationTriggerMode, EmigrationIntensity } from "./sim-emigration-types";
 import { morseBarGradient } from "./render-morse-bar";
 import { formatHoursMinutesSeconds } from "./render-elapsed-time-label";
 import { showToast } from "./ui-toast";
@@ -23,7 +23,7 @@ interface EmigrationElements {
   arrivalSection: HTMLElement;
 }
 
-const MODE_DESCRIPTION: Record<TriggerMode, string> = {
+const MODE_DESCRIPTION: Record<EmigrationTriggerMode, string> = {
   auto: "Emigration triggers automatically once a vast majority of sectors are populated.",
   manual: "Emigration only triggers when you start it yourself.",
 };
@@ -40,12 +40,16 @@ export function createEmigrationControls(
   const sidebar = buildEmigrationSidebar(root);
   const elements = findEmigrationElements(sidebar);
   const refresh = (): void => refreshEmigrationView(elements, emigrationManager);
-  wireEmigrationButtons(elements, emigrationManager, refresh);
+  attachModeButtonHandlers(elements.modeButtons, emigrationManager, refresh);
+  attachIntensityButtonHandlers(elements.intensityButtons, emigrationManager, refresh);
+  attachTriggerButtonHandler(elements.triggerButton, emigrationManager, refresh);
   refresh();
 
   return {
     update: refresh,
-    destroy: () => { root.innerHTML = ""; },
+    destroy: () => {
+      root.innerHTML = "";
+    },
   };
 }
 
@@ -102,27 +106,41 @@ function findEmigrationElements(sidebar: HTMLElement): EmigrationElements {
   };
 }
 
-function wireEmigrationButtons(
-  elements: EmigrationElements,
+function attachModeButtonHandlers(
+  modeButtons: NodeListOf<HTMLButtonElement>,
   emigrationManager: EmigrationManager,
   refresh: () => void,
 ): void {
-  for (const button of elements.modeButtons) {
+  for (const button of modeButtons) {
     button.addEventListener("click", () => {
       const value = button.getAttribute("data-value");
       if (value === "auto" || value === "manual") emigrationManager.setMode(value);
       refresh();
     });
   }
-  for (const button of elements.intensityButtons) {
+}
+
+function attachIntensityButtonHandlers(
+  intensityButtons: NodeListOf<HTMLButtonElement>,
+  emigrationManager: EmigrationManager,
+  refresh: () => void,
+): void {
+  for (const button of intensityButtons) {
     button.addEventListener("click", () => {
       const value = button.getAttribute("data-value");
       if (value === "low" || value === "medium" || value === "high") emigrationManager.setIntensity(value);
       refresh();
     });
   }
-  elements.triggerButton.addEventListener("click", () => {
-    if (elements.triggerButton.disabled) return;
+}
+
+function attachTriggerButtonHandler(
+  triggerButton: HTMLButtonElement,
+  emigrationManager: EmigrationManager,
+  refresh: () => void,
+): void {
+  triggerButton.addEventListener("click", () => {
+    if (triggerButton.disabled) return;
     emigrationManager.manualTrigger();
     const toast = emigrationManager.takePendingToast();
     if (toast) showToast(toast);
@@ -131,12 +149,14 @@ function wireEmigrationButtons(
 }
 
 function refreshEmigrationView(elements: EmigrationElements, emigrationManager: EmigrationManager): void {
-  const mode: TriggerMode = emigrationManager.getMode();
-  const intensity: Intensity = emigrationManager.getIntensity();
-  const canTrigger = emigrationManager.canManualTrigger();
-  const eligibleCount = emigrationManager.countEligibleStations();
-  const secondsUntilArrival = Math.ceil(emigrationManager.getSecondsUntilNextGenerationalShip());
+  refreshModeSegment(elements, emigrationManager);
+  refreshTriggerSection(elements, emigrationManager);
+  refreshArrivalCountdown(elements, emigrationManager);
+}
 
+function refreshModeSegment(elements: EmigrationElements, emigrationManager: EmigrationManager): void {
+  const mode: EmigrationTriggerMode = emigrationManager.getMode();
+  const intensity: EmigrationIntensity = emigrationManager.getIntensity();
   for (const button of elements.modeButtons) {
     button.classList.toggle("is-on", button.getAttribute("data-value") === mode);
   }
@@ -144,24 +164,32 @@ function refreshEmigrationView(elements: EmigrationElements, emigrationManager: 
     button.classList.toggle("is-on", button.getAttribute("data-value") === intensity);
   }
   setTextIfChanged(elements.modeDescription, MODE_DESCRIPTION[mode]);
+}
 
-  const manualMode = mode === "manual";
-  elements.triggerSection.hidden = !manualMode;
-  if (manualMode) {
-    const triggerEnabled = canTrigger && eligibleCount > 0;
-    elements.triggerButton.disabled = !triggerEnabled;
-    elements.triggerButton.classList.toggle("is-on", triggerEnabled);
-    setTextIfChanged(
-      elements.eligibilityLabel,
-      eligibleCount > 0
-        ? `${eligibleCount} station${eligibleCount === 1 ? "" : "s"} eligible`
-        : "No stations eligible",
-    );
-  }
+function refreshTriggerSection(elements: EmigrationElements, emigrationManager: EmigrationManager): void {
+  const isManualMode = emigrationManager.getMode() === "manual";
+  elements.triggerSection.hidden = !isManualMode;
+  if (!isManualMode) return;
+  const eligibleCount = emigrationManager.countEligibleStations();
+  const triggerEnabled = emigrationManager.canManualTrigger() && eligibleCount > 0;
+  elements.triggerButton.disabled = !triggerEnabled;
+  elements.triggerButton.classList.toggle("is-on", triggerEnabled);
+  setTextIfChanged(
+    elements.eligibilityLabel,
+    eligibleCount > 0
+      ? `${eligibleCount} station${eligibleCount === 1 ? "" : "s"} eligible`
+      : "No stations eligible",
+  );
+}
 
+function refreshArrivalCountdown(elements: EmigrationElements, emigrationManager: EmigrationManager): void {
+  const secondsUntilArrival = Math.ceil(emigrationManager.getSecondsUntilNextGenerationalShip());
   if (secondsUntilArrival > 0) {
     elements.arrivalSection.hidden = false;
-    setTextIfChanged(elements.arrivalSection, `Next generational ship arriving in ${formatHoursMinutesSeconds(secondsUntilArrival)}`);
+    setTextIfChanged(
+      elements.arrivalSection,
+      `Next generational ship arriving in ${formatHoursMinutesSeconds(secondsUntilArrival)}`,
+    );
   } else {
     elements.arrivalSection.hidden = true;
   }

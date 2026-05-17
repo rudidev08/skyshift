@@ -1,27 +1,15 @@
-// Emigration-cluster runtime substrate — the shared types and tunable
-// constants that every cluster sibling (decision, start, manager) imports.
-// Pulled out of sim-emigration-manager.ts so siblings can import their shared
-// types from a leaf module instead of looping back into the manager.
-//
-// The EmigrationManager class (in sim-emigration-manager.ts) is the only
-// public surface for orchestrating emigration events. Decision logic (who
-// emigrates) lives in sim-emigration-decision.ts; ship-launch + ferry logic
-// lives in sim-emigration-start.ts. Consumers thread emigrationManager through
-// to where they need it.
+// Shared emigration-cluster types and tunable constants. Lives as a leaf
+// module so siblings (sim-emigration-decision, sim-emigration-start,
+// sim-emigration-manager) can import from one place without looping back
+// into the manager.
 
 import type { StationEmigration } from "./sim-station-types";
 
 /** Base emigrant-ship count per station; scales by size (S=1, M=2, L=3). */
 export const EMIGRANT_SHIPS_PER_STATION_BASE = 10;
 
-export type TriggerMode = "auto" | "manual";
-export type Intensity = "low" | "medium" | "high";
-
-/** Event-scoped values that every per-station setup helper threads together. */
-export interface EmigrationEventContext {
-  eventId: string;
-  destinationName: string;
-}
+export type EmigrationTriggerMode = "auto" | "manual";
+export type EmigrationIntensity = "low" | "medium" | "high";
 
 /** Event-scoped metadata. Per-station state lives on station.emigrationEvent;
  *  generational-ship-visible state lives on generationalShip.generationalShipBuild. */
@@ -41,7 +29,7 @@ export interface EmigrationEvent {
    *  by `retireUnlaunched` if a launch budget is abandoned. */
   totalExpectedShips: number;
   destinationName: string;
-  eventStartAt: number;
+  startAt: number;
 }
 
 /** Spawn failed — drop the unlaunched budget so totalExpectedShips shrinks

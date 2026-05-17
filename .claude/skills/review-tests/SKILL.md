@@ -1,11 +1,13 @@
 ---
 name: review-tests
-description: "[lav] Mutation-test specified tests via parallel subagents — apply logic mutations to source, strengthen tests against survivors (or fix bugs the mutations expose), propose pruning candidates"
+description: "[lav] Mutation-test specified tests via sequential subagents — apply logic mutations to source, strengthen tests against survivors (or fix bugs the mutations expose), propose pruning candidates"
 ---
 
 # Review Tests (Mutation Testing)
 
-Orchestrate parallel mutation testing across the test files the user passes in. One focused subagent per domain (a test file plus the exclusive source files it covers). Each agent applies ~10 small logic mutations to the source code, runs its test file, and records which mutants the tests fail to catch ("survivors"). Survivors get either a strengthened test or — if the mutation revealed a real bug — a code fix.
+Orchestrate mutation testing across the test files the user passes in. One focused subagent per domain (a test file plus the exclusive source files it covers). Each agent applies ~10 small logic mutations to the source code, runs its test file, and records which mutants the tests fail to catch ("survivors"). Survivors get either a strengthened test or — if the mutation revealed a real bug — a code fix.
+
+Default execution is **sequential** in the main checkout — one agent at a time. The user can opt into parallel-worktree mode if they explicitly want it; see "Why sequential, not parallel" below.
 
 This skill is **user-initiated**: only run when explicitly invoked (via `/review-tests` or a direct request to mutation-test specific tests).
 
@@ -28,12 +30,13 @@ If `$ARGUMENTS` is empty, ask the user which tests to mutate (named files, a dir
 
 ## Workflow
 
-0. **Pre-flight: green baseline.** Before dispatching any agents, run the project's test command (`npm test`, `cargo test`, `pytest`, etc.) on the orchestrator's tree and confirm all tests pass. Mutation testing assumes a clean baseline — a pre-existing failure produces phantom survivors and wasted worktree slots. Also confirm `git status` is clean; agents derive their baseline from worktree HEAD and a dirty orchestrator tree signals work that should land first.
+0. **Pre-flight: green baseline.** Before dispatching any agents, run the project's test command (`npm test`, `cargo test`, `pytest`, etc.) and confirm all tests pass. Mutation testing assumes a clean baseline — a pre-existing failure produces phantom survivors. Dirty `git status` is OK — step 0.5 commits any uncommitted state to the work branch so agents see it.
 
-0.5. **Create the work branch.** All integration commits during the skill go to a temporary branch, not the starting branch. This isolates work-in-progress from the user's primary branches and means a pause/interruption can never lose uncommitted state.
+0.5. **Create the work branch.** All integration commits during the skill go to a temporary branch, not the starting branch. This isolates work-in-progress from the user's primary branches, preserves any pre-existing uncommitted state, and means a pause/interruption can never lose work.
    - Capture the starting branch: `STARTING=$(git rev-parse --abbrev-ref HEAD)`.
    - Refuse to start if `STARTING` is detached HEAD — surface to the user.
    - Generate a short id (timestamp or random) and create the work branch: `git checkout -b review-tests-wip-<id>`.
+   - **If `git status` was dirty**, commit the uncommitted state on the work branch as a single "WIP for mutation testing" commit (`git add -A && git commit -m "WIP: pre-skill working state"`). This carries the user's in-progress work forward so agents see it. Step 8 unwinds this commit on hand-back.
    - Detect orphan work branches from prior aborted runs (`git branch --list 'review-tests-wip-*'`). If any exist, surface them and ask the user whether to delete or resume. Don't auto-resolve.
 
 1. **Resolve the file list** from `$ARGUMENTS` or the user's clarification. Confirm the scope before dispatching when it's broad.
@@ -46,16 +49,20 @@ If `$ARGUMENTS` is empty, ask the user which tests to mutate (named files, a dir
    e. Print the mapping (`Domain N: <test files> → <source files> (~N LOC)`) for user sanity-check before dispatch.
    f. Agent count is fallout from steps 2c–2d, not a target. Sane range 3–10. Below 3 → likely over-merged (split the largest domain); above 10 → likely over-split (fold the smallest into a sibling).
 
-3. **Dispatch one subagent per domain in parallel** using the prompt template below. Use `isolation: "worktree"` so agents can't trip on each other.
+3. **Dispatch subagents sequentially** using the prompt template below. One agent at a time in the main checkout — no `isolation: "worktree"`. After each agent finishes, integrate its findings (step 4) before launching the next. Sequential is the trade-off for working in the main checkout: agents can't clobber each other's source-file mutations, and the agents see the work branch's actual HEAD (including any pre-existing uncommitted state committed in step 0.5).
 
-4. **Caveat: worktree base ref.** With the work branch active, `isolation: "worktree"` branches each worktree from the work branch's HEAD (which inherits the starting branch state on the first run, plus prior strengthening on later runs). This is what we want. If you skip step 0.5 and run on `main`/`origin/main` directly, worktrees may branch from `origin/main` instead of local HEAD, producing diffs that reference files renamed or moved on local — see "Handling worktree-base divergence" below.
+   Why not parallel: parallel agents would all be writing to the same files at once, which corrupts test runs (`agent A mid-mutation on sim-station.ts` poisons `agent B`'s test that imports it transitively). Worktree isolation would fix that but is blocked by user policy in many setups. Sequential is the safe default. Wall time is ~N× longer for N agents; the user can opt into worktree-parallel mode explicitly if they want it.
 
-5. **Integrate findings.** When agents return:
-   - Inspect each agent's worktree diff first (`git -C <worktree-path> diff --stat HEAD`) — confirms only test files changed. Source changes mean either an explicit bug fix (verify it matches the agent's report) or a stray mutation that wasn't reverted; surprise files are speculative cleanup that doesn't belong.
-   - Read each summary; verify the survivor count and resolutions.
-   - **Apply via `git apply`, not `cp`.** For each worktree, generate a patch (`git -C <worktree> diff HEAD > /tmp/agent-<id>.patch`) and apply (`git apply /tmp/agent-<id>.patch`). This leaves a reflog-trackable trail and surfaces conflicts cleanly. Fall back to manual port-and-paste only if the worktree base differs from local HEAD (file renames, symbol moves) and `git apply` rejects the patch.
-   - Apply any code fixes the agents flagged as real bugs (rare — most survivors are test gaps).
-   - **Commit immediately to the work branch.** No approval prompt needed — the work branch is not main. Commit message: `Run #N strengthening: <N> tests across <M> files (<X> mutations tried, <Y> killed, <Z> source fixes)`.
+4. **Per-agent integration (between agents).** When each agent returns:
+   - Inspect the working tree: `git status --porcelain` and `git diff --stat`. Source changes mean either an explicit bug fix (verify it matches the agent's report) or a stray mutation that wasn't reverted; surprise files are speculative cleanup that doesn't belong.
+   - Read the agent's summary; verify the survivor count and resolutions.
+   - Apply any code fixes the agent flagged as real bugs (rare — most survivors are test gaps).
+   - **Commit immediately to the work branch.** No approval prompt needed — the work branch is not main. Commit message: `Run #N agent <domain>: <N> tests strengthened (<X> mutations, <Y> killed, <Z> source fixes)`.
+   - Confirm the working tree is clean before dispatching the next agent.
+
+5. **Final integration check.** After all agents have run and their changes are committed:
+   - Verify `git log --oneline <starting>..HEAD` shows the WIP commit (if any) plus one strengthening commit per agent.
+   - Verify `git diff <starting>..HEAD --stat` reports only test-file changes plus any intentional source bug fixes.
 
 6. **Validate the integrated state.** Run the project's full test command, type checker, and linter on the work branch — all must pass before continuing. If any fail, debug and fix in a follow-up commit on the work branch (don't unwind the prior commit).
 
@@ -64,15 +71,15 @@ If `$ARGUMENTS` is empty, ask the user which tests to mutate (named files, a dir
    - **Review** — looks low-value but proof is incomplete. Walk one-by-one with the user. Each is a judgment call; don't intermix with the Safe-delete batch. Approved deletes go into a separate commit (or fold into the same commit as Safe-deletes if the user prefers).
    - **Keep** — surfaced for transparency; no action.
 
-8. **Hand the work branch back.**
-   - Show the user the diff `<starting>..<work>` with `git log --oneline --no-merges <starting>..HEAD`.
-   - Get explicit approval before merging.
-   - Switch back: `git checkout <starting>`.
-   - Fast-forward merge: `git merge --ff-only <work-branch>`. If main moved during the run and ff-merge fails, surface to the user — do not auto-rebase. They can rebase or merge manually; nothing is lost.
-   - Delete the work branch: `git branch -d <work-branch>`.
-   - Push if appropriate (skill does NOT push automatically; that's a separate user decision).
-
-9. **Clean up worktrees.** After the merge lands, remove the agent worktrees: `git worktree remove --force --force .claude/worktrees/agent-<id>` for each. The double `--force` is required because the harness locks worktrees with `git worktree lock`; a single `--force` returns "cannot remove a locked working tree". 50–100MB of `node_modules` / `target` per worktree accumulates fast across runs.
+8. **Hand the work branch back as uncommitted changes.** The skill never commits to the user's starting branch. All work-branch commits get unwound on hand-back; the user commits when they're ready.
+   - Show the user `git log --oneline <starting>..HEAD` (WIP commit, if any, plus per-agent strengthening commits, plus any pruning commits).
+   - Get explicit approval before unwinding.
+   - On the work branch: `git reset --soft <starting>` (rewinds HEAD to `<starting>`, keeps all changes staged).
+   - `git restore --staged .` (unstages everything; working tree unchanged).
+   - `git checkout <starting>` (branches now point to the same commit; switching is a no-op for the working tree).
+   - `git branch -D <work-branch>` (use `-D` because the reset detaches commits the branch ref previously pointed to).
+   - User is back on `<starting>` with: any pre-existing uncommitted state + mutation-test strengthening + approved prunings, all unstaged. No worktree cleanup needed — there were no worktrees.
+   - The user reviews the resulting `git diff` on their own and commits when ready. The skill does NOT commit or push.
 
 ## Mutant budget
 
@@ -102,7 +109,7 @@ If a domain has many non-applicable mutations (e.g., 4+ in a 10-mutation budget)
 
 ## Pruning low-value tests
 
-Each mutation agent runs an embedded pruning scan as the last step of its workflow — by then, the agent's own strengthening has landed in its worktree, so the scan is post-strengthening within that domain. Cross-domain test obviation is rare given exclusive source ownership, so a separate orchestrator-side pruning pass usually isn't needed.
+Each mutation agent runs an embedded pruning scan as the last step of its workflow — by then, the agent's own strengthening has landed in the working tree, so the scan is post-strengthening within that domain. Cross-domain test obviation is rare given exclusive source ownership, so a separate orchestrator-side pruning pass usually isn't needed.
 
 A test is a pruning candidate when at least one of these holds AND a sibling test in the same domain provably catches what the candidate does:
 
@@ -133,7 +140,7 @@ Classify each candidate:
 
 ## Agent prompt template
 
-Send this to each subagent. Replace `<test files>` with the assigned test file path(s), `<source files>` with the exclusive source files, and `<other agents>` with the count of parallel agents. **If the project has `dev/coding/testing.md`, append its contents to the Project conventions section at the bottom of this template before sending.**
+Send this to each subagent. Replace `<test files>` with the assigned test file path(s), `<source files>` with the exclusive source files, and `<other agents>` with the count of other agents that will run before or after this one. **If the project has `dev/coding/testing.md`, append its contents to the Project conventions section at the bottom of this template before sending.**
 
 ```
 You are doing **mutation testing** on the <domain name> code.
@@ -147,7 +154,7 @@ Verify that <test files> actually catch small logic errors in the production cod
 - **Test file(s):** <test files>
 - **Source file(s) you may mutate:** <source files>
 
-Do NOT mutate any other file. <other agents> agents are working on other files in parallel worktrees.
+Do NOT mutate any other file. The orchestrator runs one agent at a time across multiple domains; staying inside your assigned source files keeps attribution clean and ensures the per-agent integration commit only carries your changes.
 
 ## Workflow per mutant
 
@@ -205,11 +212,11 @@ After resolving survivors, scan the assigned test files for prunable tests using
 
 ## Final state
 
-The worktree's `git diff` must contain ONLY:
+The working tree's `git diff` must contain ONLY:
 - Strengthened test code
 - Real bug fixes (only if you found any)
 
-NO stray mutations. Verify with `git diff <source files>` returning empty (or showing only intentional bug fixes). Then run the project's full test command to confirm the full suite still passes.
+NO stray mutations. Verify with `git diff <source files>` returning empty (or showing only intentional bug fixes). Then run the project's full test command to confirm the full suite still passes. The orchestrator will commit your changes before launching the next agent — leaving stray mutations would poison the next agent's baseline.
 
 ## Reporting format
 
@@ -261,30 +268,33 @@ If you have **zero survivors**, report it honestly. Don't manufacture findings.
 
 ## Why exclusive source-file ownership
 
-Two agents mutating the same source file in parallel will clobber each other's work — the second mutation overwrites the first, but both agents continue running tests against whichever state happens to be on disk. Symptoms: phantom survivors, phantom kills, test runs hung on transiently-broken modules. The grouping in step 2 is the safety net.
+Sequential dispatch (step 3) means only one agent is writing to the filesystem at a time, so there is no race condition. But exclusive source-file ownership still matters: it ensures clean attribution (each strengthening commit names which agent/domain produced it) and balanced workloads (each domain owns a coherent slice of source LOC). Without exclusive ownership, two agents would pick overlapping mutations and waste budget on the same surface.
 
 When tests share a source file, fold them into one domain rather than splitting. A larger domain takes longer but stays correct.
 
 ## Why a work branch
 
-Integration creates a window of uncommitted local state — between when an agent's diff is applied and when the changes are committed. Anything that touches the working tree during that window can erase the work silently: a working-tree-level `git checkout`, an external sync tool, a pause-and-resume mechanism that snapshots state, a manual revert. Working-tree reverts don't update reflog, so a loss in this window leaves no trace.
+Integration creates a window of uncommitted local state — between when an agent's changes land in the working tree and when they are committed. Anything that touches the working tree during that window can erase the work silently: a working-tree-level `git checkout`, an external sync tool, a pause-and-resume mechanism that snapshots state, a manual revert. Working-tree reverts don't update reflog, so a loss in this window leaves no trace.
 
-The work branch (step 0.5) closes the window. Each integration commits immediately to the work branch — no waiting for user approval to commit on main, since the work branch isn't main. The starting branch is untouched until step 8's ff-merge. If anything goes wrong mid-skill, the work branch holds the only canonical copy outside worktrees; the user can inspect, recover, or discard.
+The work branch (step 0.5) closes the window. Each integration commits immediately to the work branch — no waiting for user approval to commit, since the work branch is throwaway and never reaches the starting branch as commits. The starting branch is untouched throughout the skill. If anything goes wrong mid-skill, the work branch holds the only canonical copy on disk; the user can inspect, recover, or discard.
+
+The work branch also preserves pre-existing uncommitted state. If the user had a refactor in progress when they invoked the skill, step 0.5 commits it as a WIP commit so the agents see it (otherwise the agents would work against stale-on-disk code that doesn't match local state). Step 8 unwinds the WIP commit and all strengthening commits on hand-back, returning the user to their starting branch with: any pre-existing uncommitted state + strengthening + approved prunings, all unstaged. The user commits when they're ready — the skill never lands commits on the starting branch.
 
 The flow is also resumable: an aborted skill leaves the work branch behind. A re-run detects it (step 0.5) and surfaces the choice to delete or resume.
 
-## Handling worktree-base divergence
+## Why sequential, not parallel
 
-The Agent tool's `isolation: "worktree"` branches each new worktree from the current orchestrator HEAD. With the work branch active (step 0.5), that's the work branch — which inherits the starting branch state on the first integration round and accumulates strengthening on later rounds. Within a single skill run this is what we want.
+The Agent tool's `isolation: "worktree"` parameter would allow parallel agents — but it has two failure modes in practice:
 
-Across runs, if the starting branch has moved between skill invocations, agents will branch from the current state, not a stale snapshot — also correct.
+1. **Worktree-base divergence.** The worktree harness sometimes branches new worktrees from `origin/main` (or another remote anchor) rather than the local work branch. When the user has an in-progress refactor that renamed/moved files, agents see the OLD paths in their worktree and write tests that won't apply cleanly to the work branch. Symptoms: agents reporting "file is `src/X.foo.ts` in this worktree, not `src/foo-X.ts`"; tests using helpers under old names; `git apply` rejecting patches at integration time.
 
-The divergence problem only surfaces when the skill is run **without** a work branch (step 0.5 skipped) and the harness branches from `origin/main` instead of local HEAD. Symptoms in agent reports:
-- "Note: file is `src/X.foo.ts` in this worktree, not `src/foo-X.ts`" (rename refactor)
-- Tests using a free function the agent renamed to a class method on local main
-- Imports from `../../data/foo.ts` when local has it at `../foo-types.ts`
+2. **Isolation bypass.** Agents sometimes resolve absolute file paths to the originating repo and write there directly, bypassing their worktree. The worktree's diff is empty (so the harness auto-cleans it on completion), and the agent's changes leak to the parent repo's working tree. Symptoms: worktree directories vanish despite the agent reporting changes; main repo `git status` shows test-file modifications the orchestrator didn't expect.
 
-Mitigation if you hit this: port each test addition manually instead of `git apply` — match imports, function signatures, and helper availability against local. The work branch flow is the proper fix.
+3. **User policy.** Many users (including the default CLAUDE.md template) ban `git worktree` use without explicit permission.
+
+Sequential dispatch in the main checkout sidesteps all three. Wall time is ~N× longer for N domains, but each agent sees the actual local state and writes through the normal filesystem boundary.
+
+If the user explicitly opts into parallel-worktree mode (e.g. "use worktrees, I'm fine with the trade-off"), fall back to the parallel path: dispatch all agents in parallel with `isolation: "worktree"` at step 3, then in step 4 generate per-worktree patches (`git -C <worktree> diff HEAD > /tmp/agent-<id>.patch`) and apply with `git apply --3way`. After step 8 lands, remove each worktree with `git worktree remove --force --force .claude/worktrees/agent-<id>` — double `--force` is required because the harness locks worktrees with `git worktree lock`. Be ready to manually port test additions when the worktree-base divergence hits (agents may see a stale anchor instead of the local work branch HEAD).
 
 ## Per-domain gotchas (orchestrator instructions)
 

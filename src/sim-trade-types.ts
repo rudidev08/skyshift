@@ -16,7 +16,7 @@ import type { ShipAction } from "./sim-travel-types";
 /** Direction of cargo flow at a station's inventory slot for a trade reservation.
  *  - `incoming` — slot space reserved for a delivery currently en route.
  *  - `outgoing` — slot stock reserved for a pickup currently en route. */
-export type ReservationCargoDirection = "incoming" | "outgoing";
+export type TradeCargoDirection = "incoming" | "outgoing";
 
 /** Direction of a trade ship's current trip relative to its home station.
  *  - `sell` — home → target leg (home produces the ware; target buys it).
@@ -30,7 +30,7 @@ export interface TradeReservation {
   station: Station;
   wareId: WareId;
   amount: number;
-  cargoDirection: ReservationCargoDirection;
+  cargoDirection: TradeCargoDirection;
 }
 
 /** A single cargo flow within a trip: move `amount` of `wareId` from `fromStation` to `toStation`. */
@@ -60,15 +60,15 @@ export interface TradeShip {
   cargoAmountByWareId: Map<WareId, number>;
   /** Open cargo holds at remote stations — withdrawn at pickup, fulfilled on deposit. */
   reservations: TradeReservation[];
-  lastHeading: number | null;
-  idleStartTime: number;
+  lastFlightHeadingRadians: number | null;
+  idleSinceTradeTime: number;
 }
 
 export interface TradeTransferEvent {
   amount: number;
   ship: TradeShip;
   station: Station;
-  cargoDirection: "incoming" | "outgoing";
+  cargoDirection: TradeCargoDirection;
   wareId: WareId;
 }
 

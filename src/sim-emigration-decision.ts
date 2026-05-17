@@ -14,12 +14,16 @@ import type { Nation } from "./sim-nation";
 import type { Station } from "./sim-station-types";
 import type { GameMap } from "./sim-map-types";
 import type { StationManager } from "./sim-station-manager";
-import type { Intensity } from "./sim-emigration-types";
+import type { EmigrationIntensity } from "./sim-emigration-types";
 import { allNations } from "../data/nations";
 import { isStationProducing } from "./sim-station";
 
-// Intensity → fraction of each nation's eligible stations to pick at trigger time.
-const INTENSITY_FRACTIONS: Record<Intensity, number> = { low: 0.25, medium: 0.5, high: 0.75 };
+// EmigrationIntensity → fraction of each nation's eligible stations to pick at trigger time.
+const INTENSITY_FRACTIONS: Record<EmigrationIntensity, number> = {
+  low: 0.25,
+  medium: 0.5,
+  high: 0.75,
+};
 
 const DESTINATION_POOL = [
   "The Long Drift",
@@ -53,7 +57,7 @@ const DESTINATION_POOL = [
  *  when committed; under-shoots the target rather than violating invariants. */
 export function selectStationsForEmigration(
   stationManager: StationManager,
-  intensity: Intensity,
+  intensity: EmigrationIntensity,
 ): { selected: Station[]; nationIds: Set<string> } {
   const fraction = INTENSITY_FRACTIONS[intensity];
   const selected: Station[] = [];
@@ -63,13 +67,14 @@ export function selectStationsForEmigration(
     if (eligible.length === 0) continue;
     const targetCount = Math.max(1, Math.round(fraction * eligible.length));
     const picks = [...eligible];
-    shuffle(picks);
+    shuffleInPlace(picks);
     let pickedFromThisNation = 0;
+    const alreadyPickedIds = new Set(selected.map((station) => station.id));
     for (const candidate of picks) {
       if (pickedFromThisNation >= targetCount) break;
-      const alreadyPickedIds = new Set(selected.map((station) => station.id));
       if (!isCandidateStillEligible(stationManager, candidate, nation, alreadyPickedIds)) continue;
       selected.push(candidate);
+      alreadyPickedIds.add(candidate.id);
       nationIds.add(nation.id);
       pickedFromThisNation++;
     }
@@ -96,7 +101,9 @@ function eligibleStationsForNation(
   nation: Nation,
   alreadyPickedInThisEvent: Station[],
 ): Station[] {
-  const liveStationsForNation = stationManager.getStations().filter((station) => station.nation.id === nation.id);
+  const liveStationsForNation = stationManager
+    .getStations()
+    .filter((station) => station.nation.id === nation.id);
   const producingOfThisNation = liveStationsForNation.filter((station) => isStationProducing(station));
   const alreadyPickedIds = new Set(alreadyPickedInThisEvent.map((station) => station.id));
   return producingOfThisNation.filter((candidate) => {
@@ -118,25 +125,32 @@ function isCandidateStillEligible(
 ): boolean {
   // G2: not the last of the nation's primary type.
   if (candidate.stationType.id === nation.primaryBuildableStationTypeId) {
-    let nationPrimaryCount = 0;
-    for (const station of stationManager.getStations()) {
-      if (station.nation.id !== nation.id) continue;
-      if (!isStationProducing(station)) continue;
-      if (station.stationType.id !== nation.primaryBuildableStationTypeId) continue;
-      if (alreadyPickedIds.has(station.id)) continue;
-      nationPrimaryCount++;
-    }
-    if (nationPrimaryCount <= 1) return false;
+    if (countNationPrimaryProducingExcludingPicked(stationManager, nation, alreadyPickedIds) <= 1)
+      return false;
   }
   // G1: not the universe's last of its type (across all nations, excluding already-picked).
   if (isUniverseLastOfType(stationManager, candidate, alreadyPickedIds)) return false;
   return true;
 }
 
+function countNationPrimaryProducingExcludingPicked(
+  stationManager: StationManager,
+  nation: Nation,
+  alreadyPickedIds: Set<string>,
+): number {
+  let count = 0;
+  for (const station of stationManager.getStations()) {
+    if (station.nation.id !== nation.id) continue;
+    if (!isStationProducing(station)) continue;
+    if (station.stationType.id !== nation.primaryBuildableStationTypeId) continue;
+    if (alreadyPickedIds.has(station.id)) continue;
+    count++;
+  }
+  return count;
+}
+
 /** Is this candidate the universe's last producing station of its type?
- *  Uses isStationProducing so map-authored stations (whose `state` defaults
- *  to "producing") count — a strict `=== "producing"` would exclude them
- *  all and wrongly mark every station as universe-last. */
+ *  Counts producing stations across all nations, excluding already-picked. */
 function isUniverseLastOfType(
   stationManager: StationManager,
   candidate: Station,
@@ -165,7 +179,7 @@ export function emptyZoneCount(map: GameMap, stationManager: StationManager): nu
 /** Pick the next destination name, recycling the pool once exhausted. Mutates
  *  `usedDestinations` in place — caller owns the array (it's lifecycle state
  *  on the manager, included in the snapshot). */
-export function drawDestination(usedDestinations: string[]): string {
+export function drawAndRecordDestination(usedDestinations: string[]): string {
   if (usedDestinations.length === DESTINATION_POOL.length) usedDestinations.length = 0;
   const remaining = DESTINATION_POOL.filter((destination) => !usedDestinations.includes(destination));
   const pick = remaining[Math.floor(Math.random() * remaining.length)];
@@ -173,7 +187,7 @@ export function drawDestination(usedDestinations: string[]): string {
   return pick;
 }
 
-function shuffle<T>(array: T[]): void {
+function shuffleInPlace<T>(array: T[]): void {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [array[i], array[j]] = [array[j], array[i]];

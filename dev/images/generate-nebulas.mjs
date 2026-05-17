@@ -57,7 +57,8 @@ function splatDensity(buf, cx, cy, radius, intensity) {
   const y1 = Math.min(SIZE - 1, Math.ceil(cy + radius));
   for (let py = y0; py <= y1; py++) {
     for (let px = x0; px <= x1; px++) {
-      const dx = px - cx, dy = py - cy;
+      const dx = px - cx,
+        dy = py - cy;
       const d2 = dx * dx + dy * dy;
       if (d2 < r2) {
         const f = 1 - d2 / r2;
@@ -126,7 +127,7 @@ function buildCore() {
     { x: CENTER - 100, y: CENTER + 400 },
     { x: CENTER - 400, y: CENTER + 200 },
     { x: CENTER + 250, y: CENTER + 350 },
-    { x: CENTER + 50,  y: CENTER - 450 },
+    { x: CENTER + 50, y: CENTER - 450 },
   ];
 
   for (let s = 0; s < 600; s++) {
@@ -246,7 +247,9 @@ function buildSkyshift() {
     const radialAngle = Math.atan2(sy - CENTER, sx - CENTER);
     const angle = radialAngle - Math.PI / 2 + (rng3() - 0.5) * 0.4;
     return {
-      x: sx, y: sy, angle,
+      x: sx,
+      y: sy,
+      angle,
       len: 150 + rng3() * 200,
       thick: 8 + rng3() * 10,
     };
@@ -258,8 +261,20 @@ function buildSkyshift() {
   const radAngle = Math.atan2(crossY - CENTER, crossX - CENTER);
   const baseAngle = radAngle - Math.PI / 2;
   const crossStreaks = [
-    { x: crossX, y: crossY, angle: baseAngle + (rng3() - 0.5) * 0.3, len: 200 + rng3() * 150, thick: 8 + rng3() * 10 },
-    { x: crossX, y: crossY, angle: baseAngle + 0.5 + rng3() * 0.6, len: 180 + rng3() * 150, thick: 8 + rng3() * 10 },
+    {
+      x: crossX,
+      y: crossY,
+      angle: baseAngle + (rng3() - 0.5) * 0.3,
+      len: 200 + rng3() * 150,
+      thick: 8 + rng3() * 10,
+    },
+    {
+      x: crossX,
+      y: crossY,
+      angle: baseAngle + 0.5 + rng3() * 0.6,
+      len: 180 + rng3() * 150,
+      thick: 8 + rng3() * 10,
+    },
   ];
 
   const soloStreaks = [];
@@ -322,8 +337,8 @@ function buildMining() {
     { x: SIZE * 0.65, y: SIZE * 0.6 },
     { x: SIZE * 0.45, y: SIZE * 0.4 },
     { x: SIZE * 0.25, y: SIZE * 0.2 },
-    { x: SIZE * 0.3,  y: SIZE * 0.75 },
-    { x: SIZE * 0.4,  y: SIZE * 0.55 },
+    { x: SIZE * 0.3, y: SIZE * 0.75 },
+    { x: SIZE * 0.4, y: SIZE * 0.55 },
     { x: SIZE * 0.55, y: SIZE * 0.85 },
   ];
 
@@ -389,26 +404,26 @@ function buildOminous(variant) {
 
   // Irregular centered dark mass — each variant has unique shape
   const allAnchors = {
-    "1": [
+    1: [
       { x: CENTER - 200, y: CENTER - 150 },
       { x: CENTER + 180, y: CENTER - 250 },
       { x: CENTER + 280, y: CENTER + 100 },
       { x: CENTER - 100, y: CENTER + 280 },
       { x: CENTER - 300, y: CENTER + 50 },
     ],
-    "2": [
+    2: [
       { x: CENTER + 150, y: CENTER - 200 },
       { x: CENTER - 250, y: CENTER - 180 },
       { x: CENTER - 150, y: CENTER + 250 },
       { x: CENTER + 300, y: CENTER + 150 },
-      { x: CENTER + 50,  y: CENTER + 50 },
+      { x: CENTER + 50, y: CENTER + 50 },
     ],
-    "3": [
+    3: [
       { x: CENTER - 100, y: CENTER - 300 },
       { x: CENTER + 250, y: CENTER - 100 },
       { x: CENTER + 100, y: CENTER + 300 },
       { x: CENTER - 280, y: CENTER + 150 },
-      { x: CENTER - 50,  y: CENTER + 50 },
+      { x: CENTER - 50, y: CENTER + 50 },
     ],
   };
   const anchors = allAnchors[variant];
@@ -432,17 +447,27 @@ function buildOminous(variant) {
 
   // Extract edge band with red glow on ~33% of perimeter
   const redSectors = {
-    "1": [{ from: 0.2, to: 1.4 }, { from: 3.8, to: 4.8 }],
-    "2": [{ from: 1.5, to: 2.8 }, { from: 4.5, to: 5.5 }],
-    "3": [{ from: 0.8, to: 2.0 }, { from: 4.0, to: 5.0 }],
+    1: [
+      { from: 0.2, to: 1.4 },
+      { from: 3.8, to: 4.8 },
+    ],
+    2: [
+      { from: 1.5, to: 2.8 },
+      { from: 4.5, to: 5.5 },
+    ],
+    3: [
+      { from: 0.8, to: 2.0 },
+      { from: 4.0, to: 5.0 },
+    ],
   }[variant];
 
   const edgeBuf = new Float32Array(SIZE * SIZE);
   for (let i = 0; i < buf.length; i++) {
     const v = Math.max(0, buf[i]) / maxVal;
-    if (v < 0.10 || v > 0.45) continue;
+    if (v < 0.1 || v > 0.45) continue;
 
-    const px = i % SIZE, py = Math.floor(i / SIZE);
+    const px = i % SIZE,
+      py = Math.floor(i / SIZE);
     let angle = Math.atan2(py - CENTER, px - CENTER);
     if (angle < 0) angle += Math.PI * 2;
 
@@ -457,7 +482,7 @@ function buildOminous(variant) {
     }
     if (sectorWeight <= 0) continue;
 
-    const edgeness = 1 - Math.abs(v - 0.25) / 0.20;
+    const edgeness = 1 - Math.abs(v - 0.25) / 0.2;
     edgeBuf[i] = edgeness * edgeness * sectorWeight;
   }
 
@@ -473,25 +498,25 @@ function buildOminous(variant) {
 
   // Per-variant star anchors — small, near-white points placed inside the nebula mass.
   const allStars = {
-    "1": [
-      { x: CENTER - 80,  y: CENTER + 30 },
+    1: [
+      { x: CENTER - 80, y: CENTER + 30 },
       { x: CENTER + 200, y: CENTER - 120 },
       { x: CENTER - 150, y: CENTER + 200 },
     ],
-    "2": [
+    2: [
       { x: CENTER + 120, y: CENTER - 60 },
       { x: CENTER - 100, y: CENTER + 100 },
-      { x: CENTER + 50,  y: CENTER + 220 },
+      { x: CENTER + 50, y: CENTER + 220 },
       { x: CENTER - 200, y: CENTER - 80 },
       { x: CENTER + 250, y: CENTER + 150 },
     ],
-    "3": [
-      { x: CENTER - 50,  y: CENTER - 150 },
+    3: [
+      { x: CENTER - 50, y: CENTER - 150 },
       { x: CENTER + 150, y: CENTER + 50 },
-      { x: CENTER - 30,  y: CENTER + 180 },
+      { x: CENTER - 30, y: CENTER + 180 },
       { x: CENTER + 230, y: CENTER - 200 },
       { x: CENTER - 180, y: CENTER + 80 },
-      { x: CENTER + 80,  y: CENTER - 50 },
+      { x: CENTER + 80, y: CENTER - 50 },
       { x: CENTER - 250, y: CENTER - 180 },
     ],
   };

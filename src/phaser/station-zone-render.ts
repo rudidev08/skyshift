@@ -4,7 +4,7 @@ import type { StationZone } from "../sim-station-zone-types";
 import type { Selection, SelectionLabel, SelectionTarget } from "./selection-input";
 import type { StationSize } from "../../data/station-types";
 import { closeViewAlpha } from "./camera-fade";
-import { LABEL_STYLE } from "./viewport-culling";
+import { LABEL_STYLE } from "./text-styles";
 import { getStationZoneHudIcon } from "../render-hud-icon";
 import { announceStationZone } from "../audio-announcer";
 import { loadLucideSvgTexture } from "./texture-cache";
@@ -14,6 +14,8 @@ const ZONE_SIZE_LABELS: Record<StationSize, string> = { S: "Small", M: "Medium",
 const ZONE_ICON_TINT = 0x666666;
 const ZONE_ICON_MAP_SIZE = 80;
 export const ZONE_LABEL_Y_OFFSET = ZONE_ICON_MAP_SIZE / 2 + 8;
+
+export type MutableBooleanRef = { value: boolean };
 
 export type StationZoneVisualBundle = {
   zone: StationZone;
@@ -29,9 +31,9 @@ export function preloadStationZoneIcon(scene: Scene): void {
 export class StationZoneSelectionTarget implements SelectionTarget {
   readonly kind = "zone" as const;
   private readonly visualBundle: StationZoneVisualBundle;
-  private readonly zonesVisibleRef: { value: boolean };
+  private readonly zonesVisibleRef: MutableBooleanRef;
 
-  constructor(visualBundle: StationZoneVisualBundle, zonesVisibleRef: { value: boolean }) {
+  constructor(visualBundle: StationZoneVisualBundle, zonesVisibleRef: MutableBooleanRef) {
     this.visualBundle = visualBundle;
     this.zonesVisibleRef = zonesVisibleRef;
   }
@@ -45,7 +47,6 @@ export class StationZoneSelectionTarget implements SelectionTarget {
   }
 
   isActive(): boolean {
-    // Always present in the world.
     return true;
   }
 
@@ -60,10 +61,9 @@ export class StationZoneSelectionTarget implements SelectionTarget {
   }
 
   getSelectedLabel(): SelectionLabel {
-    const sizeSegment = ` · ${ZONE_SIZE_LABELS[this.visualBundle.zone.size]}`;
     return {
       iconUri: getStationZoneHudIcon(),
-      stackLabel: `Station Zone${sizeSegment}`,
+      stackLabel: `Station Zone · ${ZONE_SIZE_LABELS[this.visualBundle.zone.size]}`,
       name: this.visualBundle.zone.name,
       serialCode: this.visualBundle.zone.code,
       description: "",
@@ -88,7 +88,7 @@ export class StationZoneSelectionTarget implements SelectionTarget {
 export function createStationZoneVisualBundles(
   scene: Scene,
   zones: StationZone[],
-  zonesVisibleRef: { value: boolean },
+  zonesVisibleRef: MutableBooleanRef,
   selection: Selection,
 ): { visualBundles: StationZoneVisualBundle[]; selectionTargets: StationZoneSelectionTarget[] } {
   const visualBundles: StationZoneVisualBundle[] = [];
@@ -100,12 +100,10 @@ export function createStationZoneVisualBundles(
     image.setTint(ZONE_ICON_TINT);
     image.setVisible(false);
 
-    const label = scene.add.text(
-      zone.x,
-      zone.y + ZONE_LABEL_Y_OFFSET,
-      zone.name,
-      { ...LABEL_STYLE, fontSize: "40px" },
-    );
+    const label = scene.add.text(zone.x, zone.y + ZONE_LABEL_Y_OFFSET, zone.name, {
+      ...LABEL_STYLE,
+      fontSize: "40px",
+    });
     label.setOrigin(0.5, 0);
     label.setVisible(false);
 

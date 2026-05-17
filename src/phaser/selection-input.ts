@@ -1,5 +1,5 @@
 import { type Scene } from "phaser";
-import { isClickNotDrag } from "./viewport-culling";
+import { isClickNotDrag } from "./pointer-input";
 
 // Maximum screen-pixel distance from a tap to consider an object a candidate.
 const SELECTION_RADIUS_PIXELS = 80;
@@ -42,7 +42,7 @@ export interface SelectionTarget {
   canSelect(): boolean;
   /** HUD content for the info panel. */
   getSelectedLabel(): SelectionLabel;
-  /** Map position for the zoomed-out selection ring; null to hide. */
+  /** Map position used both for the zoomed-out selection ring and for the proximity picker; null hides the ring AND excludes the target from picker candidates. */
   getMapPosition(): { x: number; y: number } | null;
   /** True if the selection ring stays visible when zoomed in. Default: false
    *  (most targets only show the ring at distance). */
@@ -51,7 +51,7 @@ export interface SelectionTarget {
 
 /** Proximity picker, cycling, current target. No Phaser drawing here — the ring visual lives in `SelectionRingRender`. */
 export class Selection {
-  private current: SelectionTarget | null = null;
+  selectedTarget: SelectionTarget | null = null;
   private readonly registeredTargets = new Set<SelectionTarget>();
   private readonly scene: Scene;
   private destroyed = false;
@@ -59,7 +59,7 @@ export class Selection {
     if (!isClickNotDrag(pointer)) return;
     this.handleProximityClick(pointer, this.scene.cameras.main);
   };
-  enabled = true;
+  interactive = true;
   /** Restricts selection to matching kinds; null = all kinds allowed. */
   private allowedKinds: Set<SelectionKind> | null = null;
 
@@ -70,20 +70,15 @@ export class Selection {
   constructor(scene: Scene) {
     this.scene = scene;
 
-    // Single global handler — proximity picks the nearest selectable object.
     scene.input.on("pointerup", this.onPointerUp);
     scene.events.once("shutdown", () => this.destroy());
     scene.events.once("destroy", () => this.destroy());
   }
 
-  get target(): SelectionTarget | null {
-    return this.current;
-  }
-
   /** True when `target` is the currently-selected target. Lets render code
-   *  ask "draw this as selected?" without a per-entity flag. */
+   *  ask "draw this as selected?" without a per-game-object flag. */
   isSelected(target: SelectionTarget): boolean {
-    return this.current === target;
+    return this.selectedTarget === target;
   }
 
   register(target: SelectionTarget) {
@@ -94,39 +89,39 @@ export class Selection {
    *  Deselects any current target whose kind is no longer allowed. */
   setAllowedKinds(kinds: Set<SelectionKind> | null) {
     this.allowedKinds = kinds;
-    if (this.current && kinds && !kinds.has(this.current.kind)) {
+    if (this.selectedTarget && kinds && !kinds.has(this.selectedTarget.kind)) {
       this.deselect();
     }
   }
 
   unregister(target: SelectionTarget) {
     this.registeredTargets.delete(target);
-    if (this.current === target) {
-      this.current = null;
+    if (this.selectedTarget === target) {
+      this.selectedTarget = null;
     }
   }
 
   select(target: SelectionTarget) {
-    if (this.current === target) return;
-    this.current?.exitSelected();
-    this.current = target;
+    if (this.selectedTarget === target) return;
+    this.selectedTarget?.exitSelected();
+    this.selectedTarget = target;
     target.enterSelected();
   }
 
   deselect() {
-    this.current?.exitSelected();
-    this.current = null;
+    this.selectedTarget?.exitSelected();
+    this.selectedTarget = null;
   }
 
   /** Click handler: pick nearest selectable within a screen-pixel radius;
    *  tapping the same area cycles through nearby candidates; deselect if
    *  nothing's nearby or candidates exhausted. */
   private handleProximityClick(pointer: Phaser.Input.Pointer, camera: Phaser.Cameras.Scene2D.Camera) {
-    if (!this.enabled) return;
+    if (!this.interactive) return;
     const mapPoint = camera.getWorldPoint(pointer.upX, pointer.upY);
     const radiusMap = SELECTION_RADIUS_PIXELS / camera.zoom;
 
-    const candidates = this.findCandidatesNearPoint(mapPoint, radiusMap);
+    const candidates = this.collectCandidatesNearPoint(mapPoint, radiusMap);
 
     if (candidates.length === 0) {
       this.deselect();
@@ -141,7 +136,7 @@ export class Selection {
 
   /** Walk registered targets, keeping any that pass the kind / canSelect /
    *  position filters and sit within `radiusMap` of `mapPoint`. */
-  private findCandidatesNearPoint(
+  private collectCandidatesNearPoint(
     mapPoint: { x: number; y: number },
     radiusMap: number,
   ): { target: SelectionTarget; distance: number }[] {
@@ -171,13 +166,14 @@ export class Selection {
   ) {
     const screenDeltaX = pointer.upX - this.lastClickScreenX;
     const screenDeltaY = pointer.upY - this.lastClickScreenY;
-    const isSimilarArea = Math.sqrt(screenDeltaX * screenDeltaX + screenDeltaY * screenDeltaY) < SIMILAR_AREA_RADIUS_PIXELS;
+    const isSimilarArea =
+      Math.sqrt(screenDeltaX * screenDeltaX + screenDeltaY * screenDeltaY) < SIMILAR_AREA_RADIUS_PIXELS;
 
     this.lastClickScreenX = pointer.upX;
     this.lastClickScreenY = pointer.upY;
 
     const nearest = candidates[0];
-    if (isSimilarArea && this.current !== null && nearest.target === this.current) {
+    if (isSimilarArea && this.selectedTarget !== null && nearest.target === this.selectedTarget) {
       if (candidates.length > 1) {
         this.select(candidates[1].target);
       } else {
@@ -191,9 +187,9 @@ export class Selection {
   }
 
   /** Per-frame: auto-deselect stale targets (e.g. a ship that just landed). */
-  update() {
-    if (this.current && !this.current.isActive()) {
-      this.current = null;
+  pruneStaleTarget() {
+    if (this.selectedTarget && !this.selectedTarget.isActive()) {
+      this.selectedTarget = null;
     }
   }
 

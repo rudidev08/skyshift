@@ -9,20 +9,20 @@ export const DOM_INPUT_SHIELD_EVENT_TYPES = [
   "wheel",
 ] as const;
 
-export type BindEventFunction = (
+export type BindEventWithCleanupFunction = (
   target: EventTarget,
   type: string,
   listener: EventListener,
 ) => void;
 
-/** Caller passes its own `bindEvent` so the shield's listeners share the caller's cleanup lifecycle. */
+/** Caller passes its own `bindEventWithCleanup` so the shield's listeners share the caller's cleanup lifecycle. */
 export function shieldDomSurfaceFromPhaserInput(
-  bindEvent: BindEventFunction,
+  bindEventWithCleanup: BindEventWithCleanupFunction,
   target: EventTarget | null,
 ): void {
   if (!target) return;
   const stopEventPropagation: EventListener = (event) => event.stopPropagation();
   for (const eventType of DOM_INPUT_SHIELD_EVENT_TYPES) {
-    bindEvent(target, eventType, stopEventPropagation);
+    bindEventWithCleanup(target, eventType, stopEventPropagation);
   }
 }

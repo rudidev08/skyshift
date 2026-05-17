@@ -26,10 +26,7 @@ const cleanUrlRouteDefinitions = [
 export default defineConfig({
   base: "/",
   appType: "mpa",
-  plugins: [
-    htmlRoutePlugin(cleanUrlRouteDefinitions),
-    economyApiPlugin(),
-  ],
+  plugins: [htmlRoutePlugin(cleanUrlRouteDefinitions), economyApiPlugin()],
   build: {
     chunkSizeWarningLimit: 1500,
     rollupOptions: {

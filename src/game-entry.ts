@@ -2,20 +2,20 @@ import * as Phaser from "phaser";
 import { inject } from "@vercel/analytics";
 import type { GameViewMode } from "./game-view-mode";
 import type { GridMode } from "./phaser/sector-grid";
-import { getTimeAccelerationCycleButtonTitle, getTimePauseButtonTitle } from "./ui-speed-control-titles";
+import { getSpeedCycleButtonTitle, getSpeedPauseButtonTitle } from "./ui-speed-control-titles";
 import { enableAudio, disableAudio } from "./audio-announcer";
-import { loadKeyValueSetting } from "./storage-preferences";
+import { loadPreference } from "./storage-preferences";
 import { isDevModeEnabled } from "./util-devmode";
 import { setExtendedAllowedSpeeds } from "./phaser/time-controls";
 
-if (location.hostname !== 'localhost') {
+if (location.hostname !== "localhost") {
   inject({ scriptSrc: "/api/telemetry.js" });
 }
 import { backgroundConfig } from "../data/visuals-map-background";
 import type { GameMap } from "./sim-map-types";
 import type { GameSnapshot } from "./sim-save-types";
 import { Game, GAME_SCENE_KEY } from "./game";
-import { shieldDomSurfaceFromPhaserInput, type BindEventFunction } from "./ui-dom-input-shield";
+import { shieldDomSurfaceFromPhaserInput, type BindEventWithCleanupFunction } from "./ui-dom-input-shield";
 import { morseBarGradient } from "./render-morse-bar";
 import {
   showControlsRowForEditor,
@@ -95,7 +95,7 @@ export async function mountGameRuntime(options: GameRuntimeOptions) {
 
   setupSpeedHudControls(speedHud, keyboardShortcutsEnabled);
 
-  const game = createGameWithScene({
+  const game = bootPhaserGame({
     mapData: options.mapData,
     initialViewMode,
     requestedViewModeRef,
@@ -104,55 +104,92 @@ export async function mountGameRuntime(options: GameRuntimeOptions) {
   });
   activeGame = game;
 
+  const { cleanupCallbacks, bindEventWithCleanup } = createCleanupRegistry();
+
+  setupRuntimeControls({
+    game,
+    options,
+    speedHud,
+    requestedViewModeRef,
+    cleanupCallbacks,
+    bindEventWithCleanup,
+  });
+
+  return { game };
+}
+
+/** Cleanup-lifecycle pair for one runtime mount: a list of teardown callbacks
+ *  plus a bindEventWithCleanup that registers a DOM listener and queues its
+ *  removal onto that list. Returned together because the binder mutates the
+ *  list. */
+function createCleanupRegistry(): {
+  cleanupCallbacks: Array<() => void>;
+  bindEventWithCleanup: BindEventWithCleanupFunction;
+} {
   const cleanupCallbacks: Array<() => void> = [];
-  const bindEvent: BindEventFunction = (target, type, listener) => {
+  const bindEventWithCleanup: BindEventWithCleanupFunction = (target, type, listener) => {
     target.addEventListener(type, listener);
     cleanupCallbacks.push(() => target.removeEventListener(type, listener));
   };
+  return { cleanupCallbacks, bindEventWithCleanup };
+}
+
+function setupRuntimeControls(dependencies: {
+  game: Phaser.Game;
+  options: GameRuntimeOptions;
+  speedHud: HTMLElement | null;
+  requestedViewModeRef: { value: GameViewMode };
+  cleanupCallbacks: Array<() => void>;
+  bindEventWithCleanup: BindEventWithCleanupFunction;
+}): void {
+  const isEditorMode = dependencies.options.isEditorMode ?? false;
+  const keyboardShortcutsEnabled = dependencies.options.keyboardShortcutsEnabled ?? true;
 
   applyAudioPreference(isEditorMode);
 
-  const { cycleViewMode } = wireHudControls({
-    game,
+  const { cycleViewMode } = setupHudControls({
+    game: dependencies.game,
     isEditorMode,
-    requestedViewModeRef,
+    requestedViewModeRef: dependencies.requestedViewModeRef,
     persistViewMode: !isEditorMode,
-    bindEvent,
-    cleanupCallbacks,
+    bindEventWithCleanup: dependencies.bindEventWithCleanup,
+    cleanupCallbacks: dependencies.cleanupCallbacks,
   });
 
-  shieldHudFromPhaserInput(bindEvent, speedHud);
+  shieldHudFromPhaserInput(dependencies.bindEventWithCleanup, dependencies.speedHud);
 
-  const getScene = () => game.scene.getScene<Game>(GAME_SCENE_KEY);
+  const getScene = () => dependencies.game.scene.getScene<Game>(GAME_SCENE_KEY);
   // Shortcuts must not mutate the sim while the settings modal is open — the
   // keyboard handler reads isOpen() to gate.
-  const settingsPanel = isEditorMode ? null : setupSettingsPanel({
-    getScene,
-    cleanupCallbacks,
-    bindEvent,
-    remountWithSnapshot: (snapshot) => void mountGameRuntime({ ...options, initialSnapshot: snapshot }),
-  });
+  const settingsPanel = isEditorMode
+    ? null
+    : setupSettingsPanel({
+        getScene,
+        cleanupCallbacks: dependencies.cleanupCallbacks,
+        bindEventWithCleanup: dependencies.bindEventWithCleanup,
+        remountWithSnapshot: (snapshot) =>
+          void mountGameRuntime({ ...dependencies.options, initialSnapshot: snapshot }),
+      });
 
   installSnapshotDebugHook(getScene);
 
   if (keyboardShortcutsEnabled) {
     setupGlobalKeyboardShortcuts({
-      game,
+      game: dependencies.game,
       isSettingsPanelOpen: () => settingsPanel?.isOpen() ?? false,
       cycleViewMode,
-      bindEvent,
+      bindEventWithCleanup: dependencies.bindEventWithCleanup,
     });
   }
 
-  registerRuntimeDisposal(game, cleanupCallbacks);
-  return { game };
+  registerRuntimeDisposal(dependencies.game, dependencies.cleanupCallbacks);
 }
 
 function buildPhaserConfig(): Phaser.Types.Core.GameConfig {
   return {
     type: Phaser.AUTO,
     parent: "game-container",
-    backgroundColor: backgroundConfig.backgroundColor,
+    backgroundColor: backgroundConfig.color,
     scale: {
       mode: Phaser.Scale.RESIZE,
       autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -176,7 +213,7 @@ const PERSISTENT_VIEW_MODES: GameViewMode[] = ["normal", "zones"];
  *  otherwise drop the editor into zones/overview HUD chrome on open. */
 function resolveInitialViewMode(isEditorMode: boolean): GameViewMode {
   if (isEditorMode) return "normal";
-  const savedViewMode = loadKeyValueSetting("viewMode", "normal");
+  const savedViewMode = loadPreference("viewMode", "normal");
   return (PERSISTENT_VIEW_MODES as string[]).includes(savedViewMode)
     ? (savedViewMode as GameViewMode)
     : "normal";
@@ -187,8 +224,8 @@ function setupSpeedHudControls(speedHud: HTMLElement | null, keyboardShortcutsEn
   const speedCycleButton = speedHud?.querySelector<HTMLButtonElement>("#speed-cycle-btn") ?? null;
 
   if (speedHud) speedHud.dataset.keyboardShortcutsEnabled = String(keyboardShortcutsEnabled);
-  speedPauseButton?.setAttribute("title", getTimePauseButtonTitle(false, keyboardShortcutsEnabled));
-  speedCycleButton?.setAttribute("title", getTimeAccelerationCycleButtonTitle(keyboardShortcutsEnabled));
+  speedPauseButton?.setAttribute("title", getSpeedPauseButtonTitle(false, keyboardShortcutsEnabled));
+  speedCycleButton?.setAttribute("title", getSpeedCycleButtonTitle(keyboardShortcutsEnabled));
 
   if (!isDevModeEnabled() || !speedHud) return;
   // Devmode unlocks 20× / 60× speed pills for debugging.
@@ -198,7 +235,7 @@ function setupSpeedHudControls(speedHud: HTMLElement | null, keyboardShortcutsEn
   }
 }
 
-function createGameWithScene(scene: {
+function bootPhaserGame(sceneInit: {
   mapData: GameMap;
   initialViewMode: GameViewMode;
   requestedViewModeRef: { value: GameViewMode };
@@ -207,54 +244,57 @@ function createGameWithScene(scene: {
 }): Phaser.Game {
   const game = new Phaser.Game(buildPhaserConfig());
   game.scene.add(GAME_SCENE_KEY, Game, true, {
-    map: scene.mapData,
-    initialViewMode: scene.initialViewMode,
-    requestedViewModeRef: scene.requestedViewModeRef,
-    initialGridMode: (scene.isEditorMode ? "auto" : undefined) as GridMode | undefined,
-    persistGridMode: !scene.isEditorMode,
-    isEditorMode: scene.isEditorMode,
-    initialSnapshot: scene.initialSnapshot,
+    map: sceneInit.mapData,
+    initialViewMode: sceneInit.initialViewMode,
+    requestedViewModeRef: sceneInit.requestedViewModeRef,
+    initialGridMode: (sceneInit.isEditorMode ? "auto" : undefined) as GridMode | undefined,
+    persistGridMode: !sceneInit.isEditorMode,
+    isEditorMode: sceneInit.isEditorMode,
+    initialSnapshot: sceneInit.initialSnapshot,
   });
   return game;
 }
 
 function applyAudioPreference(isEditorMode: boolean): void {
   if (isEditorMode) return;
-  if (loadKeyValueSetting("audioEnabled", "false") === "true") enableAudio();
+  if (loadPreference("audioEnabled", "true") === "true") enableAudio();
   else disableAudio();
 }
 
-function wireHudControls(dependencies: {
+function setupHudControls(dependencies: {
   game: Phaser.Game;
   isEditorMode: boolean;
   requestedViewModeRef: { value: GameViewMode };
   persistViewMode: boolean;
-  bindEvent: BindEventFunction;
+  bindEventWithCleanup: BindEventWithCleanupFunction;
   cleanupCallbacks: Array<() => void>;
 }): { cycleViewMode: () => void } {
   if (dependencies.isEditorMode) {
     showControlsRowForEditor();
   } else {
-    setupControlsToggleRow({ bindEvent: dependencies.bindEvent });
+    setupControlsToggleRow({ bindEventWithCleanup: dependencies.bindEventWithCleanup });
   }
   const viewMode = setupViewModeToggles({
     game: dependencies.game,
     requestedViewModeRef: dependencies.requestedViewModeRef,
     persistViewMode: dependencies.persistViewMode,
-    bindEvent: dependencies.bindEvent,
+    bindEventWithCleanup: dependencies.bindEventWithCleanup,
   });
-  setupInfoCardCollapse({ bindEvent: dependencies.bindEvent });
-  setupLoreAndLogPanelToggles({ bindEvent: dependencies.bindEvent });
+  setupInfoCardCollapse({ bindEventWithCleanup: dependencies.bindEventWithCleanup });
+  setupLoreAndLogPanelToggles({ bindEventWithCleanup: dependencies.bindEventWithCleanup });
   setupFloatingPanelStacking(dependencies.cleanupCallbacks);
   return viewMode;
 }
 
-function shieldHudFromPhaserInput(bindEvent: BindEventFunction, speedHud: HTMLElement | null): void {
-  shieldDomSurfaceFromPhaserInput(bindEvent, document.getElementById("hud-bar"));
-  shieldDomSurfaceFromPhaserInput(bindEvent, speedHud);
-  shieldDomSurfaceFromPhaserInput(bindEvent, document.getElementById("overlay-info"));
-  shieldDomSurfaceFromPhaserInput(bindEvent, document.getElementById("lore-box"));
-  shieldDomSurfaceFromPhaserInput(bindEvent, document.getElementById("details-box"));
+function shieldHudFromPhaserInput(
+  bindEventWithCleanup: BindEventWithCleanupFunction,
+  speedHud: HTMLElement | null,
+): void {
+  shieldDomSurfaceFromPhaserInput(bindEventWithCleanup, document.getElementById("hud-bar"));
+  shieldDomSurfaceFromPhaserInput(bindEventWithCleanup, speedHud);
+  shieldDomSurfaceFromPhaserInput(bindEventWithCleanup, document.getElementById("overlay-info"));
+  shieldDomSurfaceFromPhaserInput(bindEventWithCleanup, document.getElementById("lore-box"));
+  shieldDomSurfaceFromPhaserInput(bindEventWithCleanup, document.getElementById("details-box"));
 }
 
 function registerRuntimeDisposal(game: Phaser.Game, cleanupCallbacks: Array<() => void>): void {
@@ -283,8 +323,9 @@ function registerRuntimeDisposal(game: Phaser.Game, cleanupCallbacks: Array<() =
   });
 }
 
-const route = parseRoute(window.location.pathname);
-if (route) {
+function startGameFromUrlRoute(): void {
+  const route = parseRoute(window.location.pathname);
+  if (!route) return;
   const run = route.kind === "start" ? startFromPreset(route.presetId) : continueUniverse();
   run.catch((error) => {
     console.error(error);
@@ -294,3 +335,5 @@ if (route) {
     renderLoadError(message, stack);
   });
 }
+
+startGameFromUrlRoute();

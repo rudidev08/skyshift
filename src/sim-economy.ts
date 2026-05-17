@@ -1,26 +1,27 @@
 import { economyConfig } from "../data/economy-config";
 import type { WareId } from "../data/ware-types";
-import { adjustForStation, getInventorySlot, type Station, type InventorySlot } from "./sim-station";
+import { scaleByStationSize, getInventorySlot, type Station, type InventorySlot } from "./sim-station";
 import { getWareTemplate } from "./sim-ware-template";
+import type { WareTemplate } from "../data/ware-types";
 
 /** Per-simulation tick counter and sub-tick accumulator. Snapshots persist
- *  only `tick`; secondsSinceLastTick re-zeros on load. */
+ *  only `tickCount`; `secondsSinceLastTick` re-zeros on load. */
 export class EconomyTimer {
   /** Wall-clock seconds accumulated since the last sim tick fired. */
   private secondsSinceLastTick = 0;
   /** Sim ticks since the last reset. UI throttling reads this. */
-  tick = 0;
+  tickCount = 0;
 
   reset(): void {
     this.secondsSinceLastTick = 0;
-    this.tick = 0;
+    this.tickCount = 0;
   }
 
-  advance(deltaSeconds: number): void {
+  tick(deltaSeconds: number): void {
     this.secondsSinceLastTick += deltaSeconds;
     if (this.secondsSinceLastTick >= economyConfig.simulationIntervalSeconds) {
       this.secondsSinceLastTick -= economyConfig.simulationIntervalSeconds;
-      this.tick++;
+      this.tickCount++;
     }
   }
 }
@@ -31,7 +32,7 @@ export function staggerStationTicks(stations: Station[]) {
   for (let i = 0; i < stations.length; i++) {
     // Negative offsets spread each station's first tick evenly across one
     // interval, so production doesn't all land on the same frame.
-    stations[i].secondsSinceLastTick = -(interval * i / stations.length);
+    stations[i].secondsSinceLastTick = -((interval * i) / stations.length);
   }
 }
 
@@ -40,19 +41,14 @@ export function staggerStationTicks(stations: Station[]) {
  *  enough stock past its outgoing reservation. Returns true if a batch ran. */
 function tickWareProductionIfReady(station: Station, wareId: WareId): boolean {
   const ware = getWareTemplate(wareId);
-  // Sink wares consume without producing, so there's no output slot to gate on.
-  const isSinkWare = ware.productionOutput === 0;
-  if (!isSinkWare) {
-    const outputSlot = getInventorySlot(station, wareId);
-    if (!outputSlot || outputSlot.current >= outputSlot.max) return false;
-  }
+  if (!hasProductionOutputRoom(station, ware, wareId)) return false;
 
   // Pre-compute adjusted costs so the deduction pass reuses them. Only
   // populated if every input passes its precondition.
   const deductions: Array<{ slot: InventorySlot; adjustedCost: number }> = [];
   for (const input of ware.productionInputs) {
     const inputSlot = getInventorySlot(station, input.wareId);
-    const adjustedCost = adjustForStation(input.unitsPerTick, station);
+    const adjustedCost = scaleByStationSize(input.unitsPerTick, station);
     // Don't consume cargo a trade ship has already claimed for pickup.
     if (!inputSlot || inputSlot.current - inputSlot.reservedOutgoing < adjustedCost) {
       return false;
@@ -64,11 +60,24 @@ function tickWareProductionIfReady(station: Station, wareId: WareId): boolean {
     slot.current -= adjustedCost;
   }
 
-  if (!isSinkWare) {
-    const outputSlot = getInventorySlot(station, wareId)!;
-    outputSlot.current = Math.min(outputSlot.max, outputSlot.current + adjustForStation(ware.productionOutput, station));
-  }
+  creditProductionOutput(station, ware, wareId);
   return true;
+}
+
+function hasProductionOutputRoom(station: Station, ware: WareTemplate, wareId: WareId): boolean {
+  // Sink wares consume without producing — no output slot to gate on.
+  if (ware.productionOutput === 0) return true;
+  const outputSlot = getInventorySlot(station, wareId);
+  return !!outputSlot && outputSlot.current < outputSlot.max;
+}
+
+function creditProductionOutput(station: Station, ware: WareTemplate, wareId: WareId): void {
+  if (ware.productionOutput === 0) return;
+  const outputSlot = getInventorySlot(station, wareId)!;
+  outputSlot.current = Math.min(
+    outputSlot.max,
+    outputSlot.current + scaleByStationSize(ware.productionOutput, station),
+  );
 }
 
 /** Advance one station's tick clock and run its production pass when the per-station
@@ -86,7 +95,7 @@ function tickStationProduction(station: Station, deltaSeconds: number): void {
 }
 
 export function tickEconomy(stations: Station[], timer: EconomyTimer, deltaSeconds: number) {
-  timer.advance(deltaSeconds);
+  timer.tick(deltaSeconds);
   for (const station of stations) {
     tickStationProduction(station, deltaSeconds);
   }

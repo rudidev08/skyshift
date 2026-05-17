@@ -1,15 +1,12 @@
-// Round-trip preservation: captureSnapshot → applySnapshot → captureSnapshot
+// Round-trip preservation: captureSnapshot → restoreSavedGame → captureSnapshot
 // produces an equivalent snapshot for the meaningful fields. Field-level
 // asserts run first so a regression names the broken field, then a
 // full-payload JSON compare backstops everything else.
 
 import { test, assertEqual, assertTrue, assertNotUndefined } from "./test-utils.ts";
-import { captureSnapshot, applySnapshot } from "../ui-savegame-manager.ts";
+import { captureSnapshot, restoreSavedGame } from "../ui-savegame-manager.ts";
 import { getInventorySlot } from "../sim-station.ts";
-import {
-  setupFreshTestGame,
-  stripVolatileFields,
-} from "./savegame-test-fixtures.ts";
+import { setupFreshTestGame, stripVolatileFields } from "./savegame-test-fixtures.ts";
 
 test("savegame roundtrip preserves state for mid-trip ships", () => {
   const sourceGame = setupFreshTestGame();
@@ -30,7 +27,7 @@ test("savegame roundtrip preserves state for mid-trip ships", () => {
   );
 
   const restoredGame = setupFreshTestGame();
-  applySnapshot(restoredGame as never, snapshot1);
+  restoreSavedGame(restoredGame as never, snapshot1);
 
   const snapshot2 = captureSnapshot(restoredGame as never);
 
@@ -40,12 +37,19 @@ test("savegame roundtrip preserves state for mid-trip ships", () => {
   assertEqual(snapshot1.stations.length, snapshot2.stations.length, "station count preserved");
   assertEqual(snapshot1.ships.length, snapshot2.ships.length, "ship count preserved");
   assertEqual(snapshot1.version, snapshot2.version, "save version preserved");
-  // Anchor simTick on its absolute value, not just round-trip equality —
-  // a captureSnapshot that hardcoded simTick to 0 would still produce two
-  // matching snapshots, since restoredGame's applySnapshot would carry the
+  // Anchor simulationTick on its absolute value, not just round-trip equality —
+  // a captureSnapshot that hardcoded simulationTick to 0 would still produce two
+  // matching snapshots, since restoredGame's restoreSavedGame would carry the
   // wrong value through. Tick must reflect the 120 ticks sourceGame ran.
-  assertTrue(snapshot1.simTick > 0, `snapshot1.simTick should reflect ticks run, got ${snapshot1.simTick}`);
-  assertEqual(restoredGame.economyTimer.tick, snapshot1.simTick, "applySnapshot restored sim tick to captured value");
+  assertTrue(
+    snapshot1.simulationTick > 0,
+    `snapshot1.simulationTick should reflect ticks run, got ${snapshot1.simulationTick}`,
+  );
+  assertEqual(
+    restoredGame.simulation.economyTimer.tickCount,
+    snapshot1.simulationTick,
+    "restoreSavedGame restored sim tick to captured value",
+  );
 
   // Anchor inFlight derivation on the trade manager's actual flying set —
   // a flipped predicate (`flight === null`) or negated `.has(...)` would
@@ -87,20 +91,20 @@ test("savegame roundtrip: building station's slot.max derives from waresRequired
 
   // Push the first station into "building" with non-zero current and
   // reservations on provisions+hulls so each field gets its own assertion.
-  const target = snapshot.stations[0];
-  target.state = "building";
-  target.build = { waresRequired: { provisions: 250, hulls: 80 } };
-  target.inventory = [
+  const targetStationSnapshot = snapshot.stations[0];
+  targetStationSnapshot.state = "building";
+  targetStationSnapshot.build = { waresRequired: { provisions: 250, hulls: 80 } };
+  targetStationSnapshot.inventory = [
     { wareId: "provisions", current: 100, reservedIncoming: 5, reservedOutgoing: 0 },
     { wareId: "hulls", current: 30, reservedIncoming: 0, reservedOutgoing: 2 },
   ];
 
   const restoredGame = setupFreshTestGame();
-  applySnapshot(restoredGame as never, snapshot);
+  restoreSavedGame(restoredGame as never, snapshot);
 
   const restored = assertNotUndefined(
-    restoredGame.stations.find((station) => station.id === target.id),
-    `restored station ${target.id}`,
+    restoredGame.stations.find((station) => station.id === targetStationSnapshot.id),
+    `restored station ${targetStationSnapshot.id}`,
   );
   assertEqual(restored.state, "building", "state preserved");
 

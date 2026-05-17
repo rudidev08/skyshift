@@ -9,7 +9,7 @@ import { sizeMultiplierBySize } from "../../../data/stations.ts";
 import type { StationSize } from "../../../data/station-types.ts";
 import { allWares } from "../../../data/wares.ts";
 import type { WareId } from "../../../data/ware-types.ts";
-import { createMapFromTemplate } from "../../sim-map-builder.ts";
+import { createMapFromTemplate } from "../../sim-map-create.ts";
 import { createStation, getStationRates, type Station } from "../../sim-station.ts";
 import { getWareTemplate } from "../../sim-ware-template.ts";
 
@@ -73,30 +73,42 @@ function aggregateProductionAndConsumption(stations: Station[]): ProductionAggre
   const wareConsumersByInputWareId = new Map<WareId, WareConsumer[]>();
 
   for (const station of stations) {
-    const stationRates = getStationRates(station);
-
-    for (const [wareId, amount] of stationRates.production) {
-      addWareAmount(totalProductionByWareId, wareId, amount);
-    }
-
-    for (const [wareId, amount] of stationRates.consumption) {
-      addWareAmount(totalConsumptionByWareId, wareId, amount);
-    }
-
-    for (const producedWareId of station.stationType.produces) {
-      const producedWare = getWareTemplate(producedWareId);
-      for (const productionInput of producedWare.productionInputs) {
-        recordWareConsumer(wareConsumersByInputWareId, {
-          inputWareId: productionInput.wareId,
-          producedWareId,
-          currentCost: productionInput.unitsPerTick,
-          multiplier: station.sizeMultiplier,
-        });
-      }
-    }
+    addStationRatesToTotals(station, totalProductionByWareId, totalConsumptionByWareId);
+    addStationToWareConsumerRegistry(station, wareConsumersByInputWareId);
   }
 
   return { totalProductionByWareId, totalConsumptionByWareId, wareConsumersByInputWareId };
+}
+
+function addStationRatesToTotals(
+  station: Station,
+  totalProductionByWareId: Map<WareId, number>,
+  totalConsumptionByWareId: Map<WareId, number>,
+): void {
+  const stationRates = getStationRates(station);
+  for (const [wareId, amount] of stationRates.production) {
+    addWareAmount(totalProductionByWareId, wareId, amount);
+  }
+  for (const [wareId, amount] of stationRates.consumption) {
+    addWareAmount(totalConsumptionByWareId, wareId, amount);
+  }
+}
+
+function addStationToWareConsumerRegistry(
+  station: Station,
+  wareConsumersByInputWareId: Map<WareId, WareConsumer[]>,
+): void {
+  for (const producedWareId of station.stationType.produces) {
+    const producedWare = getWareTemplate(producedWareId);
+    for (const productionInput of producedWare.productionInputs) {
+      recordWareConsumer(wareConsumersByInputWareId, {
+        inputWareId: productionInput.wareId,
+        producedWareId,
+        currentCost: productionInput.unitsPerTick,
+        multiplier: station.sizeMultiplier,
+      });
+    }
+  }
 }
 
 interface BruteForceResult {
@@ -105,7 +117,11 @@ interface BruteForceResult {
   isExact: boolean;
 }
 
-function solveBruteForceFloorCeil(idealCosts: number[], consumers: WareConsumer[], produced: number): BruteForceResult {
+function findBestFloorCeilCombination(
+  idealCosts: number[],
+  consumers: WareConsumer[],
+  produced: number,
+): BruteForceResult {
   const combinationCount = 1 << consumers.length;
   let bestCombination: number[] = [];
   let bestNetAbsoluteValue = Infinity;
@@ -113,7 +129,8 @@ function solveBruteForceFloorCeil(idealCosts: number[], consumers: WareConsumer[
 
   for (let mask = 0; mask < combinationCount; mask++) {
     const combination = consumers.map((_, index) => {
-      const value = (mask & (1 << index)) ? Math.ceil(idealCosts[index]) : Math.floor(idealCosts[index]);
+      // Recipe ingredients can't be zero — enforce minimum cost 1.
+      const value = mask & (1 << index) ? Math.ceil(idealCosts[index]) : Math.floor(idealCosts[index]);
       return Math.max(1, value);
     });
     const total = combination.reduce((sum, cost, index) => sum + cost * consumers[index].totalMultiplier, 0);
@@ -147,16 +164,16 @@ function describeFactorAsStationSizeCombination(factor: number): string {
   // suggestions than the equivalent "S+S+S".
   for (let stationCount = 1; stationCount <= maximumStationCount; stationCount++) {
     const sizes: StationSize[] = ["S", "M", "L"];
-    const tryCombination = (remaining: number, target: number, chosen: string[]): void => {
+    const enumerateSizesSummingTo = (remaining: number, target: number, chosen: string[]): void => {
       if (remaining === 0) {
         if (Math.abs(target) < 0.001) combinations.push(chosen.join("+"));
         return;
       }
       for (const size of sizes) {
-        tryCombination(remaining - 1, target - sizeMultiplierBySize[size], [...chosen, size]);
+        enumerateSizesSummingTo(remaining - 1, target - sizeMultiplierBySize[size], [...chosen, size]);
       }
     };
-    tryCombination(stationCount, factor, []);
+    enumerateSizesSummingTo(stationCount, factor, []);
     if (combinations.length > 0) break;
   }
 
@@ -191,10 +208,22 @@ interface MultiConsumerSolveResult {
 }
 
 type WareBalanceAnalysis =
-  | { kind: "no-data"; ware: typeof allWares[number] }
-  | { kind: "no-consumers"; ware: typeof allWares[number]; produced: number; consumed: number }
-  | { kind: "single"; ware: typeof allWares[number]; produced: number; consumed: number; result: SingleConsumerSolveResult }
-  | { kind: "multi"; ware: typeof allWares[number]; produced: number; consumed: number; result: MultiConsumerSolveResult };
+  | { kind: "no-data"; ware: (typeof allWares)[number] }
+  | { kind: "no-consumers"; ware: (typeof allWares)[number]; produced: number; consumed: number }
+  | {
+      kind: "single";
+      ware: (typeof allWares)[number];
+      produced: number;
+      consumed: number;
+      result: SingleConsumerSolveResult;
+    }
+  | {
+      kind: "multi";
+      ware: (typeof allWares)[number];
+      produced: number;
+      consumed: number;
+      result: MultiConsumerSolveResult;
+    };
 
 function solveSingleConsumer(produced: number, consumer: WareConsumer): SingleConsumerSolveResult {
   const idealCost = produced / consumer.totalMultiplier;
@@ -209,25 +238,42 @@ function solveSingleConsumer(produced: number, consumer: WareConsumer): SingleCo
   const bestCost = isExact || Math.abs(floorNet) <= Math.abs(ceilNet) ? floorCost : ceilCost;
   const bestNet = bestCost === floorCost ? floorNet : ceilNet;
 
-  return { consumer, idealCost, floorCost, ceilCost, floorNet, ceilNet, bestCost, bestNet, isExact };
+  return {
+    consumer,
+    idealCost,
+    floorCost,
+    ceilCost,
+    floorNet,
+    ceilNet,
+    bestCost,
+    bestNet,
+    isExact,
+  };
 }
 
-function solveMultiConsumer(produced: number, consumed: number, consumers: WareConsumer[]): MultiConsumerSolveResult {
+function solveMultiConsumer(
+  produced: number,
+  consumed: number,
+  consumers: WareConsumer[],
+): MultiConsumerSolveResult {
   const currentNet = produced - consumed;
 
-  // Preserve authored recipe ratios when retargeting to net zero — split
+  // Preserve the original recipe ratios when retargeting to net zero — split
   // produced units across consumers by each consumer's current cost-weighted
   // share of total consumption.
   const idealCosts = consumers.map((consumer) => {
     const share = (consumer.currentCost * consumer.totalMultiplier) / consumed;
-    return produced * share / consumer.totalMultiplier;
+    return (produced * share) / consumer.totalMultiplier;
   });
 
-  const { bestCombination, bestNet, isExact } = solveBruteForceFloorCeil(idealCosts, consumers, produced);
+  const { bestCombination, bestNet, isExact } = findBestFloorCeilCombination(idealCosts, consumers, produced);
   return { consumers, idealCosts, chosenCosts: bestCombination, currentNet, bestNet, isExact };
 }
 
-function analyzeWareBalance(ware: typeof allWares[number], aggregate: ProductionAggregate): WareBalanceAnalysis {
+function analyzeWareBalance(
+  ware: (typeof allWares)[number],
+  aggregate: ProductionAggregate,
+): WareBalanceAnalysis {
   const produced = aggregate.totalProductionByWareId.get(ware.id) ?? 0;
   const consumed = aggregate.totalConsumptionByWareId.get(ware.id) ?? 0;
   const consumers = aggregate.wareConsumersByInputWareId.get(ware.id) ?? [];
@@ -235,14 +281,32 @@ function analyzeWareBalance(ware: typeof allWares[number], aggregate: Production
   if (produced === 0 && consumers.length === 0) return { kind: "no-data", ware };
   if (consumers.length === 0) return { kind: "no-consumers", ware, produced, consumed };
   if (consumers.length === 1) {
-    return { kind: "single", ware, produced, consumed, result: solveSingleConsumer(produced, consumers[0]) };
+    return {
+      kind: "single",
+      ware,
+      produced,
+      consumed,
+      result: solveSingleConsumer(produced, consumers[0]),
+    };
   }
-  return { kind: "multi", ware, produced, consumed, result: solveMultiConsumer(produced, consumed, consumers) };
+  return {
+    kind: "multi",
+    ware,
+    produced,
+    consumed,
+    result: solveMultiConsumer(produced, consumed, consumers),
+  };
 }
 
 function collectSolvedCostEntries(analysis: WareBalanceAnalysis): SolvedCostEntry[] {
   if (analysis.kind === "single") {
-    return [{ producingWareId: analysis.result.consumer.producingWareId, inputWareId: analysis.ware.id, cost: analysis.result.bestCost }];
+    return [
+      {
+        producingWareId: analysis.result.consumer.producingWareId,
+        inputWareId: analysis.ware.id,
+        cost: analysis.result.bestCost,
+      },
+    ];
   }
   if (analysis.kind === "multi") {
     return analysis.result.consumers.map((consumer, index) => ({
@@ -260,11 +324,17 @@ function analysisHasIssue(analysis: WareBalanceAnalysis): boolean {
   return false;
 }
 
-function printSingleConsumerResult(ware: typeof allWares[number], produced: number, result: SingleConsumerSolveResult): void {
+function printSingleConsumerResult(
+  ware: (typeof allWares)[number],
+  produced: number,
+  result: SingleConsumerSolveResult,
+): void {
   const { consumer, idealCost, floorCost, ceilCost, floorNet, ceilNet, bestCost, bestNet, isExact } = result;
 
   if (isExact) {
-    console.log(`    ${consumer.label}: cost ${consumer.currentCost} → ${floorCost} (factor ${consumer.totalMultiplier})  ✓ exact`);
+    console.log(
+      `    ${consumer.label}: cost ${consumer.currentCost} → ${floorCost} (factor ${consumer.totalMultiplier})  ✓ exact`,
+    );
     if (floorCost !== consumer.currentCost) console.log(`      ← CHANGE`);
     return;
   }
@@ -286,10 +356,14 @@ function printSingleConsumerSuggestions(wareId: WareId, produced: number, consum
   const productionAbove = multipleAbove * factor;
 
   if (productionBelow !== produced) {
-    console.log(`      • Change ${wareId} total production from ${produced} to ${productionBelow} (cost = ${multipleBelow})`);
+    console.log(
+      `      • Change ${wareId} total production from ${produced} to ${productionBelow} (cost = ${multipleBelow})`,
+    );
   }
   if (productionAbove !== produced) {
-    console.log(`      • Change ${wareId} total production from ${produced} to ${productionAbove} (cost = ${multipleAbove})`);
+    console.log(
+      `      • Change ${wareId} total production from ${produced} to ${productionAbove} (cost = ${multipleAbove})`,
+    );
   }
 
   const nearbyFactors = findFactorsThatDivideEvenly(produced, factor);
@@ -297,12 +371,18 @@ function printSingleConsumerSuggestions(wareId: WareId, produced: number, consum
     const closest = nearbyFactors.sort((a, b) => Math.abs(a - factor) - Math.abs(b - factor)).slice(0, 3);
     for (const testFactor of closest) {
       const stationSizes = describeFactorAsStationSizeCombination(testFactor);
-      console.log(`      • Change consuming station factor to ${testFactor} (${stationSizes}) → cost = ${produced / testFactor}`);
+      console.log(
+        `      • Change consuming station factor to ${testFactor} (${stationSizes}) → cost = ${produced / testFactor}`,
+      );
     }
   }
 }
 
-function printMultiConsumerResult(ware: typeof allWares[number], produced: number, result: MultiConsumerSolveResult): void {
+function printMultiConsumerResult(
+  ware: (typeof allWares)[number],
+  produced: number,
+  result: MultiConsumerSolveResult,
+): void {
   const { consumers, idealCosts, chosenCosts, currentNet, bestNet, isExact } = result;
 
   for (let index = 0; index < consumers.length; index++) {
@@ -311,7 +391,9 @@ function printMultiConsumerResult(ware: typeof allWares[number], produced: numbe
     const chosen = chosenCosts[index];
     const marker = chosen !== consumer.currentCost ? " ← CHANGE" : "";
     const exactMarker = ideal === chosen ? "  ✓ exact" : "";
-    console.log(`    ${consumer.label}: cost ${consumer.currentCost} → ${chosen} (ideal ${ideal.toFixed(4)}, factor ${consumer.totalMultiplier})${exactMarker}${marker}`);
+    console.log(
+      `    ${consumer.label}: cost ${consumer.currentCost} → ${chosen} (ideal ${ideal.toFixed(4)}, factor ${consumer.totalMultiplier})${exactMarker}${marker}`,
+    );
   }
 
   if (isExact) {
@@ -332,17 +414,22 @@ function printMultiConsumerSuggestions(wareId: WareId, produced: number, consume
     const testProduction = produced + delta;
     if (testProduction <= 0 || testProduction === produced) continue;
 
-    const totalConsumption = consumers.reduce((sum, consumer) => sum + consumer.currentCost * consumer.totalMultiplier, 0);
+    const totalConsumption = consumers.reduce(
+      (sum, consumer) => sum + consumer.currentCost * consumer.totalMultiplier,
+      0,
+    );
     let allInteger = true;
     const testCosts: number[] = [];
     for (const consumer of consumers) {
       const share = (consumer.currentCost * consumer.totalMultiplier) / totalConsumption;
-      const testCost = testProduction * share / consumer.totalMultiplier;
+      const testCost = (testProduction * share) / consumer.totalMultiplier;
       testCosts.push(testCost);
       if (Math.abs(testCost - Math.round(testCost)) > 0.001) allInteger = false;
     }
     if (allInteger) {
-      const costString = consumers.map((consumer, index) => `${consumer.producingWareId} cost ${Math.round(testCosts[index])}`).join(", ");
+      const costString = consumers
+        .map((consumer, index) => `${consumer.producingWareId} cost ${Math.round(testCosts[index])}`)
+        .join(", ");
       console.log(`      • Change ${wareId} total production to ${testProduction} → [${costString}]`);
     }
   }
@@ -370,28 +457,39 @@ function printPreamble(): void {
   console.log("\n  Economy Balance Solver (integer costs)");
   console.log(`  ${"═".repeat(60)}`);
   console.log("  Uses current map, ware, and station game data.");
-  console.log("  Static balance only: use ./dev/economy/report.sh for ship logistics and full game-loop validation.");
+  console.log(
+    "  Static balance only: use ./dev/economy/report.sh for ship logistics and full game-loop validation.",
+  );
 }
 
 function pairKey(producingWareId: WareId, inputWareId: WareId): string {
   return `${producingWareId}:${inputWareId}`;
 }
 
-function printCodeReadyWareDefinition(ware: typeof allWares[number], solvedCostByProducerInputPair: Map<string, number>): void {
+function printCodeReadyWareDefinition(
+  ware: (typeof allWares)[number],
+  solvedCostByProducerInputPair: Map<string, number>,
+): void {
   const costEntries: string[] = [];
   for (const input of ware.productionInputs) {
-    const solvedCost = solvedCostByProducerInputPair.get(pairKey(ware.id, input.wareId)) ?? input.unitsPerTick;
+    const solvedCost =
+      solvedCostByProducerInputPair.get(pairKey(ware.id, input.wareId)) ?? input.unitsPerTick;
     costEntries.push(`{ wareId: "${input.wareId}", unitsPerTick: ${solvedCost} }`);
   }
 
   if (costEntries.length === 0) {
     console.log(`    ${ware.id}: output ${ware.productionOutput}`);
   } else {
-    console.log(`    ${ware.id}: output ${ware.productionOutput}, productionInputs: [${costEntries.join(", ")}]`);
+    console.log(
+      `    ${ware.id}: output ${ware.productionOutput}, productionInputs: [${costEntries.join(", ")}]`,
+    );
   }
 }
 
-function printSummaryAndCodeReadyValues(solvedCostByProducerInputPair: Map<string, number>, hasIssues: boolean): void {
+function printSummaryAndCodeReadyValues(
+  solvedCostByProducerInputPair: Map<string, number>,
+  hasIssues: boolean,
+): void {
   console.log(`\n\n  ${"═".repeat(60)}`);
   if (hasIssues) {
     console.log("  Code-ready values (best integer approximation — see warnings above):");
@@ -408,21 +506,29 @@ function printSummaryAndCodeReadyValues(solvedCostByProducerInputPair: Map<strin
   console.log("");
 }
 
-const liveStations = createLiveStations();
-const aggregate = aggregateProductionAndConsumption(liveStations);
-
-printPreamble();
-
-const solvedCostByProducerInputPair = new Map<string, number>();
-let hasIssues = false;
-
-for (const ware of allWares) {
-  const analysis = analyzeWareBalance(ware, aggregate);
-  printWareBalanceAnalysis(analysis);
-  for (const entry of collectSolvedCostEntries(analysis)) {
-    solvedCostByProducerInputPair.set(pairKey(entry.producingWareId, entry.inputWareId), entry.cost);
+function analyzeAllWares(aggregate: ProductionAggregate): {
+  solvedCostByProducerInputPair: Map<string, number>;
+  hasIssues: boolean;
+} {
+  const solvedCostByProducerInputPair = new Map<string, number>();
+  let hasIssues = false;
+  for (const ware of allWares) {
+    const analysis = analyzeWareBalance(ware, aggregate);
+    printWareBalanceAnalysis(analysis);
+    for (const entry of collectSolvedCostEntries(analysis)) {
+      solvedCostByProducerInputPair.set(pairKey(entry.producingWareId, entry.inputWareId), entry.cost);
+    }
+    if (analysisHasIssue(analysis)) hasIssues = true;
   }
-  if (analysisHasIssue(analysis)) hasIssues = true;
+  return { solvedCostByProducerInputPair, hasIssues };
 }
 
-printSummaryAndCodeReadyValues(solvedCostByProducerInputPair, hasIssues);
+function runBalanceSolver(): void {
+  const liveStations = createLiveStations();
+  const aggregate = aggregateProductionAndConsumption(liveStations);
+  printPreamble();
+  const { solvedCostByProducerInputPair, hasIssues } = analyzeAllWares(aggregate);
+  printSummaryAndCodeReadyValues(solvedCostByProducerInputPair, hasIssues);
+}
+
+runBalanceSolver();

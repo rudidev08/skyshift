@@ -1,10 +1,10 @@
 import { Pause, Play } from "lucide-static";
-import { getTimeAccelerationCycleButtonTitle, getTimePauseButtonTitle } from "./ui-speed-control-titles";
-import { SPEED_CYCLE, type CycleSpeed } from "../data/controls-game-speed";
-import { SPEED_ICONS } from "./render-speed-icons";
+import { getSpeedCycleButtonTitle, getSpeedPauseButtonTitle } from "./ui-speed-control-titles";
+import { speedCycle, type CycleSpeed } from "../data/controls-game-speed";
+import { speedIcons } from "./render-speed-icons";
 
 export interface PausedIndicator {
-  /** Speed 0 means paused; non-zero values come from SPEED_CYCLE or data-dev-speed buttons. */
+  /** Speed 0 means paused; non-zero values come from speedCycle or data-dev-speed buttons. */
   setSpeed(speed: number): void;
   destroy(): void;
 }
@@ -56,18 +56,34 @@ export function createPausedIndicator(root: ParentNode): PausedIndicator {
   function setSpeed(speed: number) {
     speedHud.toggleAttribute("hidden", false);
     const paused = speed === 0;
-    const onCycleSpeed = !paused && (SPEED_CYCLE as ReadonlyArray<number>).includes(speed);
+    const onCycleSpeed = !paused && (speedCycle as ReadonlyArray<number>).includes(speed);
     const keyboardShortcutsEnabled = speedHud.dataset.keyboardShortcutsEnabled === "true";
-    pauseButton.classList.toggle("is-on", paused);
-    pauseButton.title = getTimePauseButtonTitle(paused, keyboardShortcutsEnabled);
-    cycleButton.title = getTimeAccelerationCycleButtonTitle(keyboardShortcutsEnabled);
 
+    updatePauseButton(paused, keyboardShortcutsEnabled);
     if (onCycleSpeed) lastCycleSpeed = speed;
-    cycleButtonIcon.innerHTML = SPEED_ICONS[lastCycleSpeed as CycleSpeed] ?? Play;
-    cycleButtonText.textContent = `${lastCycleSpeed}×`;
+    updateCycleButton(onCycleSpeed, lastCycleSpeed, keyboardShortcutsEnabled);
+    updateDevSpeedPills(speed);
+  }
+
+  function updatePauseButton(paused: boolean, keyboardShortcutsEnabled: boolean): void {
+    pauseButton.classList.toggle("is-on", paused);
+    pauseButton.title = getSpeedPauseButtonTitle(paused, keyboardShortcutsEnabled);
+  }
+
+  function updateCycleButton(
+    onCycleSpeed: boolean,
+    cycleSpeed: number,
+    keyboardShortcutsEnabled: boolean,
+  ): void {
+    cycleButton.title = getSpeedCycleButtonTitle(keyboardShortcutsEnabled);
+    cycleButtonIcon.innerHTML = speedIcons[cycleSpeed as CycleSpeed] ?? Play;
+    cycleButtonText.textContent = `${cycleSpeed}×`;
     cycleButton.classList.toggle("is-on", onCycleSpeed);
+  }
+
+  function updateDevSpeedPills(currentSpeed: number): void {
     for (const { button, speed: target } of devSpeedTargets) {
-      button.classList.toggle("is-on", speed === target);
+      button.classList.toggle("is-on", currentSpeed === target);
     }
   }
 

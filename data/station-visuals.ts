@@ -1,5 +1,4 @@
-// Visual-only station render constants. Removing any only changes how
-// stations look, not their simulated behavior.
+// Visual-only station render constants.
 
 import type { StationSize } from "./station-types";
 
@@ -11,8 +10,8 @@ export const stationVisuals = {
   /** Station type icon size as a multiple of iconRadius. */
   iconScale: 1.1,
   /**
-   * Padding from L-size body edge to inventory ring; ring radius is always
-   * bodyRadiusBySize.L + this so every station shares one ring radius.
+   * Padding from body edge to inventory ring; all station sizes use same value,
+   * so it's optimized to fit L-size stations.
    * Zoomed out the ring shows as twinkling dots; zoomed in it becomes the
    * inventory capacity arc segments.
    */
@@ -63,7 +62,7 @@ export const statusBadgeVisuals = {
   offsetX: 20,
   offsetY: -20,
   radius: 7,
-  pulseDurationMilliseconds: 1200,
+  pulseDurationSeconds: 1.2,
   colors: {
     warn: 0xe0a94a,
     bad: 0xc94a3a,

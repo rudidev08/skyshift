@@ -1,14 +1,15 @@
 import { type Scene } from "phaser";
-import type { Sector } from "../sim-map-types";
-import { DISPLAY_FONT_FAMILY } from "./viewport-culling";
-import { Layer } from "./depth-layers";
-import { loadKeyValueSetting, saveKeyValueSetting } from "../storage-preferences";
-import { sectorHeaderText, formatEnvironment } from "../render-sector-label";
+import type { GameMap, Sector } from "../sim-map-types";
+import { DISPLAY_FONT_FAMILY } from "./text-styles";
+import { Layer } from "../../data/visuals-layers";
+import { loadPreference, savePreference } from "../storage-preferences";
+import { sectorHeaderText } from "../render-sector-header";
+import { sectorEnvironmentById } from "../../data/map-sector-environments";
 
 /** Local emitter so this module type-imports `phaser` only — importing the
  *  EventEmitter as a value pulls in a `window`-referencing bundle that breaks
  *  the headless sector-grid.test in Node. */
-class ModeChangeEmitter {
+class GridModeEmitter {
   private readonly listeners = new Set<(mode: GridMode) => void>();
   on(listener: (mode: GridMode) => void): () => void {
     this.listeners.add(listener);
@@ -34,7 +35,7 @@ interface SectorGridFadeState {
   scrollTracked: boolean;
 }
 
-export interface SectorGridSystem {
+export interface SectorGrid {
   fadeState: SectorGridFadeState;
   grid: Phaser.GameObjects.Graphics;
   corners: Phaser.GameObjects.Graphics;
@@ -52,51 +53,62 @@ interface SectorGridOptions {
   persistMode?: boolean;
 }
 
-interface MapDimensions {
-  gridSizeX: number;
-  gridSizeY: number;
-  sectorSize: number;
-}
+type SectorGridMapDimensions = Pick<GameMap, "gridSizeX" | "gridSizeY" | "sectorSize">;
 
 const FADE_DELAY = 3000;
 const FADE_DURATION = 750;
 const CORNER_ARM_LENGTH = 60;
+const GRID_LINE_ALPHA = 0.18;
+const CORNER_BASE_ALPHA = 0.36;
 
-export function hideSectorGridVisuals(gridSystem: SectorGridSystem): void {
-  gridSystem.grid.setVisible(false);
-  gridSystem.corners.clear();
-  gridSystem.sectorLabels.forEach((sectorLabel) => sectorLabel.setVisible(false));
+export function hideSectorGridVisuals(sectorGrid: SectorGrid): void {
+  sectorGrid.grid.setVisible(false);
+  sectorGrid.corners.clear();
+  sectorGrid.sectorLabels.forEach((sectorLabel) => sectorLabel.setVisible(false));
 }
 
-export function resetAutoSectorGridState(gridSystem: SectorGridSystem): void {
+function setSectorGridAlpha(sectorGrid: SectorGrid, alpha: number): void {
+  sectorGrid.grid.setVisible(true);
+  sectorGrid.grid.setAlpha(alpha);
+  sectorGrid.sectorLabels.forEach((sectorLabel) => {
+    sectorLabel.setVisible(true);
+    sectorLabel.setAlpha(alpha);
+  });
+}
+
+export function showSectorGridFullAlpha(sectorGrid: SectorGrid): void {
+  setSectorGridAlpha(sectorGrid, 1);
+}
+
+export function resetAutoSectorGridState(sectorGrid: SectorGrid): void {
   // lastScrollTime = -1 is the "uninitialized" sentinel — the next
   // updateSectorCorners only baselines the camera, doesn't count as movement.
-  gridSystem.fadeState.lastFade = 0;
-  gridSystem.fadeState.lastScrollTime = -1;
-  gridSystem.fadeState.lastScrollX = 0;
-  gridSystem.fadeState.lastScrollY = 0;
-  gridSystem.fadeState.scrollTracked = false;
-  hideSectorGridVisuals(gridSystem);
+  sectorGrid.fadeState.lastFade = 0;
+  sectorGrid.fadeState.lastScrollTime = -1;
+  sectorGrid.fadeState.lastScrollX = 0;
+  sectorGrid.fadeState.lastScrollY = 0;
+  sectorGrid.fadeState.scrollTracked = false;
+  hideSectorGridVisuals(sectorGrid);
 }
 
 export function createSectorGrid(
   scene: Scene,
   sectors: Sector[],
-  mapDimensions: MapDimensions,
+  mapDimensions: SectorGridMapDimensions,
   options: SectorGridOptions = {},
-): SectorGridSystem {
+): SectorGrid {
   const persistMode = options.persistMode ?? true;
 
   const gridGraphics = drawSectorGridLines(scene, mapDimensions);
   const corners = scene.add.graphics();
-  corners.setDepth(gridGraphics.depth);
+  corners.setDepth(Layer.SectorGrid);
   const sectorLabels = createSectorLabels(scene, sectors);
 
   gridGraphics.setVisible(false);
   sectorLabels.forEach((sectorLabel) => sectorLabel.setVisible(false));
 
-  const emitter = new ModeChangeEmitter();
-  const result: SectorGridSystem = {
+  const emitter = new GridModeEmitter();
+  const sectorGrid: SectorGrid = {
     fadeState: {
       lastFade: 0,
       lastScrollTime: -1,
@@ -109,44 +121,57 @@ export function createSectorGrid(
     sectorLabels,
     // Editor mode forces its own state and must not overwrite the player's
     // persisted gameplay preference.
-    gridMode: options.initialMode ?? parseGridMode(loadKeyValueSetting(GRID_MODE_STORAGE_KEY, "auto")),
+    gridMode: options.initialMode ?? parseGridMode(loadPreference(GRID_MODE_STORAGE_KEY, "auto")),
     setMode(mode) {
-      if (result.gridMode === mode) return;
-      result.gridMode = mode;
-      if (persistMode) saveKeyValueSetting(GRID_MODE_STORAGE_KEY, mode);
-      applySectorGridMode(result, mode);
+      if (sectorGrid.gridMode === mode) return;
+      sectorGrid.gridMode = mode;
+      if (persistMode) savePreference(GRID_MODE_STORAGE_KEY, mode);
+      applySectorGridMode(sectorGrid, mode);
       emitter.emit(mode);
     },
     onModeChange(listener) {
       return emitter.on(listener);
     },
   };
-  applySectorGridMode(result, result.gridMode);
+  applySectorGridMode(sectorGrid, sectorGrid.gridMode);
 
-  return result;
+  return sectorGrid;
 }
 
-function drawSectorGridLines(scene: Scene, mapDimensions: MapDimensions): Phaser.GameObjects.Graphics {
+function strokeGridLines(
+  graphics: Phaser.GameObjects.Graphics,
+  geometry: { columns: number; rows: number; step: number; mapWidth: number; mapHeight: number },
+): void {
+  graphics.lineStyle(1, 0xffffff, GRID_LINE_ALPHA);
+  for (let column = 0; column <= geometry.columns; column++) {
+    const x = column * geometry.step;
+    graphics.moveTo(x, 0);
+    graphics.lineTo(x, geometry.mapHeight);
+  }
+  for (let row = 0; row <= geometry.rows; row++) {
+    const y = row * geometry.step;
+    graphics.moveTo(0, y);
+    graphics.lineTo(geometry.mapWidth, y);
+  }
+  graphics.strokePath();
+}
+
+function drawSectorGridLines(
+  scene: Scene,
+  mapDimensions: SectorGridMapDimensions,
+): Phaser.GameObjects.Graphics {
   const { gridSizeX, gridSizeY, sectorSize } = mapDimensions;
-  const alpha = 0.18;
   const gridGraphics = scene.add.graphics();
-  gridGraphics.setDepth(Layer.Grid);
+  gridGraphics.setDepth(Layer.SectorGrid);
 
   // Map grid top-left is always (0, 0); spans [0, gridSize * sectorSize] per axis.
-  const mapWidth = gridSizeX * sectorSize;
-  const mapHeight = gridSizeY * sectorSize;
-  gridGraphics.lineStyle(1, 0xffffff, alpha);
-  for (let column = 0; column <= gridSizeX; column++) {
-    const x = column * sectorSize;
-    gridGraphics.moveTo(x, 0);
-    gridGraphics.lineTo(x, mapHeight);
-  }
-  for (let row = 0; row <= gridSizeY; row++) {
-    const y = row * sectorSize;
-    gridGraphics.moveTo(0, y);
-    gridGraphics.lineTo(mapWidth, y);
-  }
-  gridGraphics.strokePath();
+  strokeGridLines(gridGraphics, {
+    columns: gridSizeX,
+    rows: gridSizeY,
+    step: sectorSize,
+    mapWidth: gridSizeX * sectorSize,
+    mapHeight: gridSizeY * sectorSize,
+  });
   return gridGraphics;
 }
 
@@ -161,49 +186,44 @@ function createSectorLabels(scene: Scene, sectors: Sector[]): Phaser.GameObjects
       { fontFamily: DISPLAY_FONT_FAMILY, fontSize: "56px", color: "rgba(255,255,255,0.7)" },
     );
     label.setOrigin(0, 0);
-    label.setDepth(Layer.Grid);
+    label.setDepth(Layer.SectorGrid);
     label.setLineSpacing(20);
     sectorLabels.push(label);
   }
   return sectorLabels;
 }
 
-function applySectorGridMode(gridSystem: SectorGridSystem, mode: GridMode): void {
+function applySectorGridMode(sectorGrid: SectorGrid, mode: GridMode): void {
   if (mode === "on") {
-    gridSystem.grid.setVisible(true);
-    gridSystem.grid.setAlpha(1);
-    gridSystem.sectorLabels.forEach((sectorLabel) => {
-      sectorLabel.setVisible(true);
-      sectorLabel.setAlpha(1);
-    });
+    showSectorGridFullAlpha(sectorGrid);
     return;
   }
   if (mode === "off") {
-    hideSectorGridVisuals(gridSystem);
+    hideSectorGridVisuals(sectorGrid);
     return;
   }
   // "auto" — fade logic takes over from the next camera move.
-  resetAutoSectorGridState(gridSystem);
+  resetAutoSectorGridState(sectorGrid);
 }
 
 export function updateSectorCorners(
-  gridSystem: SectorGridSystem,
+  sectorGrid: SectorGrid,
   sectors: Sector[],
   camera: Phaser.Cameras.Scene2D.Camera,
 ) {
   const now = performance.now();
-  trackCameraScrollForFade(gridSystem.fadeState, camera, now);
+  trackCameraScrollForFade(sectorGrid.fadeState, camera, now);
 
-  if (gridSystem.gridMode === "off") return;
+  if (sectorGrid.gridMode === "off") return;
 
-  if (gridSystem.gridMode === "on") {
-    gridSystem.fadeState.lastFade = 1;
-    drawAllSectorCorners(gridSystem.corners, sectors, 1);
+  if (sectorGrid.gridMode === "on") {
+    sectorGrid.fadeState.lastFade = 1;
+    drawAllSectorCorners(sectorGrid.corners, sectors, 1);
     return;
   }
 
-  const fade = tickAutoSectorGridFade(gridSystem, now);
-  if (fade !== null) drawAllSectorCorners(gridSystem.corners, sectors, fade);
+  const fade = tickAutoSectorGridFade(sectorGrid, now);
+  if (fade !== null) drawAllSectorCorners(sectorGrid.corners, sectors, fade);
 }
 
 function trackCameraScrollForFade(
@@ -224,48 +244,42 @@ function trackCameraScrollForFade(
   }
 }
 
+function computeAutoFadeAlpha(elapsed: number): number | null {
+  if (elapsed < FADE_DELAY) return 1;
+  if (elapsed < FADE_DELAY + FADE_DURATION) return 1 - (elapsed - FADE_DELAY) / FADE_DURATION;
+  return null;
+}
+
 /** Update auto-mode fade state and apply the resulting alpha to grid + labels.
  *  Returns the fade value (0–1) so the caller can redraw sector corners, or
  *  null when the grid should stay hidden this frame. */
-function tickAutoSectorGridFade(gridSystem: SectorGridSystem, now: number): number | null {
-  const fadeState = gridSystem.fadeState;
+function tickAutoSectorGridFade(sectorGrid: SectorGrid, now: number): number | null {
+  const fadeState = sectorGrid.fadeState;
   // Auto mode's first frame only baselines the camera — showing the grid before
   // any movement would flash on startup and mode transitions.
   if (fadeState.lastScrollTime < 0) {
-    hideSectorGridVisuals(gridSystem);
+    hideSectorGridVisuals(sectorGrid);
     fadeState.lastFade = 0;
     return null;
   }
 
-  const elapsed = now - fadeState.lastScrollTime;
-  let fade: number;
-  if (elapsed < FADE_DELAY) {
-    fade = 1;
-  } else if (elapsed < FADE_DELAY + FADE_DURATION) {
-    fade = 1 - (elapsed - FADE_DELAY) / FADE_DURATION;
-  } else {
+  const fade = computeAutoFadeAlpha(now - fadeState.lastScrollTime);
+  if (fade === null) {
     if (fadeState.lastFade !== 0) {
-      hideSectorGridVisuals(gridSystem);
+      hideSectorGridVisuals(sectorGrid);
       fadeState.lastFade = 0;
     }
     return null;
   }
 
-  if (fade !== fadeState.lastFade) {
-    gridSystem.grid.setVisible(true);
-    gridSystem.grid.setAlpha(fade);
-    gridSystem.sectorLabels.forEach((sectorLabel) => {
-      sectorLabel.setVisible(true);
-      sectorLabel.setAlpha(fade);
-    });
-  }
+  if (fade !== fadeState.lastFade) setSectorGridAlpha(sectorGrid, fade);
   fadeState.lastFade = fade;
   return fade;
 }
 
 function drawAllSectorCorners(corners: Phaser.GameObjects.Graphics, sectors: Sector[], fade: number): void {
   corners.clear();
-  corners.lineStyle(4, 0xffffff, 0.36 * fade);
+  corners.lineStyle(4, 0xffffff, CORNER_BASE_ALPHA * fade);
   const half = sectors[0].size / 2;
   for (const sector of sectors) {
     drawCornerBrackets(corners, {
@@ -284,32 +298,20 @@ function drawAllSectorCorners(corners: Phaser.GameObjects.Graphics, sectors: Sec
 /** Overview-mode grid — uniform thin lines per sector plus N subdivisions per cell, sharing the auto-mode sector divider style. Hidden by default; overview mode toggles visibility. */
 export function createOverviewGrid(
   scene: Scene,
-  mapDimensions: MapDimensions,
+  mapDimensions: SectorGridMapDimensions,
   subdivisions = 4,
 ): Phaser.GameObjects.Graphics {
   const { gridSizeX, gridSizeY, sectorSize } = mapDimensions;
   const gridGraphics = scene.add.graphics();
-  gridGraphics.setDepth(Layer.Grid);
-  const alpha = 0.18;
-  gridGraphics.lineStyle(1, 0xffffff, alpha);
+  gridGraphics.setDepth(Layer.SectorGrid);
 
-  const subdivisionSize = sectorSize / subdivisions;
-  const totalCols = gridSizeX * subdivisions;
-  const totalRows = gridSizeY * subdivisions;
-  const mapWidth = gridSizeX * sectorSize;
-  const mapHeight = gridSizeY * sectorSize;
-
-  for (let column = 0; column <= totalCols; column++) {
-    const x = column * subdivisionSize;
-    gridGraphics.moveTo(x, 0);
-    gridGraphics.lineTo(x, mapHeight);
-  }
-  for (let row = 0; row <= totalRows; row++) {
-    const y = row * subdivisionSize;
-    gridGraphics.moveTo(0, y);
-    gridGraphics.lineTo(mapWidth, y);
-  }
-  gridGraphics.strokePath();
+  strokeGridLines(gridGraphics, {
+    columns: gridSizeX * subdivisions,
+    rows: gridSizeY * subdivisions,
+    step: sectorSize / subdivisions,
+    mapWidth: gridSizeX * sectorSize,
+    mapHeight: gridSizeY * sectorSize,
+  });
   gridGraphics.setVisible(false);
   return gridGraphics;
 }
@@ -317,7 +319,7 @@ export function createOverviewGrid(
 /** Sector grid label: sector name + coordinates above, environment below. */
 function buildSectorLabelText(sector: Sector): string {
   const header = sectorHeaderText(sector);
-  const environment = sector.environment ? formatEnvironment(sector.environment) : "";
+  const environment = sector.environment ? sectorEnvironmentById[sector.environment].name : "";
   return environment ? `${header}\n${environment}` : header;
 }
 

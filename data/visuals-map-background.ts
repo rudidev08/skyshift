@@ -1,7 +1,7 @@
-/** Shared background settings — applies to all maps. Map-specific nebula placements live in data/map-nebulas.ts. */
+/** The scrolling parallax starfield behind the map canvas, visible the whole time during gameplay and overview mode. */
 export const backgroundConfig = {
-  backgroundColor: "#0a0a1a", // deep navy, visible behind star layers
-  backgroundScale: 2,         // tile scale for both star layers
-  parallaxFar: 0.3,           // distant star layer scroll speed (0 = fixed, 1 = moves with camera)
-  parallaxNear: 0.7,          // near star layer scroll speed
+  color: "#0a0a1a", // visible behind star layers
+  tileScale: 2, // tile scale for both star layers
+  parallaxFar: 0.3, // distant star layer scroll speed (0 = fixed, 1 = moves with camera)
+  parallaxNear: 0.7, // near star layer scroll speed
 };

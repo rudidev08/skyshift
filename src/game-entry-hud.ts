@@ -3,11 +3,21 @@
 // shortcuts, settings panel, snapshot debug hook.
 
 import type * as Phaser from "phaser";
-import { CircleChevronUp, CircleChevronDown, CircleDashed, Book, Logs, ChevronUp, ChevronDown, Settings, Cuboid } from "lucide-static";
+import {
+  CircleChevronUp,
+  CircleChevronDown,
+  CircleDashed,
+  Book,
+  Logs,
+  ChevronUp,
+  ChevronDown,
+  Settings,
+  Cuboid,
+} from "lucide-static";
 import type { GameViewMode } from "./game-view-mode";
 import { GAME_SCENE_KEY, type Game } from "./game";
-import { loadKeyValueSetting, saveKeyValueSetting } from "./storage-preferences";
-import type { BindEventFunction } from "./ui-dom-input-shield";
+import { loadPreference, savePreference } from "./storage-preferences";
+import type { BindEventWithCleanupFunction } from "./ui-dom-input-shield";
 import { createSettingsPanel, type SettingsHandle } from "./ui-settings-panel";
 import { captureSnapshot } from "./ui-savegame-manager";
 import type { GameSnapshot } from "./sim-save-types";
@@ -25,41 +35,39 @@ export function showControlsRowForEditor(): void {
 /** Wires the chevron toggle that hides/shows the gameplay controls row.
  *  Chevron points up to show the row, down to hide it. */
 export function setupControlsToggleRow(dependencies: {
-  bindEvent: BindEventFunction;
+  bindEventWithCleanup: BindEventWithCleanupFunction;
 }): void {
   const controlsToggle = document.getElementById("controls-toggle")!;
   const topRow = document.getElementById("hud-top-row")!;
-  let controlsShown = loadKeyValueSetting("controlsShown", "false") === "true";
+  let controlsShown = loadPreference("controlsShown", "false") === "true";
   function setControlsShown(shown: boolean) {
     controlsShown = shown;
-    saveKeyValueSetting("controlsShown", String(shown));
+    savePreference("controlsShown", String(shown));
     topRow.style.display = shown ? "" : "none";
     controlsToggle.innerHTML = shown ? CircleChevronDown : CircleChevronUp;
     controlsToggle.classList.toggle("is-on", shown);
   }
   setControlsShown(controlsShown);
-  dependencies.bindEvent(controlsToggle, "click", () => {
+  dependencies.bindEventWithCleanup(controlsToggle, "click", () => {
     setControlsShown(!controlsShown);
   });
 }
 
-/** Zones and Overview are mutually exclusive — clicking the active one returns
- *  to Normal, V cycles all three. GameViewModeController owns the state; we mirror
- *  it onto is-on classes. Editor omits the overview button, so overviewToggle
- *  may be null. Returns `cycleViewMode` for the keyboard handler. */
+/** Wires the Normal / Zones / Overview view-mode buttons and the `V` keyboard
+ *  cycle. Returns `cycleViewMode` for the keyboard handler. */
 export function setupViewModeToggles(dependencies: {
   game: Phaser.Game;
   requestedViewModeRef: { value: GameViewMode };
   persistViewMode: boolean;
-  bindEvent: BindEventFunction;
+  bindEventWithCleanup: BindEventWithCleanupFunction;
 }): { cycleViewMode: () => void } {
   const zonesToggle = document.getElementById("zones-toggle") as HTMLButtonElement | null;
   const overviewToggle = document.getElementById("overview-toggle") as HTMLButtonElement | null;
   if (zonesToggle) zonesToggle.innerHTML = CircleDashed;
   if (overviewToggle) overviewToggle.innerHTML = Cuboid;
 
-  const renderViewModeButton = makeRenderViewModeButton(zonesToggle, overviewToggle);
-  const setViewMode = makeViewModeSetter({
+  const renderViewModeButton = createViewModeButtonRenderer(zonesToggle, overviewToggle);
+  const setViewMode = createViewModeSetter({
     game: dependencies.game,
     requestedViewModeRef: dependencies.requestedViewModeRef,
     persistViewMode: dependencies.persistViewMode,
@@ -72,38 +80,44 @@ export function setupViewModeToggles(dependencies: {
   }
 
   function cycleViewMode() {
-    const currentViewMode = getRequestedViewMode();
-    const requestedViewMode: GameViewMode = currentViewMode === "normal"
-      ? "zones"
-      : currentViewMode === "zones"
-        ? "overview"
-        : "normal";
-    setViewMode(requestedViewMode);
+    setViewMode(nextViewMode(getRequestedViewMode()));
   }
 
   // Paint button state immediately; Game.create() reads the same shared ref
   // once Phaser finishes booting, so a click during startup isn't lost.
   renderViewModeButton(dependencies.requestedViewModeRef.value);
-  bindViewModeToggle(zonesToggle, "zones", getRequestedViewMode, setViewMode, dependencies.bindEvent);
-  bindViewModeToggle(overviewToggle, "overview", getRequestedViewMode, setViewMode, dependencies.bindEvent);
+  bindViewModeToggle(
+    zonesToggle,
+    "zones",
+    getRequestedViewMode,
+    setViewMode,
+    dependencies.bindEventWithCleanup,
+  );
+  bindViewModeToggle(
+    overviewToggle,
+    "overview",
+    getRequestedViewMode,
+    setViewMode,
+    dependencies.bindEventWithCleanup,
+  );
   return { cycleViewMode };
 }
 
-function makeRenderViewModeButton(
+function createViewModeButtonRenderer(
   zonesToggle: HTMLButtonElement | null,
   overviewToggle: HTMLButtonElement | null,
-): (mode: GameViewMode) => void {
-  return (mode: GameViewMode) => {
-    zonesToggle?.classList.toggle("is-on", mode === "zones");
-    overviewToggle?.classList.toggle("is-on", mode === "overview");
+): (viewMode: GameViewMode) => void {
+  return (viewMode: GameViewMode) => {
+    zonesToggle?.classList.toggle("is-on", viewMode === "zones");
+    overviewToggle?.classList.toggle("is-on", viewMode === "overview");
   };
 }
 
-function makeViewModeSetter(dependencies: {
+function createViewModeSetter(dependencies: {
   game: Phaser.Game;
   requestedViewModeRef: { value: GameViewMode };
   persistViewMode: boolean;
-  renderViewModeButton: (mode: GameViewMode) => void;
+  renderViewModeButton: (viewMode: GameViewMode) => void;
 }): (requestedViewMode: GameViewMode) => void {
   return (requestedViewMode: GameViewMode) => {
     // Startup clicks can land before the scene exists — keep the latest
@@ -121,30 +135,38 @@ function persistRequestedViewMode(requestedViewMode: GameViewMode, persistViewMo
   // Overview is a transient inspection mode — never persist it, otherwise
   // the next session would boot into the auto-paused overlay.
   if (persistViewMode && requestedViewMode !== "overview") {
-    saveKeyValueSetting("viewMode", requestedViewMode);
+    savePreference("viewMode", requestedViewMode);
   }
 }
 
-/** Click toggles `mode` against the current state — picking it again returns to "normal". */
+function nextViewMode(currentViewMode: GameViewMode): GameViewMode {
+  if (currentViewMode === "normal") return "zones";
+  if (currentViewMode === "zones") return "overview";
+  return "normal";
+}
+
+/** Click toggles `viewMode` against the current state — picking it again returns to "normal". */
 function bindViewModeToggle(
   toggle: HTMLButtonElement | null,
-  mode: Exclude<GameViewMode, "normal">,
+  viewMode: Exclude<GameViewMode, "normal">,
   getRequestedViewMode: () => GameViewMode,
-  setViewMode: (mode: GameViewMode) => void,
-  bindEvent: BindEventFunction,
+  setViewMode: (viewMode: GameViewMode) => void,
+  bindEventWithCleanup: BindEventWithCleanupFunction,
 ): void {
   if (!toggle) return;
-  bindEvent(toggle, "click", () => {
+  bindEventWithCleanup(toggle, "click", () => {
     const requestedViewMode = getRequestedViewMode();
-    setViewMode(requestedViewMode === mode ? "normal" : mode);
+    setViewMode(requestedViewMode === viewMode ? "normal" : viewMode);
   });
 }
 
-export function setupInfoCardCollapse(dependencies: { bindEvent: BindEventFunction }): void {
+export function setupInfoCardCollapse(dependencies: {
+  bindEventWithCleanup: BindEventWithCleanupFunction;
+}): void {
   const collapseToggle = document.getElementById("collapse-toggle")!;
   const infoRail = document.getElementById("info-rail")!;
   const overlayInfoCard = document.getElementById("overlay-info-card")!;
-  let collapsed = loadKeyValueSetting("infoCardCollapsed", "true") === "true";
+  let collapsed = loadPreference("infoCardCollapsed", "true") === "true";
 
   function applyCollapse() {
     overlayInfoCard.classList.toggle("is-collapsed", collapsed);
@@ -153,14 +175,16 @@ export function setupInfoCardCollapse(dependencies: { bindEvent: BindEventFuncti
     collapseToggle.title = collapsed ? "Expand" : "Collapse";
   }
   applyCollapse();
-  dependencies.bindEvent(collapseToggle, "click", () => {
+  dependencies.bindEventWithCleanup(collapseToggle, "click", () => {
     collapsed = !collapsed;
-    saveKeyValueSetting("infoCardCollapsed", String(collapsed));
+    savePreference("infoCardCollapsed", String(collapsed));
     applyCollapse();
   });
 }
 
-export function setupLoreAndLogPanelToggles(dependencies: { bindEvent: BindEventFunction }): void {
+export function setupLoreAndLogPanelToggles(dependencies: {
+  bindEventWithCleanup: BindEventWithCleanupFunction;
+}): void {
   const loreToggle = document.getElementById("lore-toggle")!;
   const logToggle = document.getElementById("log-toggle")!;
   const detailsBox = document.getElementById("details-box")!;
@@ -183,16 +207,16 @@ export function setupLoreAndLogPanelToggles(dependencies: { bindEvent: BindEvent
   }
 
   // src/ui-game-hud.ts dispatches `reapply` on loreToggle after updating hasLore/hasDetails.
-  dependencies.bindEvent(loreToggle, "reapply", applyToggles);
+  dependencies.bindEventWithCleanup(loreToggle, "reapply", applyToggles);
 
-  dependencies.bindEvent(loreToggle, "click", () => {
+  dependencies.bindEventWithCleanup(loreToggle, "click", () => {
     if (loreToggle.dataset.hasLore !== "true") return;
     lorePreference = !lorePreference;
     if (lorePreference) logPreference = false;
     applyToggles();
   });
 
-  dependencies.bindEvent(logToggle, "click", () => {
+  dependencies.bindEventWithCleanup(logToggle, "click", () => {
     if (logToggle.dataset.hasDetails !== "true") return;
     logPreference = !logPreference;
     if (logPreference) lorePreference = false;
@@ -234,9 +258,9 @@ export function setupGlobalKeyboardShortcuts(dependencies: {
   game: Phaser.Game;
   isSettingsPanelOpen: () => boolean;
   cycleViewMode: () => void;
-  bindEvent: BindEventFunction;
+  bindEventWithCleanup: BindEventWithCleanupFunction;
 }): void {
-  dependencies.bindEvent(document, "keydown", (event: Event) => {
+  dependencies.bindEventWithCleanup(document, "keydown", (event: Event) => {
     const keyboardEvent = event as KeyboardEvent;
     if (isShortcutSuppressedByFocus()) return;
     if (dependencies.isSettingsPanelOpen()) return;
@@ -304,21 +328,21 @@ function dispatchShortcut(key: string, gameScene: Game, cycleViewMode: () => voi
 export function setupSettingsPanel(dependencies: {
   getScene: () => Game | null;
   cleanupCallbacks: Array<() => void>;
-  bindEvent: BindEventFunction;
+  bindEventWithCleanup: BindEventWithCleanupFunction;
   remountWithSnapshot: (snapshot: GameSnapshot) => void;
 }): SettingsHandle {
   const panel = createSettingsPanel(dependencies.getScene, dependencies.remountWithSnapshot);
   // Cleanup closes the panel (releasing pause) and detaches it from the DOM,
   // so the next mount doesn't inherit a paused sim or stacked overlay.
   dependencies.cleanupCallbacks.push(() => panel.dispose());
-  panel.shieldFromPhaserInput(dependencies.bindEvent);
+  panel.shieldFromPhaserInput(dependencies.bindEventWithCleanup);
 
   const gearButton = document.createElement("button");
   gearButton.className = "hud-btn hud-btn-icon";
   gearButton.setAttribute("aria-label", "Settings");
   gearButton.title = "Settings";
   gearButton.innerHTML = Settings;
-  dependencies.bindEvent(gearButton, "click", () => panel.open());
+  dependencies.bindEventWithCleanup(gearButton, "click", () => panel.open());
 
   document.getElementById("hud-top-row")!.querySelector(".row")!.appendChild(gearButton);
   dependencies.cleanupCallbacks.push(() => gearButton.remove());

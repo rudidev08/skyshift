@@ -1,5 +1,9 @@
 const htmlEscapesByCharacter: Record<string, string> = {
-  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
 };
 
 export function escapeHtml(text: string): string {

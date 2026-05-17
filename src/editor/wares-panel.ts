@@ -4,16 +4,15 @@
 
 import { allWares } from "../../data/wares";
 import type { WareTemplate, WareId } from "../../data/ware-types";
-import type { StationPlacement } from "../../data/station-types";
+import type { PlacedStation } from "../../data/station-types";
 import { getWareTemplate } from "../sim-ware-template";
 import { createStation, getStationRates } from "../sim-station";
-import {
-  wareProducedCellId,
-  wareConsumedCellId,
-  wareNetCellId,
-} from "./cell-ids";
+import { wareProducedCellId, wareConsumedCellId, wareNetCellId } from "./cell-ids";
 
-function computeUniverseTotals(stations: StationPlacement[]): { produced: Map<WareId, number>; consumed: Map<WareId, number> } {
+function computeUniverseTotals(stations: PlacedStation[]): {
+  produced: Map<WareId, number>;
+  consumed: Map<WareId, number>;
+} {
   const produced = new Map<WareId, number>();
   const consumed = new Map<WareId, number>();
 
@@ -33,14 +32,14 @@ function computeUniverseTotals(stations: StationPlacement[]): { produced: Map<Wa
 }
 
 function buildWaresTableHeaderHtml(): string {
-  let html = '<tr>';
+  let html = "<tr>";
   html += '<th rowspan="2">Ware</th>';
   html += '<th rowspan="2" class="numeric-column">Output / tick</th>';
   html += '<th rowspan="2">Input</th>';
   html += '<th rowspan="2" class="numeric-column">Cost</th>';
   html += '<th colspan="3" class="editor-center-header">Universe</th>';
-  html += '</tr>';
-  html += '<tr><th>Produced</th><th>Consumed</th><th>Net</th></tr>';
+  html += "</tr>";
+  html += "<tr><th>Produced</th><th>Consumed</th><th>Net</th></tr>";
   return html;
 }
 
@@ -55,9 +54,9 @@ function buildWareRowsHtml(ware: WareTemplate): string {
 
     if (rowIndex === 0) {
       html += `<td class="label-cell">${ware.name}</td>`;
-      html += `<td class="numeric-cell input-cell"><input type="number" data-target="ware" data-id="${ware.id}" data-field="productionOutput" value="${ware.productionOutput}" step="0.25"></td>`;
+      html += `<td class="numeric-cell input-cell"><input type="number" data-target="ware-output" data-id="${ware.id}" data-field="productionOutput" value="${ware.productionOutput}" step="0.25"></td>`;
     } else {
-      html += '<td></td><td></td>';
+      html += "<td></td><td></td>";
     }
 
     if (rowIndex < inputs.length) {
@@ -66,7 +65,7 @@ function buildWareRowsHtml(ware: WareTemplate): string {
       html += `<td>${inputWareName}</td>`;
       html += `<td class="numeric-cell input-cell"><input type="number" class="small" data-target="ware-input-units" data-ware="${ware.id}" data-input="${input.wareId}" data-field="unitsPerTick" value="${input.unitsPerTick}" step="0.5"></td>`;
     } else {
-      html += '<td></td><td></td>';
+      html += "<td></td><td></td>";
     }
 
     if (rowIndex === 0) {
@@ -115,7 +114,7 @@ function applyNetCellFormatting(netCell: HTMLElement, produced: number, consumed
 }
 
 /** In-place cell refresh — keeps the wares table mounted so edits don't lose focus. */
-export function updateUniverseTotals(stations: StationPlacement[]) {
+export function updateUniverseTotals(stations: PlacedStation[]) {
   const totals = computeUniverseTotals(stations);
   for (const ware of allWares) {
     const produced = totals.produced.get(ware.id) ?? 0;

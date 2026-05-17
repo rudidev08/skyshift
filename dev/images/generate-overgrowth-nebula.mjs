@@ -41,7 +41,8 @@ function splatDensity(buf, cx, cy, radius, intensity) {
   const y1 = Math.min(SIZE - 1, Math.ceil(cy + radius));
   for (let py = y0; py <= y1; py++) {
     for (let px = x0; px <= x1; px++) {
-      const dx = px - cx, dy = py - cy;
+      const dx = px - cx,
+        dy = py - cy;
       const d2 = dx * dx + dy * dy;
       if (d2 < r2) {
         const f = 1 - d2 / r2;
@@ -131,7 +132,7 @@ function walkBranch(rng, startX, startY, startAngle, length, stepSize, curlBias)
 
 /** Rotates the whole arc — including the right-side opening — into final composition orientation. */
 function rotatePoint(point) {
-  const rotationAngle = 52 * Math.PI / 180; // clockwise; 52 degrees positions the C opening to the upper-right of the canvas
+  const rotationAngle = (52 * Math.PI) / 180; // clockwise; 52 degrees positions the C opening to the upper-right of the canvas
   const dx = point.x - CENTER;
   const dy = point.y - CENTER;
   const cos = Math.cos(rotationAngle);
@@ -176,7 +177,15 @@ function buildOvergrowth() {
     const outwardAngle = Math.atan2(spawnPoint.y - rotatedArcCenter.y, spawnPoint.x - rotatedArcCenter.x);
     const forkAngle = outwardAngle + (arcRng() - 0.5) * 0.7;
     const offshootLength = 200 + arcRng() * 180;
-    const offshootPointsRaw = walkBranch(arcRng, spawnPoint.x, spawnPoint.y, forkAngle, offshootLength, 4, offshootCurls[i]);
+    const offshootPointsRaw = walkBranch(
+      arcRng,
+      spawnPoint.x,
+      spawnPoint.y,
+      forkAngle,
+      offshootLength,
+      4,
+      offshootCurls[i],
+    );
     const offshootPoints = offshootPointsRaw;
     allBranchPoints.push(...offshootPoints);
     offshootPaths.push(offshootPoints);
@@ -229,10 +238,7 @@ function buildOvergrowth() {
 
   // Phase 3: leaf clusters — the only saturated color, painted last to sit on top of branches.
   const leafRng = phaseRng("overgrowth", "leaves5");
-  const leafColors = [
-    "#50a030", "#60b040", "#40882a", "#70c050",
-    "#80d060", "#55a535", "#45953a", "#90dd70",
-  ];
+  const leafColors = ["#50a030", "#60b040", "#40882a", "#70c050", "#80d060", "#55a535", "#45953a", "#90dd70"];
 
   // Leaf clusters along the inside of the arc — offset toward the C's center so they hug the concave face.
   const leafArcSpots = [0.1, 0.25, 0.4, 0.55, 0.7, 0.85];
@@ -272,7 +278,8 @@ function buildOvergrowth() {
   const fadeStart = 0.72;
   for (let py = 0; py < SIZE; py++) {
     for (let px = 0; px < SIZE; px++) {
-      const dx = px - CENTER, dy = py - CENTER;
+      const dx = px - CENTER,
+        dy = py - CENTER;
       const distance = Math.sqrt(dx * dx + dy * dy) / (SIZE * 0.5);
       if (distance > fadeStart) {
         const fade = Math.min(1, (distance - fadeStart) / (1.0 - fadeStart));

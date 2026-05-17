@@ -1,5 +1,5 @@
 // Top-level Simulation container — owns the manager set, clock, ware index,
-// runtime stations + ships, and exposes tick / tickDynamics / dispose. One
+// runtime stations + ships, and exposes tick / slowSimulationTick / dispose. One
 // per running simulation: game scene, editor preview, balance solver, CLI
 // report each construct their own. Headless — no Phaser dependency.
 
@@ -23,7 +23,7 @@ export interface SimulationOptions {
    *  the analysis sees the full fleet. */
   ignoreCargoCompatibility?: boolean;
   /** Override the default stagger duration for initial ship launches. */
-  initialStaggerDuration?: number;
+  initialStaggerDurationSeconds?: number;
 }
 
 /** Top-level simulation. Holds the entire sim graph for one running session. */
@@ -39,10 +39,10 @@ export class Simulation {
   readonly economyTimer: EconomyTimer;
   readonly stationZones: StationZone[];
   readonly namePool: NamePool;
-  /** Seeded by game.ts from snapshot or via createStationShips after construction. */
+  /** Seeded after construction by seedFreshRoster (fresh universe) or seedRosterForSavedGame (save load). */
   stations: Station[] = [];
   ships: Ship[] = [];
-  private readonly unsubscribeDecommission: () => void;
+  private unsubscribeDecommission!: () => void;
   private disposed = false;
 
   constructor(map: GameMap) {
@@ -64,14 +64,14 @@ export class Simulation {
     this.nationManager = this.createNationManager(map);
     this.stationHistory = createStationHistory();
 
-    this.unsubscribeDecommission = this.wireSimObservers();
+    this.subscribeSimObservers();
   }
 
   /** Subtracts warmup so time-zero is the player's first sim tick (the
-   *  warmup phase ticks the sim ahead from authored state but isn't shown
+   *  warmup phase ticks the sim ahead from the initial state but isn't shown
    *  on the player-facing history axis). */
   private historyTimeNowSeconds(): number {
-    return this.tradeManager.tradeTime - (this.map.simulationWarmup ?? 0);
+    return this.tradeManager.tradeTime - (this.map.simulationWarmupSeconds ?? 0);
   }
 
   private toHistoryStation(station: Station): HistoryStation {
@@ -111,23 +111,21 @@ export class Simulation {
     });
   }
 
-  /** Returns the unsubscribe for the one observer that needs it (decommission);
-   *  the others live for the life of the simulation. */
-  private wireSimObservers(): () => void {
-    this.wireShipTradeObservers();
-    this.wireStationFlipObserver();
-    this.wireStationHistoryObservers();
-    this.wireTradeIndexObservers();
-    return this.tradeManager.addShipDecommissionObserver((event) => {
+  private subscribeSimObservers(): void {
+    this.subscribeShipTradeObservers();
+    this.subscribeStationFlipObserver();
+    this.subscribeStationHistoryObservers();
+    this.subscribeTradeIndexObservers();
+    this.unsubscribeDecommission = this.tradeManager.addShipDecommissionObserver((event) => {
       this.shipManager.removeShip(event.orbitingShip);
     });
   }
 
-  private wireShipTradeObservers(): void {
+  private subscribeShipTradeObservers(): void {
     this.shipManager.onAdd((newShips) => {
       for (const ship of newShips) {
         const homeStation = this.stationManager.getStation(ship.station.id);
-        if (homeStation) this.tradeManager.enrollShip(ship, homeStation);
+        if (homeStation) this.tradeManager.registerShip(ship, homeStation);
       }
     });
     this.shipManager.onRemove((ship) => {
@@ -135,14 +133,14 @@ export class Simulation {
     });
   }
 
-  private wireStationFlipObserver(): void {
+  private subscribeStationFlipObserver(): void {
     this.stationManager.onFlip((flippedStation, buildShips) => {
       for (const ship of buildShips) this.shipManager.removeShip(ship);
       this.shipManager.spawnFleetForStation(flippedStation);
     });
   }
 
-  private wireStationHistoryObservers(): void {
+  private subscribeStationHistoryObservers(): void {
     this.stationManager.onAdd((station) => {
       this.stationHistory.recordCreated(this.historyTimeNowSeconds(), this.toHistoryStation(station));
     });
@@ -157,7 +155,7 @@ export class Simulation {
     });
   }
 
-  private wireTradeIndexObservers(): void {
+  private subscribeTradeIndexObservers(): void {
     // Any station state change can shift its role between producer, consumer,
     // and excluded — rebuild the trade path cache on every transition.
     this.stationManager.onStationStateChange(() => {
@@ -169,21 +167,21 @@ export class Simulation {
   }
 
   /** Restore-from-save path: register the rosters but skip economy/trade setup
-   *  — `applySnapshot` already restored ticks, ware index, trade ships, and
+   *  — `restoreSavedGame` already restored ticks, ware index, trade ships, and
    *  stagger offsets from the saved state. */
-  initStationsAndShipsForRestore(stations: Station[], ships: Ship[]): void {
+  seedRosterForSavedGame(stations: Station[], ships: Ship[]): void {
     this.registerStationsAndShips(stations, ships);
   }
 
   /** Fresh-universe path: register the rosters, zero the economy clock,
    *  stagger per-station tick offsets, build the trade-path cache, schedule
    *  initial trade departures, and seed the StationHistory recorder. */
-  initStationsAndShipsForFresh(stations: Station[], ships: Ship[], staggerDuration?: number): void {
+  seedFreshRoster(stations: Station[], ships: Ship[], staggerDuration?: number): void {
     this.registerStationsAndShips(stations, ships);
     this.economyTimer.reset();
     staggerStationTicks(stations);
     this.tradeManager.rebuildWareStationIndex(stations);
-    this.tradeManager.seedInitialTradeFleet(ships, staggerDuration);
+    this.tradeManager.seedInitialTradeShips(ships, staggerDuration);
     this.recordInitialStationsInHistory(stations);
   }
 
@@ -210,10 +208,10 @@ export class Simulation {
     this.tradeManager.tick(deltaSeconds);
   }
 
-  /** Slow tick over the dynamic-nations managers — flips completed builds,
-   *  kicks off next builds, advances emigration. Fires every ~5 sim-seconds
-   *  in the game scene. */
-  tickDynamics(deltaSeconds: number): void {
+  /** One slow simulation tick over the station/nation/emigration managers —
+   *  flips completed builds to production stations, kicks off next builds, advances emigration.
+   *  Fires every ~5 sim-seconds in the game scene. */
+  slowSimulationTick(deltaSeconds: number): void {
     this.stationManager.tick();
     this.nationManager.tick(deltaSeconds);
     this.emigrationManager.tick(deltaSeconds);
@@ -240,8 +238,9 @@ function mapDiagonalDistance(map: GameMap): number {
   return Math.hypot(map.gridSizeX * map.sectorSize, map.gridSizeY * map.sectorSize);
 }
 
-/** Create runtime Station array from the map's authored placements, applying
- *  the preset's optional seedInitialInventory balance pass. */
+/** Create runtime Station array from the map's placements, then run the
+ *  preset's optional seedInitialInventory pass (randomizes each slot's
+ *  starting fill within its fill range). */
 function createStationsFromMap(map: GameMap): Station[] {
   const stations: Station[] = [];
   for (const placement of map.stations) {
@@ -277,7 +276,7 @@ function createShipsForStations(
 }
 
 /** Convenience entry point that runs the full fresh-universe boot from
- *  authored map + preset. Used by tests, the CLI trade-simulation report,
+ *  the map + preset. Used by tests, the CLI trade-simulation report,
  *  and editor tools (fleet summary, timelapse). Game scene uses
  *  src/game-setup.ts instead so it can thread snapshot loading in. */
 export function createSimulation(map: GameMap, options?: SimulationOptions): Simulation {
@@ -285,13 +284,13 @@ export function createSimulation(map: GameMap, options?: SimulationOptions): Sim
 
   const simulation = new Simulation(map);
   // assignStationNames pulls from the simulation's namePool — also handles
-  // reserving pre-authored names so dynamic draws don't collide.
+  // reserving predefined names so dynamic draws don't collide.
   assignStationNames(simulation.namePool, map.stations);
 
   const stations = createStationsFromMap(map);
   const ships = createShipsForStations(stations, simulation.namePool, ignoreCargoCompatibility);
 
-  simulation.initStationsAndShipsForFresh(stations, ships, options?.initialStaggerDuration);
+  simulation.seedFreshRoster(stations, ships, options?.initialStaggerDurationSeconds);
 
   simulation.nationManager.startInitialStationBuilds();
   simulation.emigrationManager.spawnInitialGenerationalShip();

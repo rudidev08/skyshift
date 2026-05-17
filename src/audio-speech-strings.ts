@@ -2,15 +2,15 @@
 
 import { allNations } from "../data/nations";
 import { allShips } from "../data/ships";
-import { stationTypes } from "../data/stations";
+import { allStationTypes } from "../data/stations";
 import { sectors as universeSectors } from "../data/map-sectors";
 import { applyTextToSpeechOverride } from "./audio-voice-keys";
 
-/** Collect every speech string baked into authored data — nation/ship/station/sector names plus the "Unclaimed" fallback. */
-export function collectCoreAnnouncementSpeechStrings(): Set<string> {
+/** Collect every speech string baked into the data files — nation/ship/station/sector names plus the "Unclaimed" fallback. */
+export function collectCoreSpeechStrings(): Set<string> {
   const speechStrings = new Set<string>();
 
-  // Iterates allNations (not buildingNations) so the WAY nation's generational-ship station names get preloaded too.
+  // Includes WAY so its generational-ship station names get preloaded; stationBuilderNations would skip them.
   for (const nation of allNations) {
     speechStrings.add(nation.shortName);
     for (const stationName of nation.stationNames) speechStrings.add(stationName);
@@ -19,7 +19,7 @@ export function collectCoreAnnouncementSpeechStrings(): Set<string> {
   }
 
   for (const shipType of allShips) speechStrings.add(shipType.name);
-  for (const stationType of stationTypes) speechStrings.add(stationType.name);
+  for (const stationType of allStationTypes) speechStrings.add(stationType.name);
 
   speechStrings.add("Unclaimed");
   for (const sector of universeSectors) speechStrings.add(sector.name);
@@ -27,8 +27,10 @@ export function collectCoreAnnouncementSpeechStrings(): Set<string> {
   return speechStrings;
 }
 
-/** Collect speech strings for player-renamed map stations whose names aren't in the authored data. */
-export function collectAnnouncementSpeechStringsFromMapStations(mapStations: readonly { name?: string }[]): Set<string> {
+/** Collect speech strings for per-map station names — separate from the core set so preset-specific names can be handled apart from the shared data files. */
+export function collectAnnouncementSpeechStringsFromMapStations(
+  mapStations: readonly { name?: string }[],
+): Set<string> {
   const speechStrings = new Set<string>();
 
   for (const mapStation of mapStations) {

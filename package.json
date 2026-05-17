@@ -2,10 +2,14 @@
   "name": "skyshift",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "local": "vite --host",
     "lint": "eslint .",
+    "lint:fix": "eslint . --fix && prettier . --write",
+    "format": "prettier . --check",
+    "format:fix": "prettier . --write",
     "typecheck": "tsc --noEmit",
     "test": "./run-tests.sh",
     "build": "vite build"
@@ -28,6 +32,7 @@
     "eslint": "^10.2.0",
     "globals": "^17.4.0",
     "jiti": "^2.6.1",
+    "prettier": "^3.8.3",
     "puppeteer": "^24.42.0",
     "sharp": "^0.34.5",
     "terser": "^5.46.1",

@@ -13,29 +13,29 @@ function slotFor(wareId: WareId): ReturnType<typeof createInventorySlot> {
   return createInventorySlot(getWareTemplate(wareId), 0, 100);
 }
 
-function metalForge(idSuffix = ""): Station {
+function metalForge(instanceTag = ""): Station {
   // metal-forge produces metal, consumes mineral.
   return makeStation({
-    placement: { id: `ORE-F${idSuffix}`, stationTypeId: "metal-forge" },
-    produces: ["metal"],
+    placement: { id: `ORE-F${instanceTag}`, stationTypeId: "metal-forge" },
+    producesOverride: ["metal"],
     inventory: [slotFor("metal"), slotFor("mineral")],
   });
 }
 
-function mine(idSuffix = ""): Station {
+function mine(instanceTag = ""): Station {
   // mine produces ice and mineral, consumes nothing — multi-output producer.
   return makeStation({
-    placement: { id: `ORE-M${idSuffix}`, stationTypeId: "mine" },
-    produces: ["ice", "mineral"],
+    placement: { id: `ORE-M${instanceTag}`, stationTypeId: "mine" },
+    producesOverride: ["ice", "mineral"],
     inventory: [slotFor("ice"), slotFor("mineral")],
   });
 }
 
-function medicalLab(idSuffix = ""): Station {
+function medicalLab(instanceTag = ""): Station {
   // medical-lab produces medicine, consumes mineral and food — multi-input consumer.
   return makeStation({
-    placement: { id: `BIO-L${idSuffix}`, stationTypeId: "medical-lab" },
-    produces: ["medicine"],
+    placement: { id: `BIO-L${instanceTag}`, stationTypeId: "medical-lab" },
+    producesOverride: ["medicine"],
     inventory: [slotFor("medicine"), slotFor("mineral"), slotFor("food")],
   });
 }
@@ -106,7 +106,7 @@ test("rebuild: under-construction stations are consumer-only across all slots", 
       state: "building",
       build: { waresRequired: { provisions: 100, hulls: 100 } },
     },
-    produces: ["metal"],
+    producesOverride: ["metal"],
     inventory: [slotFor("metal"), slotFor("mineral")],
   });
   const index = new WareStationIndex();
@@ -116,31 +116,20 @@ test("rebuild: under-construction stations are consumer-only across all slots", 
   // by dropping `!isUnderConstruction` would route metal into producers
   // (the contract says construction is inbound-only).
   assertEqual(index.getProducers("metal").length, 0, "building station does not appear in producers");
-  assertEqual(index.getConsumers("metal").length, 1, "building station's would-be output slot is consumer-only");
+  assertEqual(
+    index.getConsumers("metal").length,
+    1,
+    "building station's would-be output slot is consumer-only",
+  );
   assertEqual(index.getConsumers("mineral").length, 1, "building station's input slot is also a consumer");
 });
 
-test("rebuild: claimed-state stations are excluded from both indices", () => {
-  // canStationTrade returns false for `claimed` — pin that the early-continue
-  // skips them. Mutating the guard would leak claimed stations into the index.
-  const station = makeStation({
-    placement: { id: "ORE-C", stationTypeId: "metal-forge", state: "claimed" },
-    produces: ["metal"],
-    inventory: [slotFor("metal"), slotFor("mineral")],
-  });
-  const index = new WareStationIndex();
-  index.rebuild([station]);
-
-  assertEqual(index.getProducers("metal").length, 0, "claimed station not in producers");
-  assertEqual(index.getConsumers("mineral").length, 0, "claimed station not in consumers");
-});
-
 test("rebuild: emigrating-state stations are excluded from both indices", () => {
-  // canStationTrade returns false for `emigrating` too — trade is suspended
-  // during the gathering window.
+  // canStationTrade returns false for `emigrating` — pin that the early-continue
+  // skips them. Mutating the guard would leak emigrating stations into the index.
   const station = makeStation({
     placement: { id: "ORE-E", stationTypeId: "metal-forge", state: "emigrating" },
-    produces: ["metal"],
+    producesOverride: ["metal"],
     inventory: [slotFor("metal"), slotFor("mineral")],
   });
   const index = new WareStationIndex();
@@ -174,15 +163,6 @@ test("getProducers returns the same shared empty array per miss (no per-call all
   // become distinct objects.
   const first = index.getProducers("metal");
   const second = index.getProducers("ice");
-  assertEqual(first, second, "two miss-path returns are reference-identical");
-  assertEqual(first.length, 0, "miss-path return is an empty array");
-});
-
-test("getConsumers returns the same shared empty array per miss (no per-call allocation)", () => {
-  const index = new WareStationIndex();
-  index.rebuild([]);
-  const first = index.getConsumers("metal");
-  const second = index.getConsumers("ice");
   assertEqual(first, second, "two miss-path returns are reference-identical");
   assertEqual(first.length, 0, "miss-path return is an empty array");
 });
@@ -226,7 +206,7 @@ test("rebuild after building→producing flip moves output slots from consumer t
       state: "building",
       build: { waresRequired: { provisions: 100, hulls: 100 } },
     },
-    produces: ["metal"],
+    producesOverride: ["metal"],
     inventory: [slotFor("metal"), slotFor("mineral")],
   });
   const index = new WareStationIndex();

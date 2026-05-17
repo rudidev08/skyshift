@@ -5,9 +5,11 @@ import { getInventorySlot } from "./sim-station";
 
 /** Ware-level health for a station's required inputs.
  *  - "bad"  — any required input is at 0.
- *  - "warn" — any required input is below 25% of slot.max (but > 0).
+ *  - "warn" — any required input is below `wareLevelWarnFraction` of slot.max (but > 0).
  *  - "ok"   — otherwise, or no required inputs. */
 export type StationWareLevelHealth = "ok" | "warn" | "bad";
+
+const wareLevelWarnFraction = 0.25;
 
 export function getStationWareLevelHealth(station: Station): StationWareLevelHealth {
   const requiredInputs = new Set<WareId>();
@@ -25,7 +27,7 @@ export function getStationWareLevelHealth(station: Station): StationWareLevelHea
     const slot = getInventorySlot(station, wareId);
     if (!slot || slot.max <= 0) continue;
     if (slot.current <= 0) return "bad";
-    if (slot.current < slot.max * 0.25) worst = "warn";
+    if (slot.current < slot.max * wareLevelWarnFraction) worst = "warn";
   }
 
   return worst;

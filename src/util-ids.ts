@@ -1,4 +1,4 @@
-/** Throws if any two items share an `id`; called from data-module load to catch authoring typos. */
+/** Throws if any two items share an `id`; called from data-module load to catch typos in data files. */
 export function assertUniqueIds(items: readonly { id: string }[], kind: string): void {
   const seen = new Set<string>();
   for (const item of items) {

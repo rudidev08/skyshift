@@ -1,4 +1,4 @@
-import type { ShipTemplate } from "../data/ship-types";
+import type { ShipTypeTemplate } from "../data/ship-types";
 import type { Station } from "./sim-station-types";
 import { shipTravel, ORBIT_APPROACH_RADIUS } from "../data/ship-travel";
 import { bodyRadiusBySize } from "../data/stations";
@@ -15,8 +15,8 @@ export interface FlightData {
   progress: number;
   origin: TravelEndpoint;
   destination: TravelEndpoint;
-  phaseStartTime: number;
-  totalElapsedTime: number;
+  phaseStartSeconds: number;
+  totalElapsedSeconds: number;
   flightDuration: number;
   /** Fractional distance (0-1) for each phase boundary. */
   departDistanceFraction: number;
@@ -25,7 +25,7 @@ export interface FlightData {
   /** Inter-station flight (trail + ring pulse) vs local maneuver. */
   travelMode: TravelMode;
   /** Previous heading for smooth turning; null = no turn needed. */
-  prevHeading: number | null;
+  previousHeading: number | null;
 }
 
 export function createSurfaceEndpoint(station: Station): TravelEndpoint {
@@ -58,12 +58,13 @@ export interface ComputeFlightDurationInput {
 /** Flight duration in seconds. Caller resolves map coords from stations —
  *  sim doesn't store them. */
 export function computeFlightDuration(input: ComputeFlightDurationInput): number {
-  const dx = input.destination.x - input.origin.x;
-  const dy = input.destination.y - input.origin.y;
-  const distance = Math.sqrt(dx * dx + dy * dy);
-  const speed = input.travelMode === "interStation"
-    ? shipTravel.baseFlightSpeed * shipTravel.globalSpeed * input.nationSpeed
-    : shipTravel.baseFlightSpeed * shipTravel.globalSpeed;
+  const deltaX = input.destination.x - input.origin.x;
+  const deltaY = input.destination.y - input.origin.y;
+  const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+  const speed =
+    input.travelMode === "interStation"
+      ? shipTravel.baseFlightSpeed * shipTravel.globalSpeed * input.nationSpeed
+      : shipTravel.baseFlightSpeed * shipTravel.globalSpeed;
   return distance / speed;
 }
 
@@ -75,18 +76,23 @@ interface PhaseBounds {
 
 /** Phase-boundary fractions for a flight. Surface endpoints scale their
  *  approach/depart zone with station size; non-surface use a fixed zone. */
-function computePhaseBounds(input: { origin: FlightLegEndpoint; destination: FlightLegEndpoint }): PhaseBounds {
+function computePhaseBounds(input: {
+  origin: FlightLegEndpoint;
+  destination: FlightLegEndpoint;
+}): PhaseBounds {
   const { origin, destination } = input;
-  const dx = destination.position.x - origin.position.x;
-  const dy = destination.position.y - origin.position.y;
-  const distance = Math.sqrt(dx * dx + dy * dy);
+  const deltaX = destination.position.x - origin.position.x;
+  const deltaY = destination.position.y - origin.position.y;
+  const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
-  const departPx = origin.endpoint.surfaceOrOrbit === "surface"
-    ? bodyRadiusBySize[origin.station.size] * shipTravel.stationProximityMultiplier
-    : 20;
-  const arrivePx = destination.endpoint.surfaceOrOrbit === "surface"
-    ? bodyRadiusBySize[destination.station.size] * shipTravel.stationProximityMultiplier
-    : 20;
+  const departPx =
+    origin.endpoint.surfaceOrOrbit === "surface"
+      ? bodyRadiusBySize[origin.station.size] * shipTravel.stationProximityMultiplier
+      : 20;
+  const arrivePx =
+    destination.endpoint.surfaceOrOrbit === "surface"
+      ? bodyRadiusBySize[destination.station.size] * shipTravel.stationProximityMultiplier
+      : 20;
 
   // Cap each zone at 40% so short flights still get a hyperjump segment
   // (otherwise depart + arrive could swallow the whole trip).
@@ -102,7 +108,10 @@ function computePhaseBounds(input: { origin: FlightLegEndpoint; destination: Fli
  *  render as the default before applying orbit-pose adjustments. The orbit
  *  offset keeps distance math non-degenerate for same-station orbit↔surface
  *  flights (which would otherwise yield NaN headings). */
-export function resolveEndpointPos(endpoint: TravelEndpoint, station: Station): { x: number; y: number } {
+export function resolveEndpointPosition(
+  endpoint: TravelEndpoint,
+  station: Station,
+): { x: number; y: number } {
   if (endpoint.surfaceOrOrbit === "surface") return { x: station.x, y: station.y };
   return { x: station.x + ORBIT_APPROACH_RADIUS, y: station.y };
 }
@@ -112,21 +121,21 @@ export interface CreateFlightDataInput {
   destination: TravelEndpoint;
   originStation: Station;
   destinationStation: Station;
-  ship: ShipTemplate;
+  ship: ShipTypeTemplate;
   travelMode: TravelMode;
-  prevHeading?: number | null;
+  previousHeading?: number | null;
 }
 
 /** Build flight data for a single-leg flight. Station refs let sim compute
  *  duration and phase bounds without a render helper. */
 export function createFlightData(input: CreateFlightDataInput): FlightData {
   const originLeg: FlightLegEndpoint = {
-    position: resolveEndpointPos(input.origin, input.originStation),
+    position: resolveEndpointPosition(input.origin, input.originStation),
     station: input.originStation,
     endpoint: input.origin,
   };
   const destinationLeg: FlightLegEndpoint = {
-    position: resolveEndpointPos(input.destination, input.destinationStation),
+    position: resolveEndpointPosition(input.destination, input.destinationStation),
     station: input.destinationStation,
     endpoint: input.destination,
   };
@@ -143,45 +152,48 @@ export function createFlightData(input: CreateFlightDataInput): FlightData {
     progress: 0,
     origin: input.origin,
     destination: input.destination,
-    phaseStartTime: 0,
-    totalElapsedTime: 0,
+    phaseStartSeconds: 0,
+    totalElapsedSeconds: 0,
     flightDuration,
     departDistanceFraction: phaseBounds.departDistanceFraction,
     flightDistanceFraction: phaseBounds.flightDistanceFraction,
     arriveDistanceFraction: phaseBounds.arriveDistanceFraction,
     travelMode: input.travelMode,
-    prevHeading: input.prevHeading ?? null,
+    previousHeading: input.previousHeading ?? null,
   };
 }
 
 /** Departing phase — ease out from origin; transition to hyperjump when progress reaches departEnd. */
 function tickDepartingPhase(flight: FlightData, departEnd: number): void {
-  const phaseProgress = Math.min(1.0, flight.totalElapsedTime / shipTravel.accelerationDurationSeconds);
+  const phaseProgress = Math.min(1.0, flight.totalElapsedSeconds / shipTravel.accelerationDurationSeconds);
   const easedProgress = phaseProgress * phaseProgress;
   flight.progress = easedProgress * flight.departDistanceFraction;
 
   if (flight.progress >= departEnd) {
     flight.progress = departEnd;
     flight.phase = "hyperjump";
-    flight.phaseStartTime = flight.totalElapsedTime;
+    flight.phaseStartSeconds = flight.totalElapsedSeconds;
   }
 }
 
 /** Hyperjump phase — constant speed; transition to arriving when phase progress reaches 1. */
 function tickHyperjumpPhase(flight: FlightData, departEnd: number, hyperjumpEnd: number): void {
-  const hyperjumpProgress = (flight.totalElapsedTime - flight.phaseStartTime) / flight.flightDuration;
+  const hyperjumpProgress = (flight.totalElapsedSeconds - flight.phaseStartSeconds) / flight.flightDuration;
   flight.progress = departEnd + hyperjumpProgress * flight.flightDistanceFraction;
 
   if (hyperjumpProgress >= 1.0) {
     flight.progress = hyperjumpEnd;
     flight.phase = "arriving";
-    flight.phaseStartTime = flight.totalElapsedTime;
+    flight.phaseStartSeconds = flight.totalElapsedSeconds;
   }
 }
 
 /** Arriving phase — ease into destination; returns true when the flight completes. */
 function tickArrivingPhase(flight: FlightData, hyperjumpEnd: number): boolean {
-  const arriveProgress = Math.min(1.0, (flight.totalElapsedTime - flight.phaseStartTime) / shipTravel.dockingDurationSeconds);
+  const arriveProgress = Math.min(
+    1.0,
+    (flight.totalElapsedSeconds - flight.phaseStartSeconds) / shipTravel.dockingDurationSeconds,
+  );
   const easedProgress = 1 - (1 - arriveProgress) * (1 - arriveProgress);
   flight.progress = hyperjumpEnd + easedProgress * flight.arriveDistanceFraction;
   flight.progress = Math.min(1.0, flight.progress);
@@ -195,7 +207,7 @@ function tickArrivingPhase(flight: FlightData, hyperjumpEnd: number): boolean {
 
 /** Advance a flight by deltaSeconds. Returns true when the flight is complete. */
 export function tickFlightData(flight: FlightData, deltaSeconds: number): boolean {
-  flight.totalElapsedTime += deltaSeconds;
+  flight.totalElapsedSeconds += deltaSeconds;
 
   const departEnd = flight.departDistanceFraction;
   const hyperjumpEnd = departEnd + flight.flightDistanceFraction;

@@ -1,13 +1,8 @@
 // Runtime station types — instances the simulation creates, mutates, and reads each tick.
-// Authored types (StationTemplate, StationPlacement, etc.) live in data/station-types.ts.
+// The data-side types it builds on (StationTypeTemplate, PlacedStation, …) live in data/station-types.ts.
 
 import type { NationTemplate } from "../data/nation-types";
-import type {
-  StationBuild,
-  StationSize,
-  StationState,
-  StationTemplate,
-} from "../data/station-types";
+import type { StationBuild, StationSize, StationState, StationTypeTemplate } from "../data/station-types";
 import type { WareId, WareTemplate } from "../data/ware-types";
 
 /** Per-station emigration state. Present iff state === "emigrating". Owned and
@@ -35,8 +30,7 @@ export interface StationGenerationalShipBuild {
   /** Event whose arrivals this build tracks. */
   eventId: string;
   destinationName: string;
-  /** Emigrating stations in this event. */
-  stationCount: number;
+  emigratingStationCount: number;
   /** 0..1 fraction of expected event ships arrived, refreshed once per emigration-manager tick. */
   arrivalFraction: number;
 }
@@ -53,7 +47,7 @@ export interface InventorySlot {
 }
 
 /** Runtime station — the merged flat shape simulation operates on. Combines
- *  authored placement fields with live state produced by `createStation`. */
+ *  `PlacedStation` fields with live state produced by `createStation`. */
 export interface Station {
   id: string;
   name: string;
@@ -65,10 +59,9 @@ export interface Station {
   state: StationState;
   /** Present iff state === "building". */
   build?: StationBuild;
-  /** Zone id the station was placed into (for dynamic builds). */
   zoneId?: string;
   /** Resolved station-template reference. `.id` gives the `StationTypeId`. */
-  stationType: StationTemplate;
+  stationType: StationTypeTemplate;
   sizeMultiplier: number;
   inventory: InventorySlot[];
   /** O(1) lookup by ware ID — same slots as inventory[], built once at init. */

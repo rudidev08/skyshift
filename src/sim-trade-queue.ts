@@ -5,38 +5,26 @@
 //
 // Trip lifecycle:
 //   1. findRoundTradeTrip (sim-trade-decision) picks the legs.
-//   2. startTrip places reservations, builds the queue via buildQueueFromTrip,
+//   2. startTrip places reservations, builds the queue via createQueueFromTrip,
 //      and kicks the first action through advanceQueue.
 //   3. advanceQueue walks the queue, executing instant actions (withdraw,
 //      deposit) in a burst until it hits a blocking action (fly, wait) or the
 //      queue empties.
 //
-// Cargo helpers (addCargo / removeCargo) live here because every
-// transfer mutation flows through processDepositAction or advanceQueue's
-// withdraw branch, both of which sit in the queue layer.
 
 import { economyConfig } from "../data/economy-config";
 import type { TradeTripLeg } from "./sim-trade-types";
 import type { WareTemplate, WareId } from "../data/ware-types";
 import { getInventorySlot, type Station, type InventorySlot } from "./sim-station";
 import { stationCodeNameLabel } from "./sim-station-template";
-import { getShipTemplate } from "./sim-ship-template";
-import {
-  createFlightData,
-  createSurfaceEndpoint,
-  createOrbitEndpoint,
-} from "./sim-travel";
+import { getShipTypeTemplate } from "./sim-ship-template";
+import { createFlightData, createSurfaceEndpoint, createOrbitEndpoint } from "./sim-travel";
 import type { ShipAction, TravelEndpoint } from "./sim-travel-types";
 import { addReservation, fulfillReservation, clearReservations } from "./sim-trade-reservation";
 import { getWareTemplate } from "./sim-ware-template";
-import {
-  type TradeShip,
-  type TradeTransferEvent,
-} from "./sim-trade-types";
+import { type TradeShip, type TradeTransferEvent } from "./sim-trade-types";
 // Type-only — avoids runtime cycle with sim-trade-manager.
 import type { DecommissionEvent, TradeManager } from "./sim-trade-manager";
-
-// --- Cargo helpers ---
 
 function addCargo(ship: TradeShip, ware: WareTemplate, amount: number): void {
   const existing = ship.cargoAmountByWareId.get(ware.id) ?? 0;
@@ -51,8 +39,6 @@ function removeCargo(ship: TradeShip, wareId: WareId, amount: number): void {
   else ship.cargoAmountByWareId.set(wareId, next);
 }
 
-// --- Queue building ---
-
 interface TripTransferBuckets {
   homeWithdrawals: ShipAction[];
   targetDeposits: ShipAction[];
@@ -60,7 +46,7 @@ interface TripTransferBuckets {
   homeDeposits: ShipAction[];
 }
 
-function buildTransferAction(
+function createTransferAction(
   type: "cargo-withdrawal" | "cargo-deposit",
   station: Station,
   leg: TradeTripLeg,
@@ -77,20 +63,25 @@ function bucketTripTransfers(legs: TradeTripLeg[], home: Station, target: Statio
     homeDeposits: [],
   };
   for (const leg of legs) {
-    if (leg.fromStation.id === home.id) buckets.homeWithdrawals.push(buildTransferAction("cargo-withdrawal", home, leg));
-    if (leg.toStation.id === target.id) buckets.targetDeposits.push(buildTransferAction("cargo-deposit", target, leg));
-    if (leg.fromStation.id === target.id) buckets.targetWithdrawals.push(buildTransferAction("cargo-withdrawal", target, leg));
-    if (leg.toStation.id === home.id) buckets.homeDeposits.push(buildTransferAction("cargo-deposit", home, leg));
+    if (leg.fromStation.id === home.id)
+      buckets.homeWithdrawals.push(createTransferAction("cargo-withdrawal", home, leg));
+    if (leg.toStation.id === target.id)
+      buckets.targetDeposits.push(createTransferAction("cargo-deposit", target, leg));
+    if (leg.fromStation.id === target.id)
+      buckets.targetWithdrawals.push(createTransferAction("cargo-withdrawal", target, leg));
+    if (leg.toStation.id === home.id)
+      buckets.homeDeposits.push(createTransferAction("cargo-deposit", home, leg));
   }
   return buckets;
 }
 
-function buildFlyBetweenStations(
+function createFlyBetweenStations(
   origin: Station,
   destination: Station,
   fromEndpointKind: "surface" | "orbit",
 ): Extract<ShipAction, { type: "fly" }> {
-  const originEndpoint = fromEndpointKind === "orbit" ? createOrbitEndpoint(origin) : createSurfaceEndpoint(origin);
+  const originEndpoint =
+    fromEndpointKind === "orbit" ? createOrbitEndpoint(origin) : createSurfaceEndpoint(origin);
   return {
     type: "fly",
     origin: originEndpoint,
@@ -103,7 +94,7 @@ function buildFlyBetweenStations(
   };
 }
 
-function buildLocalHop(
+function createLocalHop(
   station: Station,
   origin: TravelEndpoint,
   destination: TravelEndpoint,
@@ -120,14 +111,14 @@ function buildLocalHop(
   };
 }
 
-function buildDockWait(label: string): Extract<ShipAction, { type: "wait" }> {
+function createDockWait(label: string): Extract<ShipAction, { type: "wait" }> {
   return { type: "wait", duration: economyConfig.groundedDelaySeconds, label: `Dock: ${label}` };
 }
 
 /** Build the action queue. Ships travel home → target → home, loading/unloading
  *  at each stop. Deposits queue before withdrawals so the hold empties before
  *  refilling. */
-function buildQueueFromTrip(ship: TradeShip, legs: TradeTripLeg[], manager: TradeManager): ShipAction[] {
+function createQueueFromTrip(ship: TradeShip, legs: TradeTripLeg[], manager: TradeManager): ShipAction[] {
   const home = manager.requireResolvedStation(ship.homeStationId);
   const firstLeg = legs[0];
   // The non-home station touched by the trip.
@@ -146,32 +137,30 @@ function buildQueueFromTrip(ship: TradeShip, legs: TradeTripLeg[], manager: Trad
   const orbitEndpoint = createOrbitEndpoint(home);
 
   // Placeholder consumed by advanceQueue's leading shift so the first real action survives — never executed.
-  queue.push(buildLocalHop(home, orbitEndpoint, createSurfaceEndpoint(home), `Land: ${homeLabel}`));
+  queue.push(createLocalHop(home, orbitEndpoint, createSurfaceEndpoint(home), `Land: ${homeLabel}`));
 
   if (needsHomeLanding) {
-    queue.push(buildDockWait(homeLabel));
+    queue.push(createDockWait(homeLabel));
     queue.push(...buckets.homeWithdrawals);
-    queue.push(buildFlyBetweenStations(home, target, "surface"));
+    queue.push(createFlyBetweenStations(home, target, "surface"));
   } else {
     // No cargo to load — fly orbit → destination directly.
-    queue.push(buildFlyBetweenStations(home, target, "orbit"));
+    queue.push(createFlyBetweenStations(home, target, "orbit"));
   }
 
-  queue.push(buildDockWait(targetLabel));
+  queue.push(createDockWait(targetLabel));
   queue.push(...targetActions);
-  queue.push(buildFlyBetweenStations(target, home, "surface"));
+  queue.push(createFlyBetweenStations(target, home, "surface"));
 
   if (buckets.homeDeposits.length > 0) {
-    queue.push(buildDockWait(homeLabel));
+    queue.push(createDockWait(homeLabel));
     queue.push(...buckets.homeDeposits);
   }
 
-  queue.push(buildLocalHop(home, createSurfaceEndpoint(home), orbitEndpoint, `Orbit: ${homeLabel}`));
+  queue.push(createLocalHop(home, createSurfaceEndpoint(home), orbitEndpoint, `Orbit: ${homeLabel}`));
 
   return queue;
 }
-
-// --- Inventory transfer helpers ---
 
 /** Remove cargo from a slot, clamped to available. Returns amount taken. */
 export function withdrawCargo(slot: InventorySlot, maxAmount: number): number {
@@ -207,7 +196,13 @@ export function processDepositAction(
     // amount in full so no phantom incoming claim is left on the slot.
     incomingReservationToRelease = action.amount;
   }
-  if (slot) fulfillReservation(ship, { station: action.station, wareId: action.wareId, amount: incomingReservationToRelease, cargoDirection: "incoming" });
+  if (slot)
+    fulfillReservation(ship, {
+      station: action.station,
+      wareId: action.wareId,
+      amount: incomingReservationToRelease,
+      cargoDirection: "incoming",
+    });
   if (delivered > 0) {
     const event: TradeTransferEvent = {
       amount: delivered,
@@ -230,7 +225,13 @@ function processWithdrawAction(
   const slot = getInventorySlot(action.station, action.wareId);
   const taken = slot ? withdrawCargo(slot, action.amount) : 0;
   if (taken > 0) addCargo(ship, getWareTemplate(action.wareId), taken);
-  if (slot) fulfillReservation(ship, { station: action.station, wareId: action.wareId, amount: taken, cargoDirection: "outgoing" });
+  if (slot)
+    fulfillReservation(ship, {
+      station: action.station,
+      wareId: action.wareId,
+      amount: taken,
+      cargoDirection: "outgoing",
+    });
   if (taken > 0) {
     const event: TradeTransferEvent = {
       amount: taken,
@@ -260,12 +261,10 @@ function processDecommissionAction(
   for (const observer of manager.decommissionObservers) observer(event);
 }
 
-// --- Flight + queue lifecycle ---
-
 /** Append actions and make sure the ship starts executing immediately.
  *
  *  Idle ships need a zero-duration placeholder so advanceQueue's leading-shift
- *  doesn't consume the first appended action — same trick buildQueueFromTrip
+ *  doesn't consume the first appended action — same trick createQueueFromTrip
  *  uses for fresh trips. Ships in flight or mid-action already have a pending
  *  wake-up; idle ships get their timer canceled and rescheduled at 0. */
 export function appendActionsToShip(ship: TradeShip, actions: ShipAction[], manager: TradeManager): void {
@@ -288,7 +287,7 @@ export function startFlight(
   manager: TradeManager,
 ): void {
   const orbitingShip = manager.requireResolvedShip(ship.orbitingShipId);
-  const shipTemplate = getShipTemplate(orbitingShip.shipTypeId);
+  const shipTemplate = getShipTypeTemplate(orbitingShip.shipTypeId);
   // Station refs come from the action so an emigrant's queued ferry can still
   // resolve the source after stationManager has removed it.
   ship.flight = createFlightData({
@@ -298,7 +297,7 @@ export function startFlight(
     destinationStation: action.destinationStation,
     ship: shipTemplate,
     travelMode: action.travelMode,
-    prevHeading: ship.lastHeading,
+    previousHeading: ship.lastFlightHeadingRadians,
   });
 }
 
@@ -310,36 +309,45 @@ export function resetTradeState(ship: TradeShip, manager: TradeManager): void {
   ship.targetStationId = null;
   ship.tradeDirection = null;
   ship.cargoAmountByWareId.clear();
-  ship.lastHeading = null;
-  ship.idleStartTime = manager.tradeTime;
+  ship.lastFlightHeadingRadians = null;
+  ship.idleSinceTradeTime = manager.tradeTime;
 }
 
 /** Commit a trip — place reservations, build the queue, fire the first action. */
 export function startTrip(ship: TradeShip, legs: TradeTripLeg[], manager: TradeManager): void {
-
   for (const leg of legs) {
     const outgoingSlot = getInventorySlot(leg.fromStation, leg.wareId);
     const incomingSlot = getInventorySlot(leg.toStation, leg.wareId);
-    if (!outgoingSlot || !incomingSlot) throw new Error(`startTrip: missing inventory slot for ware ${leg.wareId}`);
-    addReservation(ship, { station: leg.fromStation, wareId: leg.wareId, amount: leg.amount, cargoDirection: "outgoing" });
-    addReservation(ship, { station: leg.toStation, wareId: leg.wareId, amount: leg.amount, cargoDirection: "incoming" });
+    if (!outgoingSlot || !incomingSlot)
+      throw new Error(`startTrip: missing inventory slot for ware ${leg.wareId}`);
+    addReservation(ship, {
+      station: leg.fromStation,
+      wareId: leg.wareId,
+      amount: leg.amount,
+      cargoDirection: "outgoing",
+    });
+    addReservation(ship, {
+      station: leg.toStation,
+      wareId: leg.wareId,
+      amount: leg.amount,
+      cargoDirection: "incoming",
+    });
   }
 
-  ship.actionQueue = buildQueueFromTrip(ship, legs, manager);
+  ship.actionQueue = createQueueFromTrip(ship, legs, manager);
 
   // Target station for UI — non-home end of the first leg.
   const firstLeg = legs[0];
-  ship.targetStationId = firstLeg.fromStation.id === ship.homeStationId ? firstLeg.toStation.id : firstLeg.fromStation.id;
+  ship.targetStationId =
+    firstLeg.fromStation.id === ship.homeStationId ? firstLeg.toStation.id : firstLeg.fromStation.id;
 
   // Derived from firstLeg for existing UI/debug readers.
   ship.tradeDirection = firstLeg.fromStation.id === ship.homeStationId ? "sell" : "buy";
 
-  ship.idleStartTime = manager.tradeTime;
+  ship.idleSinceTradeTime = manager.tradeTime;
 
   advanceQueue(ship, manager);
 }
-
-// --- Queue dispatcher ---
 
 /** Random wait between trade attempts when no trip is available. */
 export function randomTradeDelay(): number {

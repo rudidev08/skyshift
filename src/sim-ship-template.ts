@@ -1,10 +1,10 @@
 import { allShips } from "../data/ships";
-import type { ShipTemplate, ShipTypeId } from "../data/ship-types";
+import type { ShipTypeTemplate, ShipTypeId } from "../data/ship-types";
 import type { Ship } from "./sim-ships";
 
-const shipTemplatesById = new Map<ShipTypeId, ShipTemplate>(allShips.map((ship) => [ship.id, ship]));
+const shipTemplatesById = new Map<ShipTypeId, ShipTypeTemplate>(allShips.map((ship) => [ship.id, ship]));
 
-export function getShipTemplate(id: ShipTypeId): ShipTemplate {
+export function getShipTypeTemplate(id: ShipTypeId): ShipTypeTemplate {
   const ship = shipTemplatesById.get(id);
   if (!ship) throw new Error(`Unknown ship: ${id}`);
   return ship;

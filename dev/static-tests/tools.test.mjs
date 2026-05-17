@@ -19,12 +19,15 @@ const clickInPage = (page, selector) =>
   }, selector);
 
 const setSelectInPage = (page, selector, value) =>
-  page.evaluate(({ sel, val }) => {
-    const select = document.querySelector(sel);
-    if (!select) throw new Error(`setSelectInPage: ${sel} not found`);
-    select.value = val;
-    select.dispatchEvent(new Event("change"));
-  }, { sel: selector, val: value });
+  page.evaluate(
+    ({ sel, val }) => {
+      const select = document.querySelector(sel);
+      if (!select) throw new Error(`setSelectInPage: ${sel} not found`);
+      select.value = val;
+      select.dispatchEvent(new Event("change"));
+    },
+    { sel: selector, val: value },
+  );
 
 await checkPage({
   name: "tools",
@@ -50,10 +53,10 @@ await checkPage({
     // which is unreliable in headless because Chromium throttles RAF when
     // the tab isn't visible. Setting an explicit interval makes the wait
     // observable regardless of headless RAF state.
-    await page.waitForFunction(
-      () => !document.getElementById("timelapse-diagnostics").hidden,
-      { timeout: 60_000, polling: 250 },
-    );
+    await page.waitForFunction(() => !document.getElementById("timelapse-diagnostics").hidden, {
+      timeout: 60_000,
+      polling: 250,
+    });
 
     // Step buttons live inside the shared StationsTimelapseControl mount —
     // selected by data-step rather than id since the component owns them.

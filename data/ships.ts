@@ -1,7 +1,8 @@
-import type { ShipTemplate } from "./ship-types";
+import type { ShipTypeTemplate } from "./ship-types";
 import * as shipLore from "./strings-ships";
 
-export const tanker: ShipTemplate = {
+// heavy and slow ship, made for raw materials
+export const tanker: ShipTypeTemplate = {
   id: "tanker",
   name: "Tanker",
   cargoCapacity: 10000,
@@ -19,7 +20,8 @@ export const tanker: ShipTemplate = {
   lore: shipLore.TANKER,
 };
 
-export const trader: ShipTemplate = {
+// jack of all trades, common trader ship
+export const trader: ShipTypeTemplate = {
   id: "trader",
   name: "Trader",
   cargoCapacity: 2500,
@@ -37,7 +39,8 @@ export const trader: ShipTemplate = {
   lore: shipLore.TRADER,
 };
 
-export const seedhaul: ShipTemplate = {
+// bio-ship, organic trader
+export const seedhaul: ShipTypeTemplate = {
   id: "seedhaul",
   name: "Seedhaul",
   cargoCapacity: 4000,
@@ -55,7 +58,8 @@ export const seedhaul: ShipTemplate = {
   lore: shipLore.SEEDHAUL,
 };
 
-export const jumpship: ShipTemplate = {
+// sleek, high-tech, extremely fast, low cargo
+export const jumpship: ShipTypeTemplate = {
   id: "jumpship",
   name: "Jumpship",
   cargoCapacity: 2000,
@@ -73,4 +77,4 @@ export const jumpship: ShipTemplate = {
   lore: shipLore.JUMPSHIP,
 };
 
-export const allShips: ShipTemplate[] = [tanker, trader, seedhaul, jumpship];
+export const allShips: ShipTypeTemplate[] = [tanker, trader, seedhaul, jumpship];

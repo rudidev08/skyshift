@@ -3,10 +3,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 import { defineConfig, globalIgnores } from "eslint/config";
 
-const browserTypeScriptFiles = [
-  "src/**/*.{ts,tsx,mts,cts}",
-  "data/**/*.{ts,tsx,mts,cts}",
-];
+const browserTypeScriptFiles = ["src/**/*.{ts,tsx,mts,cts}", "data/**/*.{ts,tsx,mts,cts}"];
 
 const nodeTypeScriptFiles = [
   "vite.config.ts",
@@ -15,19 +12,11 @@ const nodeTypeScriptFiles = [
   "src/editor/tools/**/*.{ts,tsx,mts,cts}",
 ];
 
-const nodeJavaScriptFiles = [
-  "dev/**/*.{js,mjs,cjs}",
-];
+const nodeJavaScriptFiles = ["dev/**/*.{js,mjs,cjs}"];
 
-const repositoryTypeScriptFiles = [
-  ...browserTypeScriptFiles,
-  ...nodeTypeScriptFiles,
-];
+const repositoryTypeScriptFiles = [...browserTypeScriptFiles, ...nodeTypeScriptFiles];
 
-const repositoryLintFiles = [
-  ...repositoryTypeScriptFiles,
-  ...nodeJavaScriptFiles,
-];
+const repositoryLintFiles = [...repositoryTypeScriptFiles, ...nodeJavaScriptFiles];
 
 export default defineConfig(
   // Keep repo-wide ignores limited to generated, vendored, or local-only output.
@@ -62,10 +51,7 @@ export default defineConfig(
   // would lint clean, defeating the sim/render boundary.
   {
     files: browserTypeScriptFiles,
-    ignores: [
-      "src/editor/tools/**/*.{ts,tsx,mts,cts}",
-      "src/**/sim-*.ts",
-    ],
+    ignores: ["src/editor/tools/**/*.{ts,tsx,mts,cts}", "src/**/sim-*.ts"],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -216,35 +202,43 @@ export default defineConfig(
           patterns: [
             {
               group: ["phaser", "phaser/*"],
-              message: "Simulation files must not import the Phaser runtime — the game must run headless for economy reports and unit tests. Move render-dependent code to src/phaser/ or to a render-* module.",
+              message:
+                "Simulation files must not import the Phaser runtime — the game must run headless for economy reports and unit tests. Move render-dependent code to src/phaser/ or to a render-* module.",
             },
             {
               group: ["**/phaser/**"],
-              message: "Simulation files must not import from src/phaser/ — these files transitively pull in Phaser through re-exports. Move pure helpers to a render-* module if they don't need Phaser, or expose sim-safe values through data/.",
+              message:
+                "Simulation files must not import from src/phaser/ — these files transitively pull in Phaser through re-exports. Move pure helpers to a render-* module if they don't need Phaser, or expose sim-safe values through data/.",
             },
             {
               group: ["**/render-*"],
-              message: "Simulation files must not import from render-* modules — render helpers may use Canvas2D / DOM APIs. Sim code stays engine-headless; expose sim-safe values through data/ if needed.",
+              message:
+                "Simulation files must not import from render-* modules — render helpers may use Canvas2D / DOM APIs. Sim code stays engine-headless; expose sim-safe values through data/ if needed.",
             },
             {
               group: ["**/ui-*"],
-              message: "Simulation files must not import from ui-* modules — UI code uses DOM globals (document / window) and must not be reachable from sim.",
+              message:
+                "Simulation files must not import from ui-* modules — UI code uses DOM globals (document / window) and must not be reachable from sim.",
             },
             {
               group: ["**/audio-*"],
-              message: "Simulation files must not import from audio-* modules — they use AudioContext, fetch, and Vite asset globbing, which the headless sim can't run.",
+              message:
+                "Simulation files must not import from audio-* modules — they use AudioContext, fetch, and Vite asset globbing, which the headless sim can't run.",
             },
             {
               group: ["**/game", "**/game-entry"],
-              message: "Simulation files must not import from src/game.ts or src/game-entry.ts — these are top-level browser entry points that bring in Phaser + DOM.",
+              message:
+                "Simulation files must not import from src/game.ts or src/game-entry.ts — these are top-level browser entry points that bring in Phaser + DOM.",
             },
             {
               group: ["**/editor/**"],
-              message: "Simulation files must not import from src/editor/ — the editor spans all layers by design. Editor imports sim; sim must not import editor.",
+              message:
+                "Simulation files must not import from src/editor/ — the editor spans all layers by design. Editor imports sim; sim must not import editor.",
             },
             {
               group: ["**/static-pages/**"],
-              message: "Simulation files must not import from src/static-pages/ — these are standalone HTML-page modules with DOM dependencies.",
+              message:
+                "Simulation files must not import from src/static-pages/ — these are standalone HTML-page modules with DOM dependencies.",
             },
           ],
         },
@@ -252,15 +246,35 @@ export default defineConfig(
 
       "no-restricted-globals": [
         "error",
-        { name: "document", message: "Simulation files cannot use DOM globals. Move DOM work to a ui-* or render-* module." },
+        {
+          name: "document",
+          message: "Simulation files cannot use DOM globals. Move DOM work to a ui-* or render-* module.",
+        },
         { name: "window", message: "Simulation files cannot use DOM globals." },
         { name: "navigator", message: "Simulation files cannot use DOM globals." },
-        { name: "localStorage", message: "Simulation files cannot use DOM globals. Use src/storage-save-slots.ts for persistence." },
+        {
+          name: "localStorage",
+          message: "Simulation files cannot use DOM globals. Use src/storage-save-slots.ts for persistence.",
+        },
         { name: "sessionStorage", message: "Simulation files cannot use DOM globals." },
-        { name: "HTMLElement", message: "Simulation files cannot use DOM types — use domain types from data/ instead." },
-        { name: "requestAnimationFrame", message: "Simulation files cannot use browser animation frame callbacks — sim progresses on sim ticks, not wall-clock frames." },
-        { name: "cancelAnimationFrame", message: "Simulation files cannot use browser animation frame callbacks." },
-        { name: "fetch", message: "Simulation files cannot perform browser network I/O — it is outside the sim loop and not deterministic." },
+        {
+          name: "HTMLElement",
+          message: "Simulation files cannot use DOM types — use domain types from data/ instead.",
+        },
+        {
+          name: "requestAnimationFrame",
+          message:
+            "Simulation files cannot use browser animation frame callbacks — sim progresses on sim ticks, not wall-clock frames.",
+        },
+        {
+          name: "cancelAnimationFrame",
+          message: "Simulation files cannot use browser animation frame callbacks.",
+        },
+        {
+          name: "fetch",
+          message:
+            "Simulation files cannot perform browser network I/O — it is outside the sim loop and not deterministic.",
+        },
       ],
     },
   },

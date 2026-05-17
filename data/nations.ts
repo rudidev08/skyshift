@@ -1,6 +1,10 @@
 import type { NationTemplate } from "./nation-types";
 import * as nationLore from "./strings-nations";
 
+/** Core systems, center of civilization.
+ *  Builds tech factories (primary), water processing, and shipyards — the only
+ *  source of hulls. Its build scorer packs each new station into the sector
+ *  closest to existing ones, so HUB grows as a tight cluster. */
 export const hubNation: NationTemplate = {
   id: "hub",
   codeName: "HUB",
@@ -21,6 +25,10 @@ export const hubNation: NationTemplate = {
   nameSuffixes: nationLore.HUB_NAME_SUFFIXES,
 };
 
+/** Closely tied to HUB, in both location and symbiosis. Settled in Palo Celestia grown tree nebula
+ *  Life-support economy — farms (primary), medical labs, and habitats: food,
+ *  medicine, provisions. The only seedhaul fleet, and the only build scorer
+ *  that prefers bio-nebula sectors. */
 export const bioNation: NationTemplate = {
   id: "bio",
   codeName: "BIO",
@@ -41,6 +49,9 @@ export const bioNation: NationTemplate = {
   nameSuffixes: nationLore.BIO_NAME_SUFFIXES,
 };
 
+/** At home in asteroid-dense space.
+ *  Raw-materials base — mines (primary; ice and mineral) and metal forges. The
+ *  only tanker fleet, and its build scorer prefers mineral-rich sectors. */
 export const oreNation: NationTemplate = {
   id: "ore",
   codeName: "ORE",
@@ -61,6 +72,10 @@ export const oreNation: NationTemplate = {
   nameSuffixes: nationLore.ORE_NAME_SUFFIXES,
 };
 
+/** Isolated in bright nebulas. Jump ships can reach any space in short amount of time.
+ *  Builds only archives (hyperdata). The lone jumpship fleet, and the only
+ *  build scorer that ignores distance — it picks deep-space sectors at random,
+ *  settling where others can't reach instead of clustering. */
 export const skyNation: NationTemplate = {
   id: "sky",
   codeName: "SKY",
@@ -81,6 +96,10 @@ export const skyNation: NationTemplate = {
   nameSuffixes: nationLore.SKY_NAME_SUFFIXES,
 };
 
+/** Nomadic collective, driven by curiosity and variation.
+ *  Builds only observatories (signal). Its build scorer is the inverse of
+ *  every other nation's — it builds farthest from its own stations, scattering
+ *  outposts across the map instead of clustering. */
 export const farNation: NationTemplate = {
   id: "far",
   codeName: "FAR",
@@ -101,9 +120,9 @@ export const farNation: NationTemplate = {
   nameSuffixes: nationLore.FAR_NAME_SUFFIXES,
 };
 
-/** WAY owns the generational-ship stations and emigrant ships, but the two
- *  false flags below keep it out of the build-cycle and emigration pipelines
- *  that the other nations run through NationManager and EmigrationManager. */
+/** The only nation outside the economy — no fleet, produces nothing, never
+ *  builds, never emigrates: a neutral population carrier. Its generational
+ *  ships are seeded fully formed rather than constructed. */
 export const wayNation: NationTemplate = {
   id: "way",
   codeName: "WAY",
@@ -122,11 +141,11 @@ export const wayNation: NationTemplate = {
   participatesInEmigration: false,
   stationConstructionShipTypeId: null,
   stationNames: nationLore.WAY_STATION_NAMES,
-  shipNames: nationLore.WAY_SHIP_NAMES,
-  nameSuffixes: nationLore.WAY_NAME_SUFFIXES,
+  shipNames: [],
+  nameSuffixes: [],
 };
 
-/** Every nation including WAY — contrast with buildingNations which excludes it. */
+/** Every nation including WAY — contrast with stationBuilderNations which excludes it. */
 export const allNations: NationTemplate[] = [
   hubNation,
   bioNation,
@@ -137,4 +156,4 @@ export const allNations: NationTemplate[] = [
 ];
 
 /** Playable nations that run building cycles. */
-export const buildingNations: NationTemplate[] = allNations.filter((nation) => nation.buildsStations);
+export const stationBuilderNations: NationTemplate[] = allNations.filter((nation) => nation.buildsStations);

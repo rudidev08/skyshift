@@ -35,7 +35,7 @@ Before writing or growing a function, ask:
 3. **Match in-repo precedent.** When a naming or structural convention isn't documented, prefer existing in-repo precedent over inventing a new one. If precedent is conflicting, ask.
 4. **Pair operations should look paired.** load/save, register/unregister, attach/detach — same word root, same parameter shape, same return shape. Exception: serialize/deserialize and inverse transformations (e.g. `toSnapshot`/`fromSnapshot`) may have asymmetric return shapes by nature — serialization returns data, deserialization returns the reconstructed value. Asymmetry in non-inverse pairs is a sign something is off, or a missing rule.
 5. **Make mutation visible in the name.** `addShip`, `clearQueue`, `setPhase` for functions that mutate. `withShip`, `nextPhase` for functions that return new values. If `getShip()` mutates anything, rename it.
-6. **Field names on exported shapes carry meaning at consumer sites.** A field on a type read across files needs a name that reads cleanly without seeing the surrounding type. `fromId` is fine when the consumer reads it next to a type name like `TradeRoute`; `fromStationId` is right when the field escapes to consumers that read `route.fromId` in isolation.
+6. **Names on exported shapes carry meaning at consumer sites.** A name read across files needs to read cleanly without seeing its declaration. Applies to fields and to exported type names. `fromId` is fine when the consumer reads it next to a type name like `TradeRoute`; `fromStationId` is right when the field escapes to consumers that read `route.fromId` in isolation. Same for type names: qualify the export (`GameViewMode` over bare `ViewMode`) when the bare name has a real plausible collision in the consuming codebase; otherwise let the import path or a namespace import (`import * as game from "./game-view-mode"; game.ViewMode`) carry the scope. Don't qualify pre-emptively.
 7. **Renames are present-clarity edits, not abstractions.** When a name reads better, take it. Don't cite A.5, A.4, D.3, C.3, call-site count, or "churn" as a reason to keep an unclear name — those rules govern new code, not relabeling existing code.
 
 #### Don't write code that doesn't need to exist
@@ -78,6 +78,8 @@ Prefer `scoreStationTypeForNewConstruction` — the name says when this score ap
 Avoid `scoreStationType` — raises the question "scored against what?" — production efficiency? sale value? build priority?
 
 Additional prefer/avoid example: `computeMapWareScarcity` / `computeWareScarcity` (name should also say the scope).
+
+Additional prefer/avoid example: `cameraMinZoomPhaserClamp` / `cameraMinZoom` (when a same-file sibling like `cameraZoomLevelMin` competes, the bare name leaves "min zoom for which system?" ambiguous at the declaration; the `PhaserClamp` suffix names the consumer so the two constants can't be confused on first read).
 
 ### Example 2
 

@@ -2,19 +2,17 @@ import { test, assertEqual, assertTrue } from "./test-utils.ts";
 import { getAllInventorySlots, getInventorySlot } from "../sim-station.ts";
 import { findRoundTradeTrip, effectiveFillPercent } from "../sim-trade-decision.ts";
 import { createSimulation } from "../sim-lifecycle.ts";
-import { createMapFromTemplate } from "../sim-map-builder.ts";
-import { getShipTemplate } from "../sim-ship-template.ts";
+import { createMapFromTemplate } from "../sim-map-create.ts";
+import { getShipTypeTemplate } from "../sim-ship-template.ts";
 import { map as settledUniverse } from "../../data/map.ts";
 import { settledPreset } from "../../data/map-preset-settled.ts";
 import type { MapTemplate, MapPreset } from "../../data/map-types.ts";
 
-// --- Real findTrip + overview against the settled simulation ---
-//
 // `ignoreCargoCompatibility` makes every dockable station spawn its full
 // roster so findTrip has plenty of candidates. Each test builds a fresh
 // simulation so disposal and per-ship mutations stay self-contained.
 
-function freshSettledSimulation(extraOptions: Parameters<typeof createSimulation>[1] = {}) {
+function createSettledSimulation(extraOptions: Parameters<typeof createSimulation>[1] = {}) {
   return createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
     ignoreCargoCompatibility: true,
     ...extraOptions,
@@ -22,7 +20,7 @@ function freshSettledSimulation(extraOptions: Parameters<typeof createSimulation
 }
 
 test("findTrip returns a 1-or-2-leg Trip for a freshly-initialized ship with routes available", () => {
-  const simulation = freshSettledSimulation();
+  const simulation = createSettledSimulation();
   const ships = simulation.tradeManager.tradeShips;
   assertTrue(ships.length > 0, "simulation produced ships");
 
@@ -35,7 +33,7 @@ test("findTrip returns a 1-or-2-leg Trip for a freshly-initialized ship with rou
       // from sizeCargoForLeg's clamp would let a leg's amount exceed the
       // ship's hold when both source surplus and destination room are large.
       const orbitingShip = simulation.tradeManager.requireResolvedShip(ship.orbitingShipId);
-      const cargoCapacity = getShipTemplate(orbitingShip.shipTypeId).cargoCapacity;
+      const cargoCapacity = getShipTypeTemplate(orbitingShip.shipTypeId).cargoCapacity;
       for (const leg of trip) {
         assertTrue(leg.amount > 0, "leg amount positive");
         assertTrue(leg.amount <= cargoCapacity, "leg amount does not exceed cargo capacity");
@@ -56,15 +54,15 @@ test("findTrip picks destinations with the right fill direction (sell to lower-f
   // from emptier-than-home producers. The eligible set would be empty in
   // most realistic seedings — so this catches a swap by frequency, not by
   // single-trip observation.
-  const simulation = freshSettledSimulation();
+  const simulation = createSettledSimulation();
   let checkedTrips = 0;
   let mismatchedTrips = 0;
   for (const ship of simulation.tradeManager.tradeShips) {
     const trip = findRoundTradeTrip(ship, simulation.tradeManager);
     if (!trip) continue;
-    const primary = trip[0];
-    const sourceSlot = getInventorySlot(primary.fromStation, primary.wareId);
-    const destinationSlot = getInventorySlot(primary.toStation, primary.wareId);
+    const primaryLeg = trip[0];
+    const sourceSlot = getInventorySlot(primaryLeg.fromStation, primaryLeg.wareId);
+    const destinationSlot = getInventorySlot(primaryLeg.toStation, primaryLeg.wareId);
     if (!sourceSlot || !destinationSlot) continue;
     const sourceFill = effectiveFillPercent(sourceSlot);
     const destinationFill = effectiveFillPercent(destinationSlot);
@@ -75,27 +73,34 @@ test("findTrip picks destinations with the right fill direction (sell to lower-f
     if (sourceFill < destinationFill) mismatchedTrips++;
   }
   assertTrue(checkedTrips > 0, "at least one trip checked");
-  assertEqual(mismatchedTrips, 0, "every primary leg flows from higher-fill source to lower-fill destination");
+  assertEqual(
+    mismatchedTrips,
+    0,
+    "every primary leg flows from higher-fill source to lower-fill destination",
+  );
   simulation.tradeManager.dispose();
 });
 
 test("findTrip returns null when the ship's home station has no deliverable cargo", () => {
-  const simulation = freshSettledSimulation();
+  const simulation = createSettledSimulation();
   const ship = simulation.tradeManager.tradeShips[0];
-  const home = simulation.stationManager.getStation(ship.homeStationId);
-  assertTrue(home !== undefined, "home station should resolve");
+  const homeStation = simulation.stationManager.getStation(ship.homeStationId);
+  assertTrue(homeStation !== undefined, "homeStation should resolve");
   // Drain every home slot and reserve every byte of space so effectiveSpace
   // = 0 too — removes every reason to sell (no cargo) and to buy (no room).
-  for (const slot of getAllInventorySlots(home!)) {
+  for (const slot of getAllInventorySlots(homeStation!)) {
     slot.current = 0;
     slot.reservedIncoming = slot.max;
   }
-  assertTrue(findRoundTradeTrip(ship, simulation.tradeManager) === null, "no trade when home is drained and fully reserved");
+  assertTrue(
+    findRoundTradeTrip(ship, simulation.tradeManager) === null,
+    "no trade when home is drained and fully reserved",
+  );
   simulation.tradeManager.dispose();
 });
 
 test("overview ware and route lists reflect spawned fleet cargo capacity", () => {
-  const simulation = freshSettledSimulation({ initialStaggerDuration: 0 });
+  const simulation = createSettledSimulation({ initialStaggerDurationSeconds: 0 });
 
   // startInitialStationBuilds places one build site per building nation at game start, and build
   // sites spawn trader ships — provisions/hulls appear in the overlay
@@ -103,7 +108,10 @@ test("overview ware and route lists reflect spawned fleet cargo capacity", () =>
   // SKY's jumpships — positive check that the filter doesn't trim wares the
   // current fleet CAN carry.
   const tradeableWares = new Set(simulation.tradeManager.getShipTransportableWares());
-  assertTrue(tradeableWares.has("provisions"), "provisions should be tradeable — build-site traders carry them");
+  assertTrue(
+    tradeableWares.has("provisions"),
+    "provisions should be tradeable — build-site traders carry them",
+  );
   assertTrue(tradeableWares.has("hulls"), "hulls should be tradeable — build-site traders carry them");
   assertTrue(tradeableWares.has("signal"), "signal should be tradeable — jumpships carry it");
 
@@ -125,9 +133,7 @@ test("overview ware and route lists reflect spawned fleet cargo capacity", () =>
   assertTrue(
     possibleRoutes.some(
       (route) =>
-        route.fromStationId === "FAR-D" &&
-        route.toStationId === "SKY-A" &&
-        route.wares.includes("signal"),
+        route.fromStationId === "FAR-D" && route.toStationId === "SKY-A" && route.wares.includes("signal"),
     ),
     "overlay should keep mixed-fleet routes — only the consumer's ship can carry signal",
   );
@@ -149,8 +155,8 @@ test("maps with no cargo-compatible producer-consumer wares keep overview route 
     ],
     nebulas: [],
     zones: [
-      { id: "EMPTY-1", sectorId: "EMPTY", x: -100, y: 0, size: "M" },
-      { id: "EMPTY-2", sectorId: "EMPTY", x: 100, y: 0, size: "M" },
+      { id: "EMPTY-1", x: -100, y: 0, size: "M" },
+      { id: "EMPTY-2", x: 100, y: 0, size: "M" },
     ],
     sectorSize: 1000,
   };
@@ -158,17 +164,37 @@ test("maps with no cargo-compatible producer-consumer wares keep overview route 
     id: "no-trade-routes",
     name: "No Trade Routes",
     description: "Regression fixture for overview empty-state startup.",
-    stations: [
-      { zoneId: "EMPTY-1", stationId: "FAR-OBS", name: "FAR-OBS", nationId: "far", stationTypeId: "observatory" },
-      { zoneId: "EMPTY-2", stationId: "ORE-HAB", name: "ORE-HAB", nationId: "ore", stationTypeId: "habitat" },
+    presetStations: [
+      {
+        zoneId: "EMPTY-1",
+        stationId: "FAR-OBS",
+        name: "FAR-OBS",
+        nationId: "far",
+        stationTypeId: "observatory",
+      },
+      {
+        zoneId: "EMPTY-2",
+        stationId: "ORE-HAB",
+        name: "ORE-HAB",
+        nationId: "ore",
+        stationTypeId: "habitat",
+      },
     ],
   };
   const noTradeRoutesMap = createMapFromTemplate(tinyUniverse, noTradeRoutesPreset);
 
-  const simulation = createSimulation(noTradeRoutesMap, { initialStaggerDuration: 0 });
+  const simulation = createSimulation(noTradeRoutesMap, { initialStaggerDurationSeconds: 0 });
 
-  assertEqual(simulation.tradeManager.getShipTransportableWares().length, 0, "overview should tolerate an empty ware list");
-  assertEqual(simulation.tradeManager.getPossibleTradeRoutes().length, 0, "overview should tolerate an empty route list");
+  assertEqual(
+    simulation.tradeManager.getShipTransportableWares().length,
+    0,
+    "overview should tolerate an empty ware list",
+  );
+  assertEqual(
+    simulation.tradeManager.getPossibleTradeRoutes().length,
+    0,
+    "overview should tolerate an empty route list",
+  );
 
   simulation.tradeManager.dispose();
 });

@@ -12,82 +12,90 @@ import { setupFreshTestGame } from "./savegame-test-fixtures.ts";
 // rebuild the whole settled universe.
 const sharedSnapshotJson = JSON.stringify(captureSnapshot(setupFreshTestGame() as never));
 
+function assertRejectsWith(
+  result: ReturnType<typeof validateSnapshot>,
+  expected: {
+    reason: "corrupt" | "version";
+    detailMatches: (value: string) => boolean;
+    detailLabel: string;
+  },
+): void {
+  if (result.ok) throw new Error("expected ok: false");
+  assertEqual(result.reason, expected.reason, "rejection reason");
+  const detail = result.detail ?? "";
+  assertTrue(expected.detailMatches(detail), `detail should ${expected.detailLabel}, got: ${detail}`);
+}
+
 // Parameterized validateSnapshot rejection cases. Each entry produces a JSON
 // string that should be rejected, names the expected reason, and supplies a
 // predicate the detail must satisfy (predicate over substring so parse-error
 // diagnostics can stay engine-agnostic).
-function rejectionCases(): Array<{
+const validateSnapshotRejectionCases: Array<{
   name: string;
   json: () => string;
   reason: "corrupt" | "version";
-  detail: (value: string) => boolean;
+  detailMatches: (value: string) => boolean;
   detailLabel: string;
-}> {
-  return [
-    {
-      name: "corrupt JSON",
-      json: () => "not json {{{",
-      reason: "corrupt",
-      detail: (value) => value.length > 0,
-      detailLabel: "non-empty parse-error detail",
+}> = [
+  {
+    name: "corrupt JSON",
+    json: () => "not json {{{",
+    reason: "corrupt",
+    detailMatches: (value) => value.length > 0,
+    detailLabel: "non-empty parse-error detail",
+  },
+  {
+    name: "wrong version",
+    json: () => {
+      const snapshot = JSON.parse(sharedSnapshotJson);
+      snapshot.version = SAVE_VERSION + 1;
+      return JSON.stringify(snapshot);
     },
-    {
-      name: "wrong version",
-      json: () => {
-        const snapshot = JSON.parse(sharedSnapshotJson);
-        snapshot.version = SAVE_VERSION + 1;
-        return JSON.stringify(snapshot);
-      },
-      reason: "version",
-      detail: (value) => value.includes(String(SAVE_VERSION + 1)),
-      detailLabel: `mentions found version ${SAVE_VERSION + 1}`,
+    reason: "version",
+    detailMatches: (value) => value.includes(String(SAVE_VERSION + 1)),
+    detailLabel: `mentions found version ${SAVE_VERSION + 1}`,
+  },
+  {
+    name: "missing top-level field",
+    json: () => {
+      const broken = JSON.parse(sharedSnapshotJson);
+      delete broken.emigrationManager;
+      return JSON.stringify(broken);
     },
-    {
-      name: "missing top-level field",
-      json: () => {
-        const broken = JSON.parse(sharedSnapshotJson);
-        delete broken.emigrationManager;
-        return JSON.stringify(broken);
-      },
-      reason: "corrupt",
-      detail: (value) => value.includes("emigrationManager"),
-      detailLabel: "names missing field emigrationManager",
+    reason: "corrupt",
+    detailMatches: (value) => value.includes("emigrationManager"),
+    detailLabel: "names missing field emigrationManager",
+  },
+  {
+    name: "non-object root",
+    json: () => "null",
+    reason: "corrupt",
+    detailMatches: (value) => value.includes("(root)"),
+    detailLabel: "mentions (root)",
+  },
+  {
+    name: "deep field path",
+    json: () => {
+      const broken = JSON.parse(sharedSnapshotJson);
+      // activeEvent missing required scalars forces the walker to descend
+      // into emigrationManager.activeEvent.* before reporting.
+      broken.emigrationManager.activeEvent = {
+        id: "EMIG-001",
+        nationIds: ["hub"],
+        generationalShipId: "WAY-001",
+        stationIds: ["hub-1"],
+      };
+      return JSON.stringify(broken);
     },
-    {
-      name: "non-object root",
-      json: () => "null",
-      reason: "corrupt",
-      detail: (value) => value.includes("(root)"),
-      detailLabel: "mentions (root)",
-    },
-    {
-      name: "deep field path",
-      json: () => {
-        const broken = JSON.parse(sharedSnapshotJson);
-        // activeEvent missing required scalars forces the walker to descend
-        // into emigrationManager.activeEvent.* before reporting.
-        broken.emigrationManager.activeEvent = {
-          id: "EMIG-001",
-          nationIds: ["hub"],
-          generationalShipId: "WAY-001",
-          stationIds: ["hub-1"],
-        };
-        return JSON.stringify(broken);
-      },
-      reason: "corrupt",
-      detail: (value) => value.includes("emigrationManager.activeEvent."),
-      detailLabel: "includes nested path under activeEvent",
-    },
-  ];
-}
+    reason: "corrupt",
+    detailMatches: (value) => value.includes("emigrationManager.activeEvent."),
+    detailLabel: "includes nested path under activeEvent",
+  },
+];
 
-for (const rejectionCase of rejectionCases()) {
-  test(`validateSnapshot rejects ${rejectionCase.name}`, () => {
-    const result = validateSnapshot(rejectionCase.json());
-    if (result.ok) throw new Error("expected ok: false");
-    assertEqual(result.reason, rejectionCase.reason, "rejection reason");
-    const detail = result.detail ?? "";
-    assertTrue(rejectionCase.detail(detail), `detail should ${rejectionCase.detailLabel}, got: ${detail}`);
+for (const rejection of validateSnapshotRejectionCases) {
+  test(`validateSnapshot rejects ${rejection.name}`, () => {
+    assertRejectsWith(validateSnapshot(rejection.json()), rejection);
   });
 }
 
@@ -117,13 +125,11 @@ test("validateSnapshot rejects station in 'building' state without build metadat
   const snapshot = JSON.parse(sharedSnapshotJson);
   snapshot.stations[0].state = "building";
   delete snapshot.stations[0].build;
-  const result = validateSnapshot(JSON.stringify(snapshot));
-  if (result.ok) throw new Error("expected ok: false");
-  assertEqual(result.reason, "corrupt", "rejection reason");
-  assertTrue(
-    (result.detail ?? "").includes("build"),
-    `detail should mention build, got: ${result.detail}`,
-  );
+  assertRejectsWith(validateSnapshot(JSON.stringify(snapshot)), {
+    reason: "corrupt",
+    detailMatches: (detail) => detail.includes("build"),
+    detailLabel: "mention build",
+  });
 });
 
 test("validateSnapshot rejects building station with non-numeric waresRequired.provisions", () => {
@@ -136,13 +142,11 @@ test("validateSnapshot rejects building station with non-numeric waresRequired.p
     { wareId: "provisions", current: 0, reservedIncoming: 0, reservedOutgoing: 0 },
     { wareId: "hulls", current: 0, reservedIncoming: 0, reservedOutgoing: 0 },
   ];
-  const result = validateSnapshot(JSON.stringify(snapshot));
-  if (result.ok) throw new Error("expected ok: false");
-  assertEqual(result.reason, "corrupt", "rejection reason");
-  assertTrue(
-    (result.detail ?? "").includes("waresRequired.provisions"),
-    `detail should mention waresRequired.provisions, got: ${result.detail}`,
-  );
+  assertRejectsWith(validateSnapshot(JSON.stringify(snapshot)), {
+    reason: "corrupt",
+    detailMatches: (detail) => detail.includes("waresRequired.provisions"),
+    detailLabel: "mention waresRequired.provisions",
+  });
 });
 
 test("validateSnapshot rejects building station whose inventory holds non-build wares", () => {
@@ -151,26 +155,20 @@ test("validateSnapshot rejects building station whose inventory holds non-build 
   const snapshot = JSON.parse(sharedSnapshotJson);
   snapshot.stations[0].state = "building";
   snapshot.stations[0].build = { waresRequired: { provisions: 100, hulls: 50 } };
-  snapshot.stations[0].inventory = [
-    { wareId: "food", current: 0, reservedIncoming: 0, reservedOutgoing: 0 },
-  ];
-  const result = validateSnapshot(JSON.stringify(snapshot));
-  if (result.ok) throw new Error("expected ok: false");
-  assertEqual(result.reason, "corrupt", "rejection reason");
-  assertTrue(
-    (result.detail ?? "").includes("inventory") && (result.detail ?? "").includes("wareId"),
-    `detail should mention inventory wareId, got: ${result.detail}`,
-  );
+  snapshot.stations[0].inventory = [{ wareId: "food", current: 0, reservedIncoming: 0, reservedOutgoing: 0 }];
+  assertRejectsWith(validateSnapshot(JSON.stringify(snapshot)), {
+    reason: "corrupt",
+    detailMatches: (detail) => detail.includes("inventory") && detail.includes("wareId"),
+    detailLabel: "mention inventory wareId",
+  });
 });
 
 test("validateSnapshot rejects station with unknown state", () => {
   const snapshot = JSON.parse(sharedSnapshotJson);
   snapshot.stations[0].state = "exploded";
-  const result = validateSnapshot(JSON.stringify(snapshot));
-  if (result.ok) throw new Error("expected ok: false");
-  assertEqual(result.reason, "corrupt", "rejection reason");
-  assertTrue(
-    (result.detail ?? "").includes("state"),
-    `detail should mention state, got: ${result.detail}`,
-  );
+  assertRejectsWith(validateSnapshot(JSON.stringify(snapshot)), {
+    reason: "corrupt",
+    detailMatches: (detail) => detail.includes("state"),
+    detailLabel: "mention state",
+  });
 });

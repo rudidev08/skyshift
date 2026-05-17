@@ -42,7 +42,7 @@ export function drawNebula(context: CanvasRenderingContext2D, request: NebulaDra
   context.globalAlpha = nebula.alpha;
   const size = Math.min(canvasWidth, canvasHeight) * nebula.sizeFraction;
   context.translate(nebula.xRatio * canvasWidth, nebula.yRatio * canvasHeight);
-  if (nebula.rotationDegrees) context.rotate(nebula.rotationDegrees * Math.PI / 180);
+  if (nebula.rotationDegrees) context.rotate((nebula.rotationDegrees * Math.PI) / 180);
   context.drawImage(image, -size / 2, -size / 2, size, size);
   context.restore();
 }

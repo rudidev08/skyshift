@@ -1,134 +1,121 @@
-// Per-nation sector scorers — each returns higher = better; `-Infinity` means
-// unbuildable. Each scorer is authored personality (alongside color, name pool,
-// etc.) — kept here in data/ even though it imports runtime types from src/,
-// because the per-nation logic IS game data. Phrases in quotes match
-// each nation's `desire` string in data/nations.ts.
+// Per-nation rules for "where should this nation build its next station?"
 //
-// Design intent:
-//   HUB — closest to existing own stations ("stewards core systems")
-//   BIO — bio-nebula environment wins, tiebreak by nearest-own ("cultivates bio-prosperity")
-//   ORE — mineral-rich environment wins, tiebreak by nearest-own ("mines asteroid veins")
-//   SKY — deep-space environment wins, random tiebreak ("explores deep space")
-//   FAR — farthest from existing own stations ("scatters frontier outposts")
+// During a build attempt, src/sim-nation-manager.ts loops over every sector
+// and calls the nation's scorer once per sector. The highest-scoring sector
+// wins, and the first candidate zone inside that sector becomes the build
+// site — zones inside the same sector are treated as equivalent for scoring.
+//
+// Every scorer first checks sectorCanHostChosenType and returns -Infinity
+// when no zone in the sector allows the chosen station type, so those
+// sectors drop out of the running.
+//
+// Per-nation flavor — what each scorer optimizes for. Bio, ore, and sky each
+// prefer a specific sector environment (bio-nebula, mineral-rich, deep-space);
+// hub and far ignore environment and score purely by distance to existing
+// stations.
+//   hub — closest to existing own stations (stewards core systems)
+//   bio — prefers bio-nebula sectors, tiebreak by nearest-own (cultivates bio-prosperity)
+//   ore — prefers mineral-rich sectors, tiebreak by nearest-own (mines asteroid veins)
+//   sky — prefers deep-space sectors, random tiebreak (explores deep space)
+//   far — farthest from existing own stations (scatters frontier outposts)
 
 import type { Sector } from "../src/sim-map-types";
-import type { NationTemplate } from "./nation-types";
+import type { BuildingNationId, NationTemplate } from "./nation-types";
 import type { StationTypeId } from "./station-types";
 import type { Station } from "../src/sim-station-types";
 import type { StationZone } from "../src/sim-station-zone-types";
-import type { EnvironmentId } from "./map-environments";
-import { allowedStationTypesForZone } from "../src/sim-map-environments";
+import type { SectorEnvironmentId } from "./map-sector-environments";
+import { allowedStationTypesForZone } from "../src/sim-map-sector-environments";
 
+/** Per-sector input passed to a scorer. The fields after `sector` stay
+ *  constant across all sectors of one build attempt; `sector` and `tieBreak`
+ *  are the only fields that change between calls. */
 export type SectorScorerContext = {
   nation: NationTemplate;
   sector: Sector;
   chosenTypeId: StationTypeId;
   ownStations: Station[];
   candidateZones: StationZone[];
-  /** Diagonal of the full map in map units — used as the distance normalizer. */
+  /** The longest distance between any two points on the map — corner-to-corner
+   *  across the bounding box. Distance from a sector to the closest own
+   *  station is divided by this so the distance term stays in 0..1, regardless
+   *  of how big the map is. */
   mapMaxDistance: number;
-  /** Caller-supplied tie-break in [0, 1). Lets the SKY scorer break ties without
-   *  reading global mutable state inside an otherwise pure scorer. */
+  /** Random number in [0, 1). Only the sky scorer uses it, and that scorer
+   *  ignores distance — without a tie-breaker every deep-space sector would
+   *  score identically and the first one in iteration order would always win.
+   *  The caller passes Math.random() so the scorer stays a pure function of
+   *  its inputs. */
   tieBreak: number;
 };
 
-export type SectorScorer = (sectorScorerContext: SectorScorerContext) => number;
+/** Returns a score for one sector. The caller compares scores across sectors
+ *  and picks the highest. -Infinity drops the sector from the running. */
+export type SectorScorer = (context: SectorScorerContext) => number;
 
-/** Normalize a raw distance into [0, 1], then flip if the preference is "far". */
-export function distanceFactor(
-  distance: number,
-  prefer: "near" | "far",
-  mapMaxDistance: number,
-): number {
-  const normalized = distance / (mapMaxDistance + 1);
+/** Map-unit distance from a sector to the closest station this nation already
+ *  owns. Returns 0 when the nation has no stations yet (first build). */
+export function minDistanceToOwnStations(sector: Sector, ownStations: Station[]): number {
+  if (ownStations.length === 0) return 0;
+  return Math.min(...ownStations.map((station) => Math.hypot(sector.x - station.x, sector.y - station.y)));
+}
+
+/** Distance factor in 0..1 for the current sector. With prefer = "near", the
+ *  closest-to-own sector scores 1 and the farthest scores 0; "far" inverts. */
+function nearestOwnStationFactor(context: SectorScorerContext, prefer: "near" | "far"): number {
+  const distance = minDistanceToOwnStations(context.sector, context.ownStations);
+  const normalized = distance / (context.mapMaxDistance + 1);
   return prefer === "near" ? 1 - normalized : normalized;
 }
 
-export function minDistanceToOwnStations(
-  sector: Sector,
-  ownStations: Station[],
-): number {
-  if (ownStations.length === 0) return 0;
-  return Math.min(
-    ...ownStations.map((station) =>
-      Math.hypot(sector.x - station.x, sector.y - station.y),
-    ),
-  );
+/** 1 when the sector's environment matches the nation's preference, 0 otherwise.
+ *  Stacked with the 0..1 distance factor, so a matching environment always
+ *  beats any non-matching sector regardless of distance. */
+function environmentMatchBonus(sector: Sector, preferredSectorEnvironment: SectorEnvironmentId): 0 | 1 {
+  return sector.environment === preferredSectorEnvironment ? 1 : 0;
 }
 
-function nearestOwnStationFactor(
-  sectorScorerContext: SectorScorerContext,
-  prefer: "near" | "far",
-): number {
-  return distanceFactor(
-    minDistanceToOwnStations(
-      sectorScorerContext.sector,
-      sectorScorerContext.ownStations,
-    ),
-    prefer,
-    sectorScorerContext.mapMaxDistance,
-  );
-}
-
-function environmentMatchBonus(
-  sector: Sector,
-  preferredEnvironment: EnvironmentId,
-): 0 | 1 {
-  return sector.environment === preferredEnvironment ? 1 : 0;
-}
-
-export function sectorCanHostChosenType(sectorTypeFitContext: {
-  sector: Sector;
-  chosenTypeId: StationTypeId;
-  candidateZones: StationZone[];
-}): boolean {
-  for (const zone of sectorTypeFitContext.candidateZones) {
-    if (zone.sector.id !== sectorTypeFitContext.sector.id) continue;
-    const allowed = allowedStationTypesForZone(
-      zone.environmentOverride,
-      sectorTypeFitContext.sector.environment,
-    );
-    if (allowed.includes(sectorTypeFitContext.chosenTypeId)) return true;
+/** True when at least one candidate zone in this sector allows the chosen
+ *  station type. Every scorer gates on this first and returns -Infinity when
+ *  it's false, so unhostable sectors drop out of the running. */
+export function sectorCanHostChosenType(context: SectorScorerContext): boolean {
+  for (const zone of context.candidateZones) {
+    if (zone.sector.id !== context.sector.id) continue;
+    const allowed = allowedStationTypesForZone(zone);
+    if (allowed.includes(context.chosenTypeId)) return true;
   }
   return false;
 }
 
-function scoreSectorForHub(sectorScorerContext: SectorScorerContext): number {
-  if (!sectorCanHostChosenType(sectorScorerContext)) return -Infinity;
-  return nearestOwnStationFactor(sectorScorerContext, "near");
+function scoreSectorForHub(context: SectorScorerContext): number {
+  if (!sectorCanHostChosenType(context)) return -Infinity;
+  return nearestOwnStationFactor(context, "near");
 }
 
-function scoreSectorForBio(sectorScorerContext: SectorScorerContext): number {
-  if (!sectorCanHostChosenType(sectorScorerContext)) return -Infinity;
-  return (
-    environmentMatchBonus(sectorScorerContext.sector, "bio-nebula") +
-    nearestOwnStationFactor(sectorScorerContext, "near")
-  );
+function scoreSectorForBio(context: SectorScorerContext): number {
+  if (!sectorCanHostChosenType(context)) return -Infinity;
+  return environmentMatchBonus(context.sector, "bio-nebula") + nearestOwnStationFactor(context, "near");
 }
 
-function scoreSectorForOre(sectorScorerContext: SectorScorerContext): number {
-  if (!sectorCanHostChosenType(sectorScorerContext)) return -Infinity;
-  return (
-    environmentMatchBonus(sectorScorerContext.sector, "mineral-rich") +
-    nearestOwnStationFactor(sectorScorerContext, "near")
-  );
+function scoreSectorForOre(context: SectorScorerContext): number {
+  if (!sectorCanHostChosenType(context)) return -Infinity;
+  return environmentMatchBonus(context.sector, "mineral-rich") + nearestOwnStationFactor(context, "near");
 }
 
-function scoreSectorForSky(sectorScorerContext: SectorScorerContext): number {
-  if (!sectorCanHostChosenType(sectorScorerContext)) return -Infinity;
-  return (
-    environmentMatchBonus(sectorScorerContext.sector, "deep-space") +
-    sectorScorerContext.tieBreak
-  );
+function scoreSectorForSky(context: SectorScorerContext): number {
+  if (!sectorCanHostChosenType(context)) return -Infinity;
+  return environmentMatchBonus(context.sector, "deep-space") + context.tieBreak;
 }
 
-function scoreSectorForFar(sectorScorerContext: SectorScorerContext): number {
-  if (!sectorCanHostChosenType(sectorScorerContext)) return -Infinity;
-  return nearestOwnStationFactor(sectorScorerContext, "far");
+function scoreSectorForFar(context: SectorScorerContext): number {
+  if (!sectorCanHostChosenType(context)) return -Infinity;
+  return nearestOwnStationFactor(context, "far");
 }
 
-/** Dispatch table keyed by Nation.id. Passing an unknown id returns undefined. */
-export const sectorScorerByNation: Record<string, SectorScorer> = {
+/** Scorer for every building nation, keyed by Nation.id. Typed as a full
+ *  Record so adding a new building nation without a scorer fails the build
+ *  here rather than silently going unscored at runtime. */
+export const sectorScorerByNation: Record<BuildingNationId, SectorScorer> = {
   hub: scoreSectorForHub,
   bio: scoreSectorForBio,
   ore: scoreSectorForOre,

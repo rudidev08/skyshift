@@ -8,7 +8,12 @@ type CargoDepositAction = Extract<ShipAction, { type: "cargo-deposit" }>;
 type CargoDepositActionSnapshot = Extract<ShipActionSnapshot, { type: "cargo-deposit" }>;
 
 export function shipCargoDepositActionToSnapshot(action: CargoDepositAction): CargoDepositActionSnapshot {
-  return { type: "cargo-deposit", stationId: action.station.id, wareId: action.wareId, amount: action.amount };
+  return {
+    type: "cargo-deposit",
+    stationId: action.station.id,
+    wareId: action.wareId,
+    amount: action.amount,
+  };
 }
 
 /** Reconstruct a cargo-deposit action. Returns a `wait` placeholder when the

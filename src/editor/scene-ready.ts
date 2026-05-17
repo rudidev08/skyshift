@@ -2,7 +2,10 @@ import * as Phaser from "phaser";
 import { GAME_SCENE_KEY, type Game } from "../game";
 
 /** Resolves when the scene exists and its `create()` has run. */
-export async function waitForEditorSceneReady(game: Phaser.Game, sceneKey: string = GAME_SCENE_KEY): Promise<Game> {
+export async function waitForEditorSceneReady(
+  game: Phaser.Game,
+  sceneKey: string = GAME_SCENE_KEY,
+): Promise<Game> {
   const scene = await waitForSceneInstance(game, sceneKey);
   await waitForSceneCreate(scene);
   return scene;

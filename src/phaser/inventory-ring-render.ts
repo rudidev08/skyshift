@@ -22,27 +22,45 @@ export interface InventoryRingSlot {
 }
 
 // Hand-tuned slot positions — the produced ware's slot favors top/right so the eye finds it first.
-const slotLayout1: WareInventoryArc[] = [
-  { startAngle: Math.PI / 2 + GAP_ANGLE_RADIANS / 2, endAngle: Math.PI * 5 / 2 - GAP_ANGLE_RADIANS / 2 }, // gap at bottom
+const layoutsBySlotCount: WareInventoryArc[][] = [
+  [],
+  // 1 slot: full ring with one bottom gap
+  [
+    {
+      startAngle: Math.PI / 2 + GAP_ANGLE_RADIANS / 2,
+      endAngle: (Math.PI * 5) / 2 - GAP_ANGLE_RADIANS / 2,
+    },
+  ],
+  // 2 slots: right (produced ware preferred) + left
+  [
+    {
+      startAngle: -Math.PI / 2 + GAP_ANGLE_RADIANS / 2,
+      endAngle: Math.PI / 2 - GAP_ANGLE_RADIANS / 2,
+    },
+    {
+      startAngle: Math.PI / 2 + GAP_ANGLE_RADIANS / 2,
+      endAngle: (Math.PI * 3) / 2 - GAP_ANGLE_RADIANS / 2,
+    },
+  ],
+  // 3 slots: top (output preferred, center-filled) + bottom-left + bottom-right
+  [
+    {
+      startAngle: -Math.PI / 2 - (Math.PI / 3 - GAP_ANGLE_RADIANS / 2),
+      endAngle: -Math.PI / 2 + (Math.PI / 3 - GAP_ANGLE_RADIANS / 2),
+    },
+    {
+      startAngle: -Math.PI / 2 + Math.PI / 3 + GAP_ANGLE_RADIANS / 2,
+      endAngle: -Math.PI / 2 + Math.PI - GAP_ANGLE_RADIANS / 2,
+    },
+    {
+      startAngle: -Math.PI / 2 + Math.PI + GAP_ANGLE_RADIANS / 2,
+      endAngle: -Math.PI / 2 + (5 * Math.PI) / 3 - GAP_ANGLE_RADIANS / 2,
+    },
+  ],
 ];
-const slotLayout2: WareInventoryArc[] = [
-  // Right (produced ware preferred here)
-  { startAngle: -Math.PI / 2 + GAP_ANGLE_RADIANS / 2, endAngle: Math.PI / 2 - GAP_ANGLE_RADIANS / 2 },
-  // Left
-  { startAngle: Math.PI / 2 + GAP_ANGLE_RADIANS / 2, endAngle: Math.PI * 3 / 2 - GAP_ANGLE_RADIANS / 2 },
-];
-const slotLayout3: WareInventoryArc[] = [
-  // Top (output preferred here), center-filled
-  { startAngle: -Math.PI / 2 - (Math.PI / 3 - GAP_ANGLE_RADIANS / 2), endAngle: -Math.PI / 2 + (Math.PI / 3 - GAP_ANGLE_RADIANS / 2) },
-  // Left, fill from top
-  { startAngle: -Math.PI / 2 + Math.PI / 3 + GAP_ANGLE_RADIANS / 2, endAngle: -Math.PI / 2 + Math.PI - GAP_ANGLE_RADIANS / 2 },
-  // Right, fill from top
-  { startAngle: -Math.PI / 2 + Math.PI + GAP_ANGLE_RADIANS / 2, endAngle: -Math.PI / 2 + 5 * Math.PI / 3 - GAP_ANGLE_RADIANS / 2 },
-];
-const layoutsBySlotCount = [[], slotLayout1, slotLayout2, slotLayout3];
 
 export function getSegmentArcsForSlotCount(slotCount: number): WareInventoryArc[] {
-  return layoutsBySlotCount[slotCount] ?? slotLayout3;
+  return layoutsBySlotCount[slotCount] ?? layoutsBySlotCount[3];
 }
 
 /** Pairs each slot with where its fill anchors so adjacent segments grow from the same gap and stay visually linked as inventory rises. */
@@ -99,7 +117,7 @@ function drawSegment(request: SegmentDrawRequest) {
     let fillEnd: number;
     if (fillFrom === "center") {
       const mid = (arc.startAngle + arc.endAngle) / 2;
-      const halfFill = totalArc * fillRatio / 2;
+      const halfFill = (totalArc * fillRatio) / 2;
       fillStart = mid - halfFill;
       fillEnd = mid + halfFill;
     } else if (fillFrom === "start") {
@@ -137,7 +155,7 @@ export interface InventoryRing {
 }
 
 /** Top segment from the 3-slot layout — ship cargo ring. */
-export const TOP_SEGMENT_ARC: WareInventoryArc[] = [slotLayout3[0]];
+export const TOP_SEGMENT_ARC: WareInventoryArc[] = [layoutsBySlotCount[3][0]];
 
 export function createInventoryRing(scene: Scene, arcs: WareInventoryArc[], depth: number): InventoryRing {
   const graphics = scene.add.graphics();

@@ -40,17 +40,24 @@ const { values: args } = parseArgs({
 
 const cycleCount = Number(args.cycles);
 const waitSeconds = Number(args.wait);
-if (!Number.isFinite(cycleCount) || cycleCount <= 0) throw new Error(`--cycles must be positive, got "${args.cycles}"`);
-if (!Number.isFinite(waitSeconds) || waitSeconds <= 0) throw new Error(`--wait must be positive, got "${args.wait}"`);
+if (!Number.isFinite(cycleCount) || cycleCount <= 0)
+  throw new Error(`--cycles must be positive, got "${args.cycles}"`);
+if (!Number.isFinite(waitSeconds) || waitSeconds <= 0)
+  throw new Error(`--wait must be positive, got "${args.wait}"`);
 
-const urls = args.urls.split(",").map((url) => url.trim()).filter(Boolean);
+const urls = args.urls
+  .split(",")
+  .map((url) => url.trim())
+  .filter(Boolean);
 if (urls.length === 0) throw new Error(`--urls must list at least one URL`);
 
 const runId = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
 const outDir = join(args.out, `scene-switch-${runId}`);
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
-console.log(`[scene-switch] urls=[${urls.join(", ")}] cycles=${cycleCount} wait=${waitSeconds}s out=${outDir}`);
+console.log(
+  `[scene-switch] urls=[${urls.join(", ")}] cycles=${cycleCount} wait=${waitSeconds}s out=${outDir}`,
+);
 
 const browser = await puppeteer.launch({
   headless: !args.headed,
@@ -109,4 +116,6 @@ const sign = delta >= 0 ? "+" : "";
 const percent = ((delta / baseline) * 100).toFixed(1);
 console.log(`\nDelta over ${cycleCount} cycles: ${sign}${delta.toFixed(2)} MB (${sign}${percent}%)`);
 console.log(`Plateauing = clean teardown. Monotonic growth = leak.`);
-console.log(`\nFor class-by-class diff: Chrome DevTools → Memory → "Load profile", load any .heapsnapshot from ${outDir}.`);
+console.log(
+  `\nFor class-by-class diff: Chrome DevTools → Memory → "Load profile", load any .heapsnapshot from ${outDir}.`,
+);

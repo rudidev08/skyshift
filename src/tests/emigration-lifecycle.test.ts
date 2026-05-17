@@ -1,50 +1,91 @@
-import { test, assertEqual, assertTrue, assertNotUndefined } from "./test-utils.ts";
+import { test, assertEqual, assertTrue, assertNotUndefined, assertNotNull } from "./test-utils.ts";
 import { createSimulation, type Simulation } from "../sim-lifecycle.ts";
-import { createMapFromTemplate } from "../sim-map-builder.ts";
+import { createMapFromTemplate } from "../sim-map-create.ts";
 import { map as settledUniverse } from "../../data/map.ts";
 import { settledPreset } from "../../data/map-preset-settled.ts";
 import { sizeMultiplierBySize } from "../../data/stations.ts";
 import type { DecommissionEvent } from "../sim-trade-manager.ts";
+import {
+  EMIGRANT_SHIPS_PER_STATION_BASE,
+  computeEmigrationFraction,
+  retireUnlaunched,
+} from "../sim-emigration-types.ts";
+import type { EmigrationEvent } from "../sim-emigration-types.ts";
+import type { StationEmigration } from "../sim-station-types.ts";
+import { emptyZoneCount } from "../sim-emigration-decision.ts";
 
 // Pins emigration end-to-end live flow:
 //   trigger → ferry launches → station demolitions → WAY jump → POST_JUMP_GAP
 // Covers sim-emigration-manager.ts AND sim-emigration-start.ts launch math.
 // Save/load mid-event lives in emigration-save-load.test.ts.
 
-const EMIGRANT_SHIPS_PER_STATION_BASE = 10;
 const POST_JUMP_GAP_SECONDS = 3 * 60 * 60;
 
-function assertNotNull<T>(value: T | null, label: string): T {
-  if (value === null) throw new Error(`${label}: expected non-null value`);
-  return value;
-}
-
-function freshSim(): Simulation {
+function createFreshSimulation(): Simulation {
   // Manual mode so auto-trigger doesn't fire mid-test; settled preset gives
   // enough stations across BIO/HUB/ORE/SKY/FAR for selection to land somewhere.
-  const simulation = createSimulation(
-    createMapFromTemplate(settledUniverse, settledPreset),
-    { ignoreCargoCompatibility: true, initialStaggerDuration: 0 },
-  );
+  const simulation = createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
+    ignoreCargoCompatibility: true,
+    initialStaggerDurationSeconds: 0,
+  });
   simulation.emigrationManager.setMode("manual");
   return simulation;
 }
 
+function makeSyntheticDecommissionEvent(
+  shipId: string,
+  homeStationId: string,
+  generationalShipId: string,
+): DecommissionEvent {
+  return {
+    tradeShip: { orbitingShipId: shipId, homeStationId } as never,
+    orbitingShip: { id: shipId } as never,
+    orbitingShipId: shipId,
+    homeStationId,
+    decommissionStationId: generationalShipId,
+    reason: "decommission-action",
+  };
+}
+
+function makeStationEmigration(overrides: Partial<StationEmigration> = {}): StationEmigration {
+  return {
+    eventId: "E1",
+    destinationName: "Test",
+    initialHomedShipIds: ["s1", "s2"],
+    initialHomedShipIdSet: new Set(["s1", "s2"]),
+    totalEmigrants: 8,
+    launched: 3,
+    secondsUntilNextLaunch: 1,
+    progressFraction: 0,
+    ...overrides,
+  };
+}
+
 test("trigger creates an active event with the expected nation/station roster", () => {
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const event = simulation.emigrationManager.triggerEvent({ intensity: "high" });
-  const generationalShip = assertNotNull(simulation.emigrationManager.getActiveGenerationalShip(), "generational ship present after init");
+  const generationalShip = assertNotNull(
+    simulation.emigrationManager.getActiveGenerationalShip(),
+    "generational ship present after init",
+  );
 
   assertTrue(event !== null, "triggerEvent returns a non-null event");
   assertEqual(simulation.emigrationManager.getActiveEvent(), event, "getActiveEvent matches");
-  assertEqual(event!.generationalShipId, generationalShip.id, "event references the active generational ship");
+  assertEqual(
+    event!.generationalShipId,
+    generationalShip.id,
+    "event references the active generational ship",
+  );
   assertTrue(event!.stationIds.length > 0, "event has at least one selected station");
   assertTrue(event!.nationIds.length > 0, "event has at least one nation");
   // Pin that every station id in the event maps to a real station and has
   // emigrationEvent state attached. Mutating beginStationEmigration to skip
   // the per-station write would leave these undefined.
   for (const stationId of event!.stationIds) {
-    const station = assertNotUndefined(simulation.stationManager.getStation(stationId), `event station ${stationId}`);
+    const station = assertNotUndefined(
+      simulation.stationManager.getStation(stationId),
+      `event station ${stationId}`,
+    );
     assertEqual(station.state, "emigrating", `${stationId} flipped to emigrating`);
     assertNotNull(station.emigrationEvent, `${stationId}.emigrationEvent attached`);
   }
@@ -55,7 +96,7 @@ test("trigger creates an active event with the expected nation/station roster", 
 test("trigger sets the event id from the next-event counter", () => {
   // generateCounterId formats as "EMIG-000001" for the first counter increment.
   // Pin that the counter starts at 0 and the first triggered event picks up id #1.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const event = simulation.emigrationManager.triggerEvent({ intensity: "low" });
   assertTrue(event !== null, "first trigger succeeds");
   assertTrue(event!.id.startsWith("EMIG-"), `id has EMIG prefix; got ${event!.id}`);
@@ -65,7 +106,7 @@ test("trigger sets the event id from the next-event counter", () => {
 });
 
 test("trigger refuses a second event while one is active (at-most-one invariant)", () => {
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const first = simulation.emigrationManager.triggerEvent({ intensity: "low" });
   assertTrue(first !== null, "first trigger fires");
   // Pin the early-return on this.activeEvent !== null. A second triggerEvent
@@ -78,7 +119,7 @@ test("trigger refuses a second event while one is active (at-most-one invariant)
 });
 
 test("totalExpectedShips equals BASE × sizeMultiplier summed across picked stations + pre-existing homed", () => {
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const event = simulation.emigrationManager.triggerEvent({ intensity: "high" });
   assertTrue(event !== null, "event triggered");
 
@@ -87,7 +128,10 @@ test("totalExpectedShips equals BASE × sizeMultiplier summed across picked stat
   // Mutating BASE or dropping the homed count would diverge from this sum.
   let expectedTotal = 0;
   for (const stationId of event!.stationIds) {
-    const station = assertNotUndefined(simulation.stationManager.getStation(stationId), `station ${stationId}`);
+    const station = assertNotUndefined(
+      simulation.stationManager.getStation(stationId),
+      `station ${stationId}`,
+    );
     const emigrationState = assertNotNull(station.emigrationEvent, `station ${stationId} emigration state`);
     const sizeMultiplier = sizeMultiplierBySize[station.size];
     expectedTotal += EMIGRANT_SHIPS_PER_STATION_BASE * sizeMultiplier;
@@ -98,7 +142,11 @@ test("totalExpectedShips equals BASE × sizeMultiplier summed across picked stat
       `${stationId} totalEmigrants = BASE × sizeMultiplier`,
     );
   }
-  assertEqual(event!.totalExpectedShips, expectedTotal, "event.totalExpectedShips equals the per-station sum");
+  assertEqual(
+    event!.totalExpectedShips,
+    expectedTotal,
+    "event.totalExpectedShips equals the per-station sum",
+  );
 
   simulation.dispose();
 });
@@ -108,8 +156,11 @@ test("pre-existing homed trade ships get a fly+decommission tail appended on tri
   // trade ships and queueFerryToGenerationalShip's onto each. Pin that the
   // last two actions on each homed ship are now fly + decommission targeting
   // the generational ship.
-  const simulation = freshSim();
-  const generationalShip = assertNotNull(simulation.emigrationManager.getActiveGenerationalShip(), "gen ship");
+  const simulation = createFreshSimulation();
+  const generationalShip = assertNotNull(
+    simulation.emigrationManager.getActiveGenerationalShip(),
+    "gen ship",
+  );
   const event = simulation.emigrationManager.triggerEvent({ intensity: "high" });
   assertTrue(event !== null, "event triggered");
 
@@ -117,7 +168,7 @@ test("pre-existing homed trade ships get a fly+decommission tail appended on tri
   for (const stationId of event!.stationIds) {
     const homedShips = simulation.tradeManager.getTradeShipsByHomeStationId(stationId);
     for (const tradeShip of homedShips) {
-      // initialStaggerDuration: 0 means homed ships have already started executing
+      // initialStaggerDurationSeconds: 0 means homed ships have already started executing
       // their queues; the ferry+decommission tail is appended at the end.
       const queue = tradeShip.actionQueue;
       const decommissionAction = queue[queue.length - 1];
@@ -125,9 +176,17 @@ test("pre-existing homed trade ships get a fly+decommission tail appended on tri
       // Pin that decommission targets the generational ship — without this,
       // the homed ship would never increment shipsArrived and WAY would wait
       // forever.
-      assertEqual(decommissionAction?.type, "decommission", `last action is decommission for ${tradeShip.orbitingShipId}`);
+      assertEqual(
+        decommissionAction?.type,
+        "decommission",
+        `last action is decommission for ${tradeShip.orbitingShipId}`,
+      );
       if (decommissionAction?.type === "decommission") {
-        assertEqual(decommissionAction.station.id, generationalShip.id, "decommission targets generational ship");
+        assertEqual(
+          decommissionAction.station.id,
+          generationalShip.id,
+          "decommission targets generational ship",
+        );
       }
       assertEqual(flyAction?.type, "fly", "second-to-last action is fly");
       checkedAtLeastOne = true;
@@ -143,16 +202,19 @@ test("tick spawns emigrant ferry ships at the configured per-second cadence", ()
   // secondsUntilNextLaunch starts at 0 (subtract delta → -1 → loop runs twice
   // before sec lands above 0). Subsequent 1-second ticks fire 1 launch each.
   // Pin: 5 ticks of 1 second → 6 launches per station.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const event = simulation.emigrationManager.triggerEvent({ intensity: "low" });
   assertTrue(event !== null, "event triggered");
 
-  for (let secondIndex = 0; secondIndex < 5; secondIndex++) {
-    simulation.tickDynamics(1);
+  for (let i = 0; i < 5; i++) {
+    simulation.slowSimulationTick(1);
   }
 
   for (const stationId of event!.stationIds) {
-    const station = assertNotUndefined(simulation.stationManager.getStation(stationId), `station ${stationId}`);
+    const station = assertNotUndefined(
+      simulation.stationManager.getStation(stationId),
+      `station ${stationId}`,
+    );
     const emigrationState = assertNotNull(station.emigrationEvent, `${stationId}.emigrationEvent`);
     // Pin the loop's `<=` boundary. Mutating to `<` would drop the first-tick
     // double-launch and the count would be 5 instead of 6.
@@ -165,15 +227,15 @@ test("tick spawns emigrant ferry ships at the configured per-second cadence", ()
 
 test("tick stops launching once a station's launched count reaches its planned total", () => {
   // launchEmigrantsForStation early-returns when launched >= totalEmigrants.
-  // Pin the cap: with M-size stations (totalEmigrants = 20), tick 30 seconds
+  // Pin the cap: with M-size stations (totalEmigrants = 20), tick 60 seconds
   // and verify launched stays at 20.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const event = simulation.emigrationManager.triggerEvent({ intensity: "low" });
   assertTrue(event !== null, "event triggered");
 
   // Tick well past any station's totalEmigrants cap.
-  for (let secondIndex = 0; secondIndex < 60; secondIndex++) {
-    simulation.tickDynamics(1);
+  for (let i = 0; i < 60; i++) {
+    simulation.slowSimulationTick(1);
   }
 
   // Some stations may already be demolished after launch+departure complete —
@@ -182,7 +244,11 @@ test("tick stops launching once a station's launched count reaches its planned t
     const station = simulation.stationManager.getStation(stationId);
     if (!station) continue; // already demolished
     const emigrationState = assertNotNull(station.emigrationEvent, `${stationId}.emigrationEvent`);
-    assertEqual(emigrationState.launched, emigrationState.totalEmigrants, `${stationId} launched count caps at totalEmigrants`);
+    assertEqual(
+      emigrationState.launched,
+      emigrationState.totalEmigrants,
+      `${stationId} launched count caps at totalEmigrants`,
+    );
   }
 
   simulation.dispose();
@@ -192,7 +258,7 @@ test("ferry arriving at the generational ship increments shipsArrived (decommiss
   // Fire a synthesized DecommissionEvent for an event-station's homed ship
   // and verify activeEvent.shipsArrived increments. Mutating the homeStationId
   // check inside onShipDecommissioned would skip the increment.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const event = simulation.emigrationManager.triggerEvent({ intensity: "high" });
   assertTrue(event !== null, "event triggered");
 
@@ -201,14 +267,11 @@ test("ferry arriving at the generational ship increments shipsArrived (decommiss
 
   // Fan out a synthetic DecommissionEvent through the trade manager's
   // observer list — same path the real flow hits when a ferry arrives.
-  const synthetic: DecommissionEvent = {
-    tradeShip: { orbitingShipId: "synthetic-ship", homeStationId: eventStationId } as never,
-    orbitingShip: { id: "synthetic-ship" } as never,
-    orbitingShipId: "synthetic-ship",
-    homeStationId: eventStationId,
-    decommissionStationId: event!.generationalShipId,
-    reason: "decommission-action",
-  };
+  const synthetic = makeSyntheticDecommissionEvent(
+    "synthetic-ship",
+    eventStationId,
+    event!.generationalShipId,
+  );
   for (const observer of simulation.tradeManager.decommissionObservers) observer(synthetic);
 
   assertEqual(event!.shipsArrived, before + 1, "shipsArrived incremented for event-station decommission");
@@ -217,7 +280,7 @@ test("ferry arriving at the generational ship increments shipsArrived (decommiss
 });
 
 test("decommission of a non-event ship does NOT increment shipsArrived", () => {
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const event = simulation.emigrationManager.triggerEvent({ intensity: "low" });
   assertTrue(event !== null, "event triggered");
 
@@ -233,14 +296,11 @@ test("decommission of a non-event ship does NOT increment shipsArrived", () => {
   assertTrue(nonEventStationId !== null, "found a station not in the event roster");
 
   const before = event!.shipsArrived;
-  const synthetic: DecommissionEvent = {
-    tradeShip: { orbitingShipId: "non-event-ship", homeStationId: nonEventStationId! } as never,
-    orbitingShip: { id: "non-event-ship" } as never,
-    orbitingShipId: "non-event-ship",
-    homeStationId: nonEventStationId!,
-    decommissionStationId: event!.generationalShipId,
-    reason: "decommission-action",
-  };
+  const synthetic = makeSyntheticDecommissionEvent(
+    "non-event-ship",
+    nonEventStationId!,
+    event!.generationalShipId,
+  );
   for (const observer of simulation.tradeManager.decommissionObservers) observer(synthetic);
 
   // Pin the homeStationId membership check. Mutating
@@ -252,28 +312,36 @@ test("decommission of a non-event ship does NOT increment shipsArrived", () => {
 });
 
 test("WAY jump fires when shipsArrived reaches totalExpectedShips and clears active event", () => {
-  // executeJump removes the generational ship, clears activeEvent, and
-  // schedules the next gen-ship arrival at simTime + POST_JUMP_GAP. Force the
+  // jumpGenerationalShipAway removes the generational ship, clears activeEvent, and
+  // schedules the next gen-ship arrival at clockSeconds + POST_JUMP_GAP. Force the
   // shipsArrived counter to total and run one tick to fire the jump check.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const event = simulation.emigrationManager.triggerEvent({ intensity: "low" });
   assertTrue(event !== null, "event triggered");
   const generationalShipId = event!.generationalShipId;
 
   // Force the arrival count high so the next tick's jump check trips.
   event!.shipsArrived = event!.totalExpectedShips;
-  const simTimeBeforeJump = simulation.emigrationManager.getSimTime();
-  simulation.tickDynamics(1);
+  const clockSecondsBeforeJump = simulation.emigrationManager.getClockSeconds();
+  simulation.slowSimulationTick(1);
 
   assertEqual(simulation.emigrationManager.getActiveEvent(), null, "activeEvent cleared after jump");
-  assertEqual(simulation.stationManager.getStation(generationalShipId), undefined, "generational ship removed from roster");
+  assertEqual(
+    simulation.stationManager.getStation(generationalShipId),
+    undefined,
+    "generational ship removed from roster",
+  );
   // Pin POST_JUMP_GAP scheduling. Mutating the `+ POST_JUMP_GAP_SECONDS` in
-  // executeJump (e.g. dropping it) would let next-arrival fire immediately
+  // jumpGenerationalShipAway (e.g. dropping it) would let next-arrival fire immediately
   // and double up generational ships.
   const nextArrival = simulation.emigrationManager.getNextGenerationalShipArrivalAt();
   assertTrue(nextArrival !== null, "next gen-ship arrival scheduled");
-  // simTime advanced by 1 inside tickDynamics, so use the post-tick simTime.
-  assertEqual(nextArrival, simTimeBeforeJump + 1 + POST_JUMP_GAP_SECONDS, "next arrival = simTime + POST_JUMP_GAP");
+  // clockSeconds advanced by 1 inside slowSimulationTick, so use the post-tick clockSeconds.
+  assertEqual(
+    nextArrival,
+    clockSecondsBeforeJump + 1 + POST_JUMP_GAP_SECONDS,
+    "next arrival = clockSeconds + POST_JUMP_GAP",
+  );
 
   simulation.dispose();
 });
@@ -282,17 +350,17 @@ test("POST_JUMP_GAP throttles auto-trigger — no new event fires while gap is i
   // Auto mode + gap pending must not trigger a second event before the gap
   // elapses. Pin `if (this.nextGenerationalShipArrivalAt !== null) return;`
   // in triggerAutoEmigrationEventIfDue.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const event = simulation.emigrationManager.triggerEvent({ intensity: "low" });
   assertTrue(event !== null, "first event triggered");
   event!.shipsArrived = event!.totalExpectedShips;
-  simulation.tickDynamics(1); // executeJump fires; nextGenerationalShipArrivalAt scheduled.
+  simulation.slowSimulationTick(1); // jumpGenerationalShipAway fires; nextGenerationalShipArrivalAt scheduled.
   assertEqual(simulation.emigrationManager.getActiveEvent(), null, "first event ended");
 
   // Switch to auto so the auto-trigger path activates. Tick well past
   // anything that would normally trigger — but still within the POST_JUMP_GAP.
   simulation.emigrationManager.setMode("auto");
-  simulation.tickDynamics(60); // 1 minute, way under 3-hour gap
+  simulation.slowSimulationTick(60); // 1 minute, way under 3-hour gap
 
   // No new generational ship arrived yet, so no event can fire either.
   assertEqual(simulation.emigrationManager.getActiveEvent(), null, "no new event during gap");
@@ -302,20 +370,27 @@ test("POST_JUMP_GAP throttles auto-trigger — no new event fires while gap is i
 });
 
 test("after POST_JUMP_GAP elapses, a fresh generational ship arrives and a new event can trigger", () => {
-  // Once simTime ≥ nextGenerationalShipArrivalAt, spawnNextGenerationalShipIfDue
+  // Once clockSeconds ≥ nextGenerationalShipArrivalAt, spawnNextGenerationalShipIfDue
   // creates a new generational ship and clears nextGenerationalShipArrivalAt.
   // Pin the gate by ticking through the gap.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const firstEvent = simulation.emigrationManager.triggerEvent({ intensity: "low" });
   assertTrue(firstEvent !== null, "first event triggered");
   firstEvent!.shipsArrived = firstEvent!.totalExpectedShips;
-  simulation.tickDynamics(1); // jump fires
-  // Tick through the gap. tickDynamics accepts seconds and advances simTime in one go.
-  simulation.tickDynamics(POST_JUMP_GAP_SECONDS);
-  // Then one more tick to pass the gap (simTime >= nextGenerationalShipArrivalAt).
-  simulation.tickDynamics(1);
-  assertTrue(simulation.emigrationManager.getActiveGenerationalShip() !== null, "fresh generational ship arrived after gap");
-  assertEqual(simulation.emigrationManager.getNextGenerationalShipArrivalAt(), null, "next-arrival timer cleared after spawn");
+  simulation.slowSimulationTick(1); // jump fires
+  // Tick through the gap. slowSimulationTick accepts seconds and advances clockSeconds in one go.
+  simulation.slowSimulationTick(POST_JUMP_GAP_SECONDS);
+  // Then one more tick to pass the gap (clockSeconds >= nextGenerationalShipArrivalAt).
+  simulation.slowSimulationTick(1);
+  assertTrue(
+    simulation.emigrationManager.getActiveGenerationalShip() !== null,
+    "fresh generational ship arrived after gap",
+  );
+  assertEqual(
+    simulation.emigrationManager.getNextGenerationalShipArrivalAt(),
+    null,
+    "next-arrival timer cleared after spawn",
+  );
 
   // Now a manual trigger can succeed.
   simulation.emigrationManager.setMode("manual");
@@ -328,18 +403,21 @@ test("after POST_JUMP_GAP elapses, a fresh generational ship arrives and a new e
 });
 
 test("station demolition removes the station from StationManager and rebuilds the ware-station-index", () => {
-  // checkStationDemolition fires removeStationForEmigration once a station's
+  // demolishFinishedStations fires removeStationForEmigration once a station's
   // launches complete and all its initial homed ships have departed. Verify
   // both effects: the station is removed from StationManager.byId, and the
   // wareStationIndex no longer lists it.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const event = simulation.emigrationManager.triggerEvent({ intensity: "high" });
   assertTrue(event !== null, "event triggered");
 
   // Pick a station from the event and force its emigration state into a
   // demolishable shape: launched === total AND no initial homed ships still docked.
   const targetStationId = event!.stationIds[0];
-  const station = assertNotUndefined(simulation.stationManager.getStation(targetStationId), "target station present");
+  const station = assertNotUndefined(
+    simulation.stationManager.getStation(targetStationId),
+    "target station present",
+  );
   const emigrationState = station.emigrationEvent;
   if (emigrationState === null) throw new Error("target emigration state should be set");
   emigrationState.launched = emigrationState.totalEmigrants;
@@ -353,7 +431,14 @@ test("station demolition removes the station from StationManager and rebuilds th
   // Capture a ware this station produces to sanity-check after demolition.
   const producedWareId = station.stationType.produces[0];
 
-  simulation.tickDynamics(1);
+  // Snapshot the ships still at this station before demolition. The ferry-vs-build
+  // distinction matters here: removeStationForEmigration must NOT despawn them
+  // (they hold a decommission action queued for the gen ship). If a mutation
+  // calls shipManager.removeShipsForStation by mistake, the ferries disappear
+  // and shipsArrived would never increment.
+  const shipsAtStationBefore = simulation.shipManager.getShipsForStation(station);
+
+  simulation.slowSimulationTick(1);
 
   assertEqual(simulation.stationManager.getStation(targetStationId), undefined, "station removed from byId");
   // Pin the rebuildWareIndex call inside unregisterStation. Without it, the
@@ -361,18 +446,31 @@ test("station demolition removes the station from StationManager and rebuilds th
   if (producedWareId) {
     const producers = simulation.tradeManager.wareStationIndex.getProducers(producedWareId);
     for (const producerStation of producers) {
-      assertTrue(producerStation.id !== targetStationId, `removed station absent from producers[${producedWareId}]`);
+      assertTrue(
+        producerStation.id !== targetStationId,
+        `removed station absent from producers[${producedWareId}]`,
+      );
     }
+  }
+  // Pin that removeStationForEmigration does NOT despawn ships. The ferries
+  // have a decommission queued; despawning them mid-flight would stall
+  // shipsArrived forever. The pre-snapshot ships must all still resolve.
+  for (const ship of shipsAtStationBefore) {
+    assertEqual(
+      simulation.shipManager.getShip(ship.id),
+      ship,
+      `ferry ship ${ship.id} still alive after emigration removal`,
+    );
   }
 
   simulation.dispose();
 });
 
 test("station demolition is gated on still-docked initial homed ships", () => {
-  // checkStationDemolition continues (skips demolition) when any initial
+  // demolishFinishedStations continues (skips demolition) when any initial
   // homed ship is not in flight. Pin the gate by setting launched===total but
   // keeping a homed ship docked.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   const event = simulation.emigrationManager.triggerEvent({ intensity: "high" });
   assertTrue(event !== null, "event triggered");
 
@@ -387,7 +485,10 @@ test("station demolition is gated on still-docked initial homed ships", () => {
   }
   assertTrue(targetStationId !== null, "found event station with homed ships");
 
-  const station = assertNotUndefined(simulation.stationManager.getStation(targetStationId!), "target station");
+  const station = assertNotUndefined(
+    simulation.stationManager.getStation(targetStationId!),
+    "target station",
+  );
   const emigrationState = assertNotNull(station.emigrationEvent, "emigration state");
   emigrationState.launched = emigrationState.totalEmigrants;
   // Don't clear the homed set — the gate should keep the station alive.
@@ -398,10 +499,13 @@ test("station demolition is gated on still-docked initial homed ships", () => {
     tradeShip.flight = null; // not in flight → still docked at home
   }
 
-  simulation.tickDynamics(1);
+  simulation.slowSimulationTick(1);
   // Pin "anyStillDocked → continue". A mutation that flipped the gate would
   // demolish prematurely.
-  assertNotUndefined(simulation.stationManager.getStation(targetStationId!), "station survives while homed ships still docked");
+  assertNotUndefined(
+    simulation.stationManager.getStation(targetStationId!),
+    "station survives while homed ships still docked",
+  );
 
   simulation.dispose();
 });
@@ -409,16 +513,223 @@ test("station demolition is gated on still-docked initial homed ships", () => {
 test("triggering with zero eligible posts a toast and leaves activeEvent null", () => {
   // selectStationsForEmigration returns 0 selected when nothing eligible
   // (e.g., before generational ship). Pin the toast-set + early-return.
-  const simulation = freshSim();
+  const simulation = createFreshSimulation();
   // Force every nation into "no producing stations" by setting all stations to
   // emigrating (canStationTrade false for all, so eligibility=0).
-  simulation.stationManager.setStationStates(simulation.stationManager.getStations(), "claimed");
+  simulation.stationManager.setStationStates(simulation.stationManager.getStations(), "emigrating");
 
   const result = simulation.emigrationManager.triggerEvent({ intensity: "high" });
   assertEqual(result, null, "trigger returns null when zero eligible");
   assertEqual(simulation.emigrationManager.getActiveEvent(), null, "no active event");
   const toast = simulation.emigrationManager.takePendingToast();
   assertTrue(toast !== null && toast.length > 0, "pending toast surfaced");
+  // Pin takePendingToast clears the slot. Without `this.pendingToast = null`,
+  // the same message would replay on every poll and the player would see a
+  // permanently-stuck toast.
+  assertEqual(
+    simulation.emigrationManager.takePendingToast(),
+    null,
+    "second take returns null (toast cleared)",
+  );
+
+  simulation.dispose();
+});
+
+test("auto-trigger fires at the empty-zone threshold boundary (>= versus > matters)", () => {
+  // Pin `emptyZoneCount > autoTriggerThreshold` (not `>=`). Mutating to
+  // `>= threshold` would skip the trigger at empty == threshold, leaving the
+  // player stuck with no auto-emigration even when zones are scarce.
+  const simulation = createFreshSimulation();
+  const threshold = simulation.emigrationManager.getAutoTriggerThreshold();
+  // Mode starts manual in createFreshSimulation. Fill zones (one placeBuild
+  // per zone) until emptyZoneCount drops to threshold + 1, then verify
+  // auto-trigger DOESN'T fire. Then one more placeBuild lands empty at
+  // threshold; verify it DOES.
+  const freeZones = simulation.map.stationZones.filter(
+    (zone) => !simulation.stationManager.getStations().some((station) => station.zoneId === zone.id),
+  );
+  let zoneIndex = 0;
+  while (emptyZoneCount(simulation.map, simulation.stationManager) > threshold + 1) {
+    const zone = freeZones[zoneIndex++];
+    if (zone === undefined) throw new Error("ran out of free zones before reaching threshold");
+    simulation.stationManager.placeBuild({
+      zoneId: zone.id,
+      typeId: "habitat",
+      size: "S",
+      nationId: "bio",
+      x: zone.x,
+      y: zone.y,
+    });
+  }
+
+  assertEqual(
+    emptyZoneCount(simulation.map, simulation.stationManager),
+    threshold + 1,
+    "drained empty zones to threshold + 1",
+  );
+
+  simulation.emigrationManager.setMode("auto");
+  simulation.slowSimulationTick(1);
+  assertEqual(
+    simulation.emigrationManager.getActiveEvent(),
+    null,
+    "no auto event at empty == threshold + 1 (above the boundary)",
+  );
+
+  const oneMore = freeZones[zoneIndex];
+  simulation.stationManager.placeBuild({
+    zoneId: oneMore.id,
+    typeId: "habitat",
+    size: "S",
+    nationId: "bio",
+    x: oneMore.x,
+    y: oneMore.y,
+  });
+  assertEqual(
+    emptyZoneCount(simulation.map, simulation.stationManager),
+    threshold,
+    "one more build lands empty at the threshold boundary",
+  );
+  simulation.slowSimulationTick(1);
+  assertTrue(
+    simulation.emigrationManager.getActiveEvent() !== null,
+    "auto event fires at empty == threshold (boundary inclusive in the trigger)",
+  );
+
+  simulation.dispose();
+});
+
+test("computeEmigrationFraction: completed = launched + (initialHomed - stillDocked); returns fraction over total", () => {
+  // Pin the math. Mutating the `homedDeparted` subtraction to addition would
+  // let progressFraction climb past 1 even before any ship departed; the
+  // Math.min clamp would mask that at the endpoints, but mid-range values
+  // would be wrong.
+  const emigration = makeStationEmigration();
+  // 8 emigrants + 2 homed = 10 expected. 3 launched + 1 homed departed = 4 done.
+  assertEqual(
+    computeEmigrationFraction(emigration, emigration.initialHomedShipIdSet, 1),
+    4 / 10,
+    "completed/total with 3 launched, 1 of 2 homed departed",
+  );
+  // All homed still docked, no launches → 0 done.
+  assertEqual(
+    computeEmigrationFraction({ ...emigration, launched: 0 }, emigration.initialHomedShipIdSet, 2),
+    0,
+    "no progress when nothing launched and all homed docked",
+  );
+  // All launched + all homed departed → 1.
+  assertEqual(
+    computeEmigrationFraction({ ...emigration, launched: 8 }, emigration.initialHomedShipIdSet, 0),
+    1,
+    "full completion = 1",
+  );
+});
+
+test("computeEmigrationFraction: clamps out-of-range values to [0, 1]", () => {
+  // Pin both Math.max(0, ...) and Math.min(1, ...) clamps. The HUD reads
+  // `progressFraction` straight into a 0..1 progress bar; an unclamped value
+  // would render as negative width or overflow the bar. The reads here pass
+  // intentionally pathological inputs that drive `completed/totalRequired`
+  // outside [0, 1] — dropping either clamp lets that out-of-range value through.
+  const baseEmigration = makeStationEmigration({ totalEmigrants: 4, launched: 0, secondsUntilNextLaunch: 0 });
+  // launched > totalEmigrants pushes `completed / totalRequired` above 1.
+  // 12 launched + 2 homed-departed = 14 over 4 + 2 = 6 → 14/6 ≈ 2.33. Min clamp pins it to 1.
+  assertEqual(
+    computeEmigrationFraction({ ...baseEmigration, launched: 12 }, baseEmigration.initialHomedShipIdSet, 0),
+    1,
+    "Math.min(1, …) clamps over-completion to 1",
+  );
+  // homedStillDocked > initialHomed.size makes homedDeparted negative; combined
+  // with 0 launched, completed drops below 0. 0 + (2 - 5) = -3 over 6 → -0.5.
+  // Max clamp pins it to 0.
+  assertEqual(
+    computeEmigrationFraction(baseEmigration, baseEmigration.initialHomedShipIdSet, 5),
+    0,
+    "Math.max(0, …) clamps under-completion to 0",
+  );
+});
+
+test("computeEmigrationFraction: returns 1 when station had nothing to send (no emigrants, no homed)", () => {
+  // Pin the totalRequired === 0 short-circuit. Without it, the division
+  // would yield NaN, propagating into render-cached progressFraction.
+  const emigration = makeStationEmigration({
+    initialHomedShipIds: [],
+    initialHomedShipIdSet: new Set(),
+    totalEmigrants: 0,
+    launched: 0,
+    secondsUntilNextLaunch: 0,
+  });
+  assertEqual(
+    computeEmigrationFraction(emigration, emigration.initialHomedShipIdSet, 0),
+    1,
+    "0/0 case returns 1",
+  );
+});
+
+test("retireUnlaunched: drops abandoned ships off totalExpectedShips so WAY doesn't wait on phantoms", () => {
+  // Pin the `-= abandoned` sign. Mutating to `+= abandoned` would inflate
+  // totalExpectedShips, and the WAY jump gate (shipsArrived >= totalExpectedShips)
+  // would never trip — the player would wait forever for ships the nation never had.
+  const emigration = makeStationEmigration({
+    initialHomedShipIds: [],
+    initialHomedShipIdSet: new Set(),
+    totalEmigrants: 10,
+    launched: 3,
+    secondsUntilNextLaunch: 0,
+  });
+  const event: EmigrationEvent = {
+    id: "E1",
+    nationIds: ["bio"],
+    generationalShipId: "WAY-001",
+    stationIds: ["S1"],
+    stationIdSet: new Set(["S1"]),
+    shipsArrived: 0,
+    totalExpectedShips: 10,
+    destinationName: "Test",
+    startAt: 0,
+  };
+  retireUnlaunched(emigration, event);
+  // 10 planned - 3 launched = 7 abandoned. totalExpectedShips drops to 3,
+  // matching the actual launched count.
+  assertEqual(emigration.totalEmigrants, 3, "totalEmigrants shrinks to launched count");
+  assertEqual(event.totalExpectedShips, 3, "totalExpectedShips drops by the abandoned (7) count");
+});
+
+test("triggering an emigration event clears trade-route history but leaves the 20-day station log intact", () => {
+  const simulation = createFreshSimulation();
+  const tradeManager = simulation.tradeManager;
+
+  // Record a synthetic delivery so there is history to clear.
+  tradeManager.tradeRouteStats.recordDelivery({
+    time: tradeManager.tradeTime,
+    fromStationId: "ROUTE-FROM",
+    toStationId: "ROUTE-TO",
+    wareId: "water",
+    amount: 100,
+    fillFraction: 0.5,
+  });
+  assertEqual(
+    tradeManager.getTradedRoutes(tradeManager.tradeTime, Infinity).length,
+    1,
+    "synthetic delivery is in trade history before emigration",
+  );
+
+  const stationLogBefore = simulation.stationHistory.toSnapshot().length;
+  assertTrue(stationLogBefore > 0, "initial stations are recorded in the 20-day station log");
+
+  const event = simulation.emigrationManager.triggerEvent({ intensity: "high" });
+  assertTrue(event !== null, "emigration event triggered");
+
+  assertEqual(
+    tradeManager.getTradedRoutes(tradeManager.tradeTime, Infinity).length,
+    0,
+    "trade-route history cleared on emigration trigger",
+  );
+  assertEqual(
+    simulation.stationHistory.toSnapshot().length,
+    stationLogBefore,
+    "20-day station log untouched by the trade-history clear",
+  );
 
   simulation.dispose();
 });

@@ -1,16 +1,16 @@
 import { test, assertEqual, assertTrue } from "./test-utils.ts";
 import { settledPreset } from "../../data/map-preset-settled.ts";
 import { map } from "../../data/map.ts";
-import { createMapFromTemplate } from "../sim-map-builder.ts";
+import { createMapFromTemplate } from "../sim-map-create.ts";
 import { createSimulation } from "../sim-lifecycle.ts";
-import { captureFrame, capturePresetInitialFrame } from "../editor/timelapse-runner.ts";
+import { buildPresetMap, captureFrame, capturePresetInitialFrame } from "../editor/timelapse-runner.ts";
 
 // captureFrame is a flat read of simulation.stations into a TimelapseFrame.
 // We test against a real settled preset so any field-shape drift fails here
 // rather than blowing up in the live runner.
 
 test("captureFrame: includes every operational station from the settled preset", () => {
-  const gameMap = createMapFromTemplate(map, { ...settledPreset, simulationWarmup: 0 });
+  const gameMap = createMapFromTemplate(map, { ...settledPreset, simulationWarmupSeconds: 0 });
   const simulation = createSimulation(gameMap);
   try {
     const frame = captureFrame(simulation, 0);
@@ -34,7 +34,7 @@ test("captureFrame: includes every operational station from the settled preset",
 
 test("captureFrame: maps station.state to operational vs construction", () => {
   // Use a fresh sim; default state for seeded stations is "producing" (operational).
-  const gameMap = createMapFromTemplate(map, { ...settledPreset, simulationWarmup: 0 });
+  const gameMap = createMapFromTemplate(map, { ...settledPreset, simulationWarmupSeconds: 0 });
   const simulation = createSimulation(gameMap);
   try {
     const frame = captureFrame(simulation, 0);
@@ -49,7 +49,7 @@ test("captureFrame: maps station.state to operational vs construction", () => {
 });
 
 test("captureFrame: simSeconds reflects the argument", () => {
-  const gameMap = createMapFromTemplate(map, { ...settledPreset, simulationWarmup: 0 });
+  const gameMap = createMapFromTemplate(map, { ...settledPreset, simulationWarmupSeconds: 0 });
   const simulation = createSimulation(gameMap);
   try {
     const frame = captureFrame(simulation, 1234.5);
@@ -74,4 +74,19 @@ test("capturePresetInitialFrame: returns frame 0 for a known preset", () => {
 test("capturePresetInitialFrame: returns null for an unknown preset", () => {
   const frame = capturePresetInitialFrame("does-not-exist");
   assertEqual(frame, null, "unknown preset returns null");
+});
+
+// buildPresetMap overrides the preset's simulationWarmupSeconds to 0 so the
+// timelapse preview/run starts from the initial state, not pre-ticked.
+// settledPreset.simulationWarmupSeconds is 60 — without the override, the map
+// would carry that value and the run would silently start mid-sim.
+test("buildPresetMap overrides simulationWarmupSeconds to 0", () => {
+  assertTrue(settledPreset.simulationWarmupSeconds !== 0, "settled preset carries a non-zero warmup");
+  const map = buildPresetMap("settled");
+  assertTrue(map !== null, "settled preset resolves");
+  assertEqual(map!.simulationWarmupSeconds, 0, "warmup overridden to 0 for timelapse");
+});
+
+test("buildPresetMap returns null for an unknown preset", () => {
+  assertEqual(buildPresetMap("does-not-exist"), null, "unknown preset returns null");
 });

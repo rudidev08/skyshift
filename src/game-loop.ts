@@ -10,11 +10,21 @@ import {
   destroyStationVisualBundle,
   resetStationZoomDetailCache,
 } from "./phaser/station-visual-bundle";
-import { AUTOSAVE_INTERVAL_SECONDS } from "./sim-save-types";
+import { AUTOSAVE_INTERVAL_SECONDS } from "./sim-save-slots";
 import { saveAutoSlot } from "./ui-savegame-manager";
 
 /** Slow tick for build-completion handoff and emigration lifecycle (sim seconds). */
-const DYNAMICS_TICK_INTERVAL = 5;
+const SLOW_SIMULATION_TICK_INTERVAL_SECONDS = 5;
+
+/** Game-time seconds elapsed this frame: 0 while paused (`timeScale <= 0`) or in
+ *  the static editor, otherwise the real frame delta scaled by game speed. Both
+ *  the sim tick and the render game clock advance by this, so idle ship orbits
+ *  freeze on pause and speed up with the game exactly like in-flight ships,
+ *  whose position derives from sim-advanced flight progress. */
+export function gameSecondsThisFrame(deltaSeconds: number, timeScale: number, isEditorMode: boolean): number {
+  if (isEditorMode || timeScale <= 0) return 0;
+  return deltaSeconds * timeScale;
+}
 
 let simSecondsSinceAutoSave = 0;
 
@@ -23,34 +33,37 @@ export function resetAutoSaveAccumulator(): void {
   simSecondsSinceAutoSave = 0;
 }
 
-export function tickSimulation(game: Game, scaledDelta: number, time: number, inOverview: boolean): void {
-  if (!inOverview) renderAmbientTraffic(game, scaledDelta, time);
-  game.simulation!.tick(scaledDelta);
-  tickDynamicsAndOverviewRefresh(game, scaledDelta);
-  tickAutoSave(game, scaledDelta);
+export function tickSimulation(game: Game, frameGameSeconds: number, timeMilliseconds: number, inOverview: boolean): void {
+  if (!inOverview) renderAmbientTraffic(game, frameGameSeconds, timeMilliseconds);
+  game.simulation!.tick(frameGameSeconds);
+  slowSimulationTick(game, frameGameSeconds);
+  tickAutoSave(game, frameGameSeconds);
 }
 
-function renderAmbientTraffic(game: Game, scaledDelta: number, time: number): void {
-  updateAmbientTraffic(game.ambientTraffic, scaledDelta, time, game.camera);
+function renderAmbientTraffic(game: Game, frameGameSeconds: number, timeMilliseconds: number): void {
+  updateAmbientTraffic(game.ambientTraffic, frameGameSeconds, timeMilliseconds, game.camera);
 }
 
-/** Run the slow per-5s dynamics tick when enough sim time has accumulated, then
+/** Run the slow simulation tick when enough sim time has accumulated, then
  *  refresh the overview panels (also covers Nations and Emigration tabs). */
-function tickDynamicsAndOverviewRefresh(game: Game, scaledDelta: number): void {
-  game.dynamicsTickAccumulator += scaledDelta;
-  if (game.dynamicsTickAccumulator < DYNAMICS_TICK_INTERVAL) return;
-  const dynamicsDelta = game.dynamicsTickAccumulator;
-  game.dynamicsTickAccumulator = 0;
-  game.simulation!.tickDynamics(dynamicsDelta);
-  game.overviewSystem?.update();
+function slowSimulationTick(game: Game, frameGameSeconds: number): void {
+  game.secondsSinceLastSlowSimulationTick += frameGameSeconds;
+  if (game.secondsSinceLastSlowSimulationTick < SLOW_SIMULATION_TICK_INTERVAL_SECONDS) return;
+  const accumulatedSlowSimulationSeconds = game.secondsSinceLastSlowSimulationTick;
+  game.secondsSinceLastSlowSimulationTick = 0;
+  game.simulation!.slowSimulationTick(accumulatedSlowSimulationSeconds);
+  game.overviewMode?.update();
 }
 
-function tickAutoSave(game: Game, scaledDelta: number): void {
-  simSecondsSinceAutoSave += scaledDelta;
+function tickAutoSave(game: Game, frameGameSeconds: number): void {
+  simSecondsSinceAutoSave += frameGameSeconds;
   if (simSecondsSinceAutoSave < AUTOSAVE_INTERVAL_SECONDS) return;
   simSecondsSinceAutoSave = 0;
-  try { saveAutoSlot(game); }
-  catch (err) { console.warn("Auto-save failed:", err); }
+  try {
+    saveAutoSlot(game);
+  } catch (error) {
+    console.warn("Auto-save failed:", error);
+  }
 }
 
 export function updateShipVisuals(
@@ -60,18 +73,18 @@ export function updateShipVisuals(
 ): void {
   updateAllShipVisualBundles(
     game,
-    game.shipRenders,
+    game.shipBundles,
     {
       labelVisible: labelState.visible,
       labelAlpha: labelState.alpha,
       zoom: game.camera.zoom,
       camera: game.camera,
-      timeSec: game.time.now / 1000,
+      timeSec: game.gameClockSeconds,
       currentTick,
     },
-    game.selection.target,
+    game.selection.selectedTarget,
     game.simulation!.tradeManager,
-    game.shipBundles,
+    game.shipBundlesById,
   );
 }
 

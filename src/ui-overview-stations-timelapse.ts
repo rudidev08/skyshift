@@ -33,29 +33,31 @@ export interface StationsTimelapseLogPaneOptions {
   rewindOverlay: StationRewindOverlay;
 }
 
-export function createStationsTimelapseLogPane(options: StationsTimelapseLogPaneOptions): StationsTimelapseLogPane {
+export function createStationsTimelapseLogPane(
+  options: StationsTimelapseLogPaneOptions,
+): StationsTimelapseLogPane {
   const { root, stationHistory, getSimTime, rewindOverlay } = options;
 
-  const { frameElement, timeElement } = buildPaneFrame(root);
+  const { frameElement, timeElement } = createPaneFrame(root);
 
   // Anchor the playhead at "now" at creation; per-tick tracking happens in
-  // keepPlayheadAtNowWhenNotScrubbed below.
+  // snapPlayheadToNowIfPast below.
   let playheadTime = getSimTime();
 
   const control = createStationsTimelapseControl({
     parent: frameElement,
     onStep(step) {
       const proposed = playheadTime + STEP_SECONDS[step];
-      playheadTime = clampToWindow(proposed, getSimTime());
-      applyPlayheadChange();
+      playheadTime = clampPlayheadTime(proposed, getSimTime());
+      refreshAfterPlayheadMove();
     },
     onScrubToTime(endTime) {
-      playheadTime = clampToWindow(endTime, getSimTime());
-      applyPlayheadChange();
+      playheadTime = clampPlayheadTime(endTime, getSimTime());
+      refreshAfterPlayheadMove();
     },
   });
 
-  function applyPlayheadChange(): void {
+  function refreshAfterPlayheadMove(): void {
     const now = getSimTime();
     if (playheadTime >= now) {
       rewindOverlay.hide();
@@ -70,8 +72,8 @@ export function createStationsTimelapseLogPane(options: StationsTimelapseLogPane
     setTextIfChanged(timeElement, formatElapsed(playheadTime));
     control.update({
       history: stationHistory,
-      // Chart slides forward with sim-time; right edge is always "now". Bars
-      // represent fixed 8h slices going back 20 days from the current moment.
+      // Chart slides forward with sim-time; right edge is always "now", and
+      // the window stretches back TWENTY_DAYS_IN_SECONDS.
       currentTime: getSimTime(),
       windowSeconds: TWENTY_DAYS_IN_SECONDS,
       // Where the player is currently looking — moves the playhead + drives
@@ -83,11 +85,11 @@ export function createStationsTimelapseLogPane(options: StationsTimelapseLogPane
   repaintPane();
 
   function update(): void {
-    keepPlayheadAtNowWhenNotScrubbed();
+    snapPlayheadToNowIfPast();
     repaintPane();
   }
 
-  function keepPlayheadAtNowWhenNotScrubbed(): void {
+  function snapPlayheadToNowIfPast(): void {
     const now = getSimTime();
     if (playheadTime >= now) playheadTime = now;
   }
@@ -101,7 +103,10 @@ export function createStationsTimelapseLogPane(options: StationsTimelapseLogPane
   return { update, destroy };
 }
 
-function buildPaneFrame(root: HTMLElement): { frameElement: HTMLDivElement; timeElement: HTMLSpanElement } {
+function createPaneFrame(root: HTMLElement): {
+  frameElement: HTMLDivElement;
+  timeElement: HTMLSpanElement;
+} {
   root.innerHTML = "";
   // ware-sidebar gives the same panel chrome (glass background, dashed border,
   // morse-stripe top accent) the Trading and Emigration tabs use, so the Log
@@ -127,9 +132,12 @@ function buildPaneFrame(root: HTMLElement): { frameElement: HTMLDivElement; time
   return { frameElement, timeElement };
 }
 
-function clampToWindow(time: number, now: number): number {
-  const earliest = now - TWENTY_DAYS_IN_SECONDS;
-  if (time < earliest) return earliest;
-  if (time > now) return now;
-  return time;
+/** Constrain a proposed playhead time to where the player can actually scrub:
+ *  no later than `now`, and no earlier than the chart's left edge — but never
+ *  before sim start (time zero), since no history exists before the game began. */
+export function clampPlayheadTime(proposedTime: number, now: number): number {
+  const earliest = Math.max(0, now - TWENTY_DAYS_IN_SECONDS);
+  if (proposedTime < earliest) return earliest;
+  if (proposedTime > now) return now;
+  return proposedTime;
 }

@@ -1,52 +1,34 @@
 import { type Scene } from "phaser";
 import type { StationSize } from "../../data/station-types";
 import type { Station } from "../sim-station-types";
-import type { GameMap } from "../sim-map-types";
 import { closeViewAlpha } from "./camera-fade";
-import { createStation, getAllInventorySlots, type InventorySlot } from "../sim-station";
+import { getAllInventorySlots, type InventorySlot } from "../sim-station";
 import { sortWares } from "../sim-ware-template";
 import { bodyRadiusBySize } from "../../data/stations";
 import { ringTwinkles, segmentTwinkles, stationVisuals } from "../../data/station-visuals";
 import { getSegmentArcsForSlotCount, type WareInventoryArc } from "./inventory-ring-render";
-import { createRenderDirtyState, hexToNumber, LABEL_STYLE, type RenderDirtyState } from "./viewport-culling";
+import { hexToNumber } from "../util-hex-color";
+import { LABEL_STYLE } from "./text-styles";
+import { createRenderDirtyState, type RenderDirtyState } from "../render-dirty-state";
 import { ensureStationRingTexture, getStationIconTextureKey, ICON_TEXTURE_SIZE } from "./texture-cache";
-import { Layer } from "./depth-layers";
+import { Layer } from "../../data/visuals-layers";
 import { StationSelectionTarget } from "./station-render-selection";
 import { destroyStatusBadge } from "./station-render-status-badge";
 import type { Selection } from "./selection-input";
 
-export function isStationSelected(
-  bundle: StationVisualBundle,
-  selection: Selection,
-): boolean {
-  return selection.isSelected(bundle.selectionTarget);
-}
-
 /** Gradient-sphere radius — varies by S/M/L so sizes look distinct when zoomed out. The black-disc base uses stationVisuals.iconRadius (size-independent). */
-export function getStationRadius(station: { size: StationSize }): number {
+export function getStationBodyRadius(station: { size: StationSize }): number {
   return bodyRadiusBySize[station.size];
 }
 
-function shadeColor(hex: string, amount: number): string {
+/** Lighten (positive `brightnessDelta`) or darken (negative) a hex color by
+ *  that fraction of full white/black. Returns an `rgb(...)` string. */
+function lightenOrDarkenHexColor(hex: string, brightnessDelta: number): string {
   const num = hexToNumber(hex);
-  const r = Math.max(0, Math.min(255, ((num >> 16) & 0xff) + Math.round(255 * amount)));
-  const g = Math.max(0, Math.min(255, ((num >> 8) & 0xff) + Math.round(255 * amount)));
-  const b = Math.max(0, Math.min(255, (num & 0xff) + Math.round(255 * amount)));
+  const r = Math.max(0, Math.min(255, ((num >> 16) & 0xff) + Math.round(255 * brightnessDelta)));
+  const g = Math.max(0, Math.min(255, ((num >> 8) & 0xff) + Math.round(255 * brightnessDelta)));
+  const b = Math.max(0, Math.min(255, (num & 0xff) + Math.round(255 * brightnessDelta)));
   return `rgb(${r},${g},${b})`;
-}
-
-export interface StationEntry {
-  station: Station;
-  screenX: number;
-  screenY: number;
-}
-
-export interface StationObjects {
-  /** Sim-side `Station` instances in creation order. Flat array so non-render consumers (stationManager.seed, simulation.tick) can take the list directly. */
-  stations: Station[];
-  stationBundles: StationVisualBundle[];
-  /** Bundle map keyed by Station for symmetric teardown. */
-  stationBundlesByStation: Map<Station, StationVisualBundle>;
 }
 
 /** One pulsing dot on the inventory ring — angle is fixed, brightness oscillates from phase + speed × time. Render-only. */
@@ -61,7 +43,6 @@ export interface StationTwinkle {
  *  `destroyStationVisualBundle` tear it down symmetrically. */
 export interface StationVisualBundle {
   station: Station;
-  entry: StationEntry;
   nameLabel: Phaser.GameObjects.Text;
   baseImage: Phaser.GameObjects.Image;
   overlayImage: Phaser.GameObjects.Image;
@@ -94,29 +75,35 @@ function drawStationBaseLayer(
   scene: Scene,
   station: Station,
   hex: string,
-  texSize: number,
+  textureSize: number,
 ): { image: Phaser.GameObjects.Image; textureKey: string } {
   const textureKey = `station-base-${station.id}`;
-  const canvas = scene.textures.createCanvas(textureKey, texSize, texSize);
+  const canvas = scene.textures.createCanvas(textureKey, textureSize, textureSize);
   if (canvas) {
     const ctx = canvas.getContext();
-    const cx = texSize / 2;
-    const cy = texSize / 2;
+    const centerX = textureSize / 2;
+    const centerY = textureSize / 2;
 
     ctx.fillStyle = "#000000";
     ctx.beginPath();
-    ctx.arc(cx, cy, stationVisuals.iconRadius, 0, Math.PI * 2);
+    ctx.arc(centerX, centerY, stationVisuals.iconRadius, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.strokeStyle = hex;
     ctx.lineWidth = stationVisuals.atmosphereRingWidth;
     ctx.beginPath();
-    ctx.arc(cx, cy, stationVisuals.iconRadius + stationVisuals.atmosphereRingWidth / 2, 0, Math.PI * 2);
+    ctx.arc(
+      centerX,
+      centerY,
+      stationVisuals.iconRadius + stationVisuals.atmosphereRingWidth / 2,
+      0,
+      Math.PI * 2,
+    );
     ctx.stroke();
 
     canvas.refresh();
   }
-  const image = scene.add.image(station.x, station.y, textureKey);
+  const image = scene.add.image(station.x, station.y, textureKey).setDepth(Layer.StationBase);
   return { image, textureKey };
 }
 
@@ -125,36 +112,36 @@ function drawStationOverlayLayer(
   scene: Scene,
   station: Station,
   hex: string,
-  texSize: number,
+  textureSize: number,
 ): { image: Phaser.GameObjects.Image; textureKey: string } {
   const textureKey = `station-overlay-${station.id}`;
-  const canvas = scene.textures.createCanvas(textureKey, texSize, texSize);
+  const canvas = scene.textures.createCanvas(textureKey, textureSize, textureSize);
   if (canvas) {
     const ctx = canvas.getContext();
-    const cx = texSize / 2;
-    const cy = texSize / 2;
-    const radius = getStationRadius(station);
+    const centerX = textureSize / 2;
+    const centerY = textureSize / 2;
+    const radius = getStationBodyRadius(station);
 
-    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    grad.addColorStop(0, shadeColor(hex, 0.25));
-    grad.addColorStop(0.5, hex);
-    grad.addColorStop(1, shadeColor(hex, -0.35));
-    ctx.fillStyle = grad;
+    const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+    gradient.addColorStop(0, lightenOrDarkenHexColor(hex, 0.25));
+    gradient.addColorStop(0.5, hex);
+    gradient.addColorStop(1, lightenOrDarkenHexColor(hex, -0.35));
+    ctx.fillStyle = gradient;
     ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.strokeStyle = hex;
     ctx.lineWidth = stationVisuals.atmosphereRingWidth;
     ctx.globalAlpha = 0.2;
     ctx.beginPath();
-    ctx.arc(cx, cy, radius + stationVisuals.atmosphereRingWidth / 2, 0, Math.PI * 2);
+    ctx.arc(centerX, centerY, radius + stationVisuals.atmosphereRingWidth / 2, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.globalAlpha = 1;
     canvas.refresh();
   }
-  const image = scene.add.image(station.x, station.y, textureKey);
+  const image = scene.add.image(station.x, station.y, textureKey).setDepth(Layer.StationBase);
   return { image, textureKey };
 }
 
@@ -167,6 +154,7 @@ function createStationIconImage(
   const iconKey = getStationIconTextureKey(station.stationType.id);
   const iconSize = (stationVisuals.iconRadius * stationVisuals.iconScale) / ICON_TEXTURE_SIZE;
   const image = scene.add.image(station.x, station.y, iconKey);
+  image.setDepth(Layer.StationBase);
   image.setScale(iconSize);
   image.setTint(nationColor);
   image.setAlpha(0);
@@ -181,19 +169,14 @@ function createInventoryRingTwinkles(station: Station): StationTwinkle[] {
     twinkles.push({
       angle: Math.random() * Math.PI * 2,
       phase: Math.random() * Math.PI * 2,
-      speed:
-        ringTwinkles.speedMin +
-        Math.random() * (ringTwinkles.speedMax - ringTwinkles.speedMin),
+      speed: ringTwinkles.speedMin + Math.random() * (ringTwinkles.speedMax - ringTwinkles.speedMin),
     });
   }
   return twinkles;
 }
 
 /** Twinkle dots scattered within each inventory segment arc. Count per segment varies by station size. */
-function createInventorySegmentTwinkles(
-  station: Station,
-  segmentArcs: WareInventoryArc[],
-): StationTwinkle[] {
+function createInventorySegmentTwinkles(station: Station, segmentArcs: WareInventoryArc[]): StationTwinkle[] {
   const twinkles: StationTwinkle[] = [];
   for (const arc of segmentArcs) {
     const segmentCount = segmentTwinkles.count[station.size] ?? 8;
@@ -203,9 +186,7 @@ function createInventorySegmentTwinkles(
         angle: arc.startAngle + t * (arc.endAngle - arc.startAngle),
         phase: Math.random() * Math.PI * 2,
         speed:
-          segmentTwinkles.speedMin +
-          Math.random() *
-            (segmentTwinkles.speedMax - segmentTwinkles.speedMin),
+          segmentTwinkles.speedMin + Math.random() * (segmentTwinkles.speedMax - segmentTwinkles.speedMin),
       });
     }
   }
@@ -232,14 +213,23 @@ function buildInventoryRingLayout(station: Station): {
   return { sortedSlots, producedIds, segmentArcs };
 }
 
+/** Y offset from station center to the top of the name label (shared with the editor so dragged stations match production placement). */
+export function getStationNameLabelOffsetY(): number {
+  return bodyRadiusBySize.L + stationVisuals.inventoryRingDistanceFromBody + 18;
+}
+
 /** Two-line station name + type/size label below the inventory ring. */
 function createStationNameLabel(scene: Scene, station: Station): Phaser.GameObjects.Text {
-  return scene.add.text(
-    station.x,
-    station.y + bodyRadiusBySize.L + stationVisuals.inventoryRingDistanceFromBody + 18,
-    `${station.name!}\n${station.typeAndSizeLabel}`,
-    { ...LABEL_STYLE, align: "center", lineSpacing: 2 },
-  ).setOrigin(0.5, 0).setResolution(3);
+  return scene.add
+    .text(
+      station.x,
+      station.y + getStationNameLabelOffsetY(),
+      `${station.name!}\n${station.typeAndSizeLabel}`,
+      { ...LABEL_STYLE, align: "center", lineSpacing: 2 },
+    )
+    .setOrigin(0.5, 0)
+    .setResolution(3)
+    .setDepth(Layer.StationLabel);
 }
 
 /** Per-station graphics target for inventory segment fills, drawn under the body. */
@@ -251,11 +241,7 @@ function createStationGraphics(scene: Scene): Phaser.GameObjects.Graphics {
 
 /** Inventory ring texture (shared across stations), positioned at the station and hidden by default. */
 function createStationRingImage(scene: Scene, station: Station): Phaser.GameObjects.Image {
-  const ringImage = scene.add.image(
-    station.x,
-    station.y,
-    ensureStationRingTexture(scene),
-  );
+  const ringImage = scene.add.image(station.x, station.y, ensureStationRingTexture(scene));
   ringImage.setDepth(Layer.StationBase);
   ringImage.setVisible(false);
   return ringImage;
@@ -271,13 +257,24 @@ export function createStationVisualBundle(
 ): StationVisualBundle {
   const hex = station.nation.color;
   const nationColor = hexToNumber(hex);
-  // Texture diameter sized for the largest body (L) plus a 10px buffer for the
+  // Texture diameter sized for the size-independent black-disc base radius
+  // (iconRadius, larger than any S/M/L body) plus a 10px buffer for the
   // atmosphere ring stroke — same canvas reused for all sizes.
-  const texSize = (stationVisuals.iconRadius + 10) * 2;
+  const textureSize = (stationVisuals.iconRadius + 10) * 2;
 
-  const { image: baseImage, textureKey: baseTextureKey } = drawStationBaseLayer(scene, station, hex, texSize);
+  const { image: baseImage, textureKey: baseTextureKey } = drawStationBaseLayer(
+    scene,
+    station,
+    hex,
+    textureSize,
+  );
   baseImage.setData("stationId", station.id);
-  const { image: overlayImage, textureKey: overlayTextureKey } = drawStationOverlayLayer(scene, station, hex, texSize);
+  const { image: overlayImage, textureKey: overlayTextureKey } = drawStationOverlayLayer(
+    scene,
+    station,
+    hex,
+    textureSize,
+  );
   const iconImage = createStationIconImage(scene, station, nationColor);
 
   const nameLabel = createStationNameLabel(scene, station);
@@ -292,14 +289,11 @@ export function createStationVisualBundle(
   const { sortedSlots, producedIds, segmentArcs } = buildInventoryRingLayout(station);
   const segmentTwinkles = createInventorySegmentTwinkles(station, segmentArcs);
 
-  const entry: StationEntry = { station, screenX: station.x, screenY: station.y };
-
   const selectionTarget = new StationSelectionTarget(station);
   selection.register(selectionTarget);
 
   return {
     station,
-    entry,
     nameLabel,
     baseImage,
     overlayImage,
@@ -342,51 +336,27 @@ export function destroyStationVisualBundle(
   if (scene.textures.exists(bundle.overlayTextureKey)) scene.textures.remove(bundle.overlayTextureKey);
 }
 
-/** Boot-time only — builds a sim Station and a render bundle for every station in the map. Post-boot add/remove uses createStationVisualBundle directly (already-created Station). */
-export function createStations(
-  scene: Scene,
-  mainMap: GameMap,
-  selection: Selection,
-): StationObjects {
-  const stations: Station[] = [];
-  const stationBundles: StationVisualBundle[] = [];
-  const stationBundlesByStation = new Map<Station, StationVisualBundle>();
-
-  for (const station of mainMap.stations) {
-    const stationData = createStation(station);
-    const bundle = createStationVisualBundle(scene, stationData, selection);
-    stations.push(stationData);
-    stationBundles.push(bundle);
-    stationBundlesByStation.set(stationData, bundle);
-  }
-
-  return { stations, stationBundles, stationBundlesByStation };
-}
-
 // Zoom-cached state for updateStationDetails + updateStationLabels — alpha is constant per zoom level, so both helpers early-return when zoom is unchanged. One shared cache so the two `lastZoom` cursors can't drift apart.
 const zoomedInCache: {
-  lastDetailZoom: number;
-  lastLabelZoom: number;
+  lastDetailZoom: number | null;
+  lastLabelZoom: number | null;
   labelState: { visible: boolean; alpha: number };
 } = {
-  lastDetailZoom: -1,
-  lastLabelZoom: -1,
+  lastDetailZoom: null,
+  lastLabelZoom: null,
   labelState: { visible: false, alpha: 0 },
 };
 
 /** Reset cached zoom state. Call on scene recreation. */
 export function resetStationZoomDetailCache() {
-  zoomedInCache.lastDetailZoom = -1;
-  zoomedInCache.lastLabelZoom = -1;
+  zoomedInCache.lastDetailZoom = null;
+  zoomedInCache.lastLabelZoom = null;
   zoomedInCache.labelState = { visible: false, alpha: 0 };
 }
 
 /** Crossfade gradient sphere (zoomed out) ↔ black disc + icon (zoomed in).
  *  Only updates when zoom changes — alpha is constant per zoom level. */
-export function updateStationDetails(
-  stationBundles: StationVisualBundle[],
-  zoom: number,
-) {
+export function updateStationDetails(stationBundles: StationVisualBundle[], zoom: number) {
   if (zoom === zoomedInCache.lastDetailZoom) return;
   zoomedInCache.lastDetailZoom = zoom;
 

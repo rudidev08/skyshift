@@ -1,6 +1,6 @@
 // Save-snapshot codec for ship fly actions on TradeShip's action queue.
 //
-// Construction lives per-feature (initial deploy in enrollShipAsTradeShip,
+// Construction lives per-feature (initial deploy in registerShipAsTradeShip,
 // trade trips in sim-trade-queue, emigration ferries in sim-emigration-manager);
 // this file owns just the snapshot codec, which is the only fly logic complex
 // enough to warrant its own home.
@@ -20,10 +20,12 @@ export function shipFlyActionToSnapshot(action: FlyAction): FlyActionSnapshot {
     travelMode: action.travelMode,
     deploying: action.deploying,
     label: action.label,
-    route: action.route ? {
-      fromStationId: action.route.fromStation.id,
-      toStationId: action.route.toStation.id,
-    } : undefined,
+    route: action.route
+      ? {
+          fromStationId: action.route.fromStation.id,
+          toStationId: action.route.toStation.id,
+        }
+      : undefined,
   };
 }
 

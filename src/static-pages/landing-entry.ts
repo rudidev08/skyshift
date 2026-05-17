@@ -12,10 +12,9 @@ import {
 import { morseBarGradient } from "../render-morse-bar";
 import { findLatestSave } from "../storage-save-slots";
 import { formatLocalDateTime } from "../util-date-format";
-import { presetsForLandingPage } from "../util-map-preset";
+import { presets } from "../../data/map-presets";
 import type { MapPreset } from "../../data/map-types";
 
-// Featured preset on first visit — gold .is-on treatment, sorts leftmost.
 const RECOMMENDED_PRESET_ID = "settled";
 
 function renderFirstVisit(root: HTMLElement, presets: readonly MapPreset[]): void {
@@ -36,19 +35,17 @@ function renderFirstVisit(root: HTMLElement, presets: readonly MapPreset[]): voi
   root.innerHTML = `<div class="start-primary-row">${buttons}</div>`;
 }
 
-function renderContinue(
-  root: HTMLElement,
-  presets: readonly MapPreset[],
-  latestSavedAt: number,
-): void {
+function renderContinue(root: HTMLElement, presets: readonly MapPreset[], latestSavedAt: number): void {
   // Stripe encodes "Continue" so the CTA reads as resume, not as a per-preset choice.
   const { date, time } = formatLocalDateTime(new Date(latestSavedAt));
   const subactions = presets
-    .map((preset) => `
+    .map(
+      (preset) => `
       <button type="button" class="hud-btn" data-action="new" data-preset="${preset.id}">
         Start new ${preset.name} universe
       </button>
-    `)
+    `,
+    )
     .join("");
   root.innerHTML = `
     <button type="button" class="hud-btn is-on start-btn start-continue start-btn--morse"
@@ -67,11 +64,11 @@ function paintMorseStripes(root: HTMLElement): void {
   }
 }
 
-function wireClicks(root: HTMLElement): void {
+function setupStartActionClicks(root: HTMLElement): void {
   root.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const button = target.closest<HTMLButtonElement>("[data-action]");
+    const clickTarget = event.target;
+    if (!(clickTarget instanceof Element)) return;
+    const button = clickTarget.closest<HTMLButtonElement>("[data-action]");
     if (!button || button.disabled) return;
     if (button.dataset.action === "continue") {
       window.location.href = "/universe";
@@ -84,7 +81,7 @@ function wireClicks(root: HTMLElement): void {
 }
 
 function mountStartActions(root: HTMLElement): void {
-  const presets = [...presetsForLandingPage()].sort((left, right) => {
+  const sortedPresets = [...presets].sort((left, right) => {
     if (left.id === RECOMMENDED_PRESET_ID) return -1;
     if (right.id === RECOMMENDED_PRESET_ID) return 1;
     return 0;
@@ -95,13 +92,13 @@ function mountStartActions(root: HTMLElement): void {
   const latestSave = findLatestSave();
 
   if (latestSave && latestSave.savedAt !== null) {
-    renderContinue(root, presets, latestSave.savedAt);
+    renderContinue(root, sortedPresets, latestSave.savedAt);
   } else {
-    renderFirstVisit(root, presets);
+    renderFirstVisit(root, sortedPresets);
   }
 
   paintMorseStripes(root);
-  wireClicks(root);
+  setupStartActionClicks(root);
 }
 
 const startActionsRoot = document.querySelector<HTMLElement>('[data-role="start-actions"]');
@@ -116,9 +113,33 @@ const sectorCanvas = document.getElementById("sector");
 if (sectorCanvas instanceof HTMLCanvasElement) {
   mountSectorAnimation(sectorCanvas, {
     stations: [
-      { id: "sky", xRatio: 0.22, yRatio: 0.50, color: NATION_COLORS.sky, iconSvgInner: ICON_ARCHIVES, label: "Drifthollow", twinkleCount: 9 },
-      { id: "bio", xRatio: 0.68, yRatio: 0.34, color: NATION_COLORS.bio, iconSvgInner: ICON_FARM,     label: "Bloomreach",  twinkleCount: 6 },
-      { id: "ore", xRatio: 0.78, yRatio: 0.68, color: NATION_COLORS.ore, iconSvgInner: ICON_MINE,     label: "Ironvein",    twinkleCount: 3 },
+      {
+        id: "sky",
+        xRatio: 0.22,
+        yRatio: 0.5,
+        color: NATION_COLORS.sky,
+        iconSvgInner: ICON_ARCHIVES,
+        label: "Drifthollow",
+        twinkleCount: 9,
+      },
+      {
+        id: "bio",
+        xRatio: 0.68,
+        yRatio: 0.34,
+        color: NATION_COLORS.bio,
+        iconSvgInner: ICON_FARM,
+        label: "Bloomreach",
+        twinkleCount: 6,
+      },
+      {
+        id: "ore",
+        xRatio: 0.78,
+        yRatio: 0.68,
+        color: NATION_COLORS.ore,
+        iconSvgInner: ICON_MINE,
+        label: "Ironvein",
+        twinkleCount: 3,
+      },
     ],
     flights: [
       { startStationId: "sky", color: NATION_COLORS.sky, ship: HULL_JUMPSHIP },
@@ -126,9 +147,28 @@ if (sectorCanvas instanceof HTMLCanvasElement) {
       { startStationId: "ore", color: NATION_COLORS.ore, ship: HULL_TANKER },
     ],
     nebulas: [
-      { src: "/index/nebula-skyshift.png", xRatio: 0.22, yRatio: 0.50, sizeFraction: 0.70, alpha: 0.5 },
-      { src: "/index/nebula-void1.png",    xRatio: 0.73, yRatio: 0.51, sizeFraction: 0.65, alpha: 1.0 },
-      { src: "/index/nebula-void2.png",    xRatio: 0.55, yRatio: 0.69, sizeFraction: 0.55, alpha: 1.0, rotationDegrees: -160 },
+      {
+        src: "/index/nebula-skyshift.png",
+        xRatio: 0.22,
+        yRatio: 0.5,
+        sizeFraction: 0.7,
+        alpha: 0.5,
+      },
+      {
+        src: "/index/nebula-void1.png",
+        xRatio: 0.73,
+        yRatio: 0.51,
+        sizeFraction: 0.65,
+        alpha: 1.0,
+      },
+      {
+        src: "/index/nebula-void2.png",
+        xRatio: 0.55,
+        yRatio: 0.69,
+        sizeFraction: 0.55,
+        alpha: 1.0,
+        rotationDegrees: -160,
+      },
     ],
   });
 }

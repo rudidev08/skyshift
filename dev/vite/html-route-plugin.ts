@@ -22,7 +22,9 @@ export function htmlRoutePlugin(routeDefinitions: HtmlRouteDefinition[]): Plugin
 
         // Fall through (don't 404) on non-matches so Vite's normal asset
         // handling and HTML entrypoint resolution still run.
-        const matchingRoute = routeDefinitions.find((routeDefinition) => routeDefinition.routePattern.test(requestPath));
+        const matchingRoute = routeDefinitions.find((routeDefinition) =>
+          routeDefinition.routePattern.test(requestPath),
+        );
         if (!matchingRoute) return next();
 
         try {

@@ -1,7 +1,6 @@
-// Per-nation prose and name pools. Imported as `nationLore.<KEY>` from data/nations.ts.
-
 // HUB — Hub-Cluster Alliance
-export const HUB_LORE = "Alliance of space-faring core systems. Relies on fast ships to move goods quickly between stations.";
+export const HUB_LORE =
+  "Alliance of space-faring core systems. Relies on fast ships to move goods quickly between stations.";
 export const HUB_NAMING_STYLE = "Two formal words (Pale Arch, High Ledger, Bright Column)";
 export const HUB_DESIRE_VERB = "stewards";
 export const HUB_DESIRE_OBJECT = "core systems";
@@ -50,13 +49,35 @@ export const HUB_SHIP_NAMES: string[] = [
   "Apex",
 ];
 export const HUB_NAME_SUFFIXES: string[] = [
-  "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
-  "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
-  "XXI", "XXII", "XXIII", "XXIV",
+  "I",
+  "II",
+  "III",
+  "IV",
+  "V",
+  "VI",
+  "VII",
+  "VIII",
+  "IX",
+  "X",
+  "XI",
+  "XII",
+  "XIII",
+  "XIV",
+  "XV",
+  "XVI",
+  "XVII",
+  "XVIII",
+  "XIX",
+  "XX",
+  "XXI",
+  "XXII",
+  "XXIII",
+  "XXIV",
 ];
 
 // BIO — Bio-Annex
-export const BIO_LORE = "Biotech collective nested in the Palo Celestia grown tree nebula. Supplies food and medicine from stations grown into the nebula's living structure.";
+export const BIO_LORE =
+  "Biotech collective nested in the Palo Celestia grown tree nebula. Supplies food and medicine from stations grown into the nebula's living structure.";
 export const BIO_NAMING_STYLE = "Nature-inspired compound words (Thornvale, Bloomreach, Dewhollow)";
 export const BIO_DESIRE_VERB = "cultivates";
 export const BIO_DESIRE_OBJECT = "bio-prosperity";
@@ -105,13 +126,35 @@ export const BIO_SHIP_NAMES: string[] = [
   "Willowrun",
 ];
 export const BIO_NAME_SUFFIXES: string[] = [
-  "Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta",
-  "Iota", "Kappa", "Lambda", "Mu", "Nu", "Xi", "Omicron", "Pi",
-  "Rho", "Sigma", "Tau", "Upsilon", "Phi", "Chi", "Psi", "Omega",
+  "Alpha",
+  "Beta",
+  "Gamma",
+  "Delta",
+  "Epsilon",
+  "Zeta",
+  "Eta",
+  "Theta",
+  "Iota",
+  "Kappa",
+  "Lambda",
+  "Mu",
+  "Nu",
+  "Xi",
+  "Omicron",
+  "Pi",
+  "Rho",
+  "Sigma",
+  "Tau",
+  "Upsilon",
+  "Phi",
+  "Chi",
+  "Psi",
+  "Omega",
 ];
 
 // ORE — 20th Mining Fleet
-export const ORE_LORE = "Recently independent mining fleet, self-sustaining by trading mineral goods. Specializes in efficient cargo ships.";
+export const ORE_LORE =
+  "Recently independent mining fleet, self-sustaining by trading mineral goods. Specializes in efficient cargo ships.";
 export const ORE_NAMING_STYLE = "One blunt word, functional (Ironvein, Slagholm, Cinder)";
 export const ORE_DESIRE_VERB = "mines";
 export const ORE_DESIRE_OBJECT = "asteroid veins";
@@ -160,13 +203,35 @@ export const ORE_SHIP_NAMES: string[] = [
   "Girder",
 ];
 export const ORE_NAME_SUFFIXES: string[] = [
-  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
-  "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
-  "21", "22", "23", "24",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "10",
+  "11",
+  "12",
+  "13",
+  "14",
+  "15",
+  "16",
+  "17",
+  "18",
+  "19",
+  "20",
+  "21",
+  "22",
+  "23",
+  "24",
 ];
 
 // SKY — Skyshift Cooperative
-export const SKY_LORE = "Group of families with open membership. Jump-drive ships allow for colonization of systems usually out of reach.";
+export const SKY_LORE =
+  "Group of families with open membership. Jump-drive ships allow for colonization of systems usually out of reach.";
 export const SKY_NAMING_STYLE = "One compound word, organic (Drifthollow, Stillwater, Mistfield)";
 export const SKY_DESIRE_VERB = "explores";
 export const SKY_DESIRE_OBJECT = "deep space";
@@ -215,13 +280,33 @@ export const SKY_SHIP_NAMES: string[] = [
   "Thinveil",
 ];
 export const SKY_NAME_SUFFIXES: string[] = [
-  "A", "B", "C", "D", "E", "F", "G", "H", "J", "K",
-  "L", "M", "N", "P", "Q", "R", "S", "T", "U", "W",
-  "Y", "Z",
+  "A",
+  "B",
+  "C",
+  "D",
+  "E",
+  "F",
+  "G",
+  "H",
+  "J",
+  "K",
+  "L",
+  "M",
+  "N",
+  "P",
+  "Q",
+  "R",
+  "S",
+  "T",
+  "U",
+  "W",
+  "Y",
+  "Z",
 ];
 
 // FAR — Farshift Collective
-export const FAR_LORE = "Explorer collective with only a few lonely outposts dotted across the whole of known space — each one a foothold pressed a little deeper into the void. They don't build where it's safe. They build where no one else has looked yet.";
+export const FAR_LORE =
+  "Explorer collective with only a few lonely outposts dotted across the whole of known space — each one a foothold pressed a little deeper into the void. They don't build where it's safe. They build where no one else has looked yet.";
 export const FAR_NAMING_STYLE = "Frontier waypoints and bearings (Far Passage, Deep Range, First Cairn)";
 export const FAR_DESIRE_VERB = "scatters";
 export const FAR_DESIRE_OBJECT = "frontier outposts";
@@ -270,15 +355,35 @@ export const FAR_SHIP_NAMES: string[] = [
   "Roamer",
 ];
 export const FAR_NAME_SUFFIXES: string[] = [
-  "Primus", "Secundus", "Tertius", "Quartus", "Quintus", "Sextus",
-  "Septimus", "Octavus", "Nonus", "Decimus", "Undecimus", "Duodecimus",
-  "Tertius Decimus", "Quartus Decimus", "Quintus Decimus", "Sextus Decimus",
-  "Septimus Decimus", "Duodevicesimus", "Undevicesimus", "Vicesimus",
-  "Vicesimus Primus", "Vicesimus Secundus", "Vicesimus Tertius", "Vicesimus Quartus",
+  "Primus",
+  "Secundus",
+  "Tertius",
+  "Quartus",
+  "Quintus",
+  "Sextus",
+  "Septimus",
+  "Octavus",
+  "Nonus",
+  "Decimus",
+  "Undecimus",
+  "Duodecimus",
+  "Tertius Decimus",
+  "Quartus Decimus",
+  "Quintus Decimus",
+  "Sextus Decimus",
+  "Septimus Decimus",
+  "Duodevicesimus",
+  "Undevicesimus",
+  "Vicesimus",
+  "Vicesimus Primus",
+  "Vicesimus Secundus",
+  "Vicesimus Tertius",
+  "Vicesimus Quartus",
 ];
 
 // WAY — Wayfarer-Ark Transitus
-export const WAY_LORE = "Generational ships of migrants crossing to destinations beyond the known map. Neutral carriers of population between clusters.";
+export const WAY_LORE =
+  "Generational ships of migrants crossing to destinations beyond the known map. Neutral carriers of population between clusters.";
 export const WAY_NAMING_STYLE = "Ritual Latin migration vocabulary (Transitus, Passage, Wayfarer)";
 export const WAY_DESIRE_VERB = "transports";
 export const WAY_DESIRE_OBJECT = "communities";
@@ -297,5 +402,3 @@ export const WAY_STATION_NAMES: string[] = [
   "Diaspora",
   "Traverse",
 ];
-export const WAY_SHIP_NAMES: string[] = [];
-export const WAY_NAME_SUFFIXES: string[] = [];

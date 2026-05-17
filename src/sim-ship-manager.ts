@@ -4,7 +4,7 @@
 
 import type { Station } from "./sim-station-types";
 import type { ShipTypeId } from "../data/ship-types";
-import { createStationShips as buildStationShips, type Ship } from "./sim-ships";
+import { createStationShips, type Ship } from "./sim-ships";
 import type { NamePool } from "./sim-name-pool";
 
 export type ShipAddObserver = (ships: Ship[]) => void;
@@ -15,15 +15,14 @@ export class ShipManager {
   private byId = new Map<string, Ship>();
   private addObservers = new Set<ShipAddObserver>();
   private removeObservers = new Set<ShipRemoveObserver>();
-  /** Per-simulation name draw — injected at construction so spawnFleetForStation
-   *  can generate unique names without touching a module-level pool. */
+  /** Per-simulation name draw — injected at construction. */
   private readonly namePool: NamePool;
 
   constructor(namePool: NamePool) {
     this.namePool = namePool;
   }
 
-  /** Seed with the initial fleet at scene boot (does NOT fire add observers). */
+  /** Seed with the initial fleet at scene boot — does not fire add observers, since seeding pre-dates any subscribers. */
   seed(ships: Ship[]): void {
     this.ships = ships;
     this.byId.clear();
@@ -31,10 +30,14 @@ export class ShipManager {
   }
 
   /** O(1) id→Ship lookup, used by sim-trade-manager to resolve `orbitingShipId`. */
-  getShip(id: string): Ship | undefined { return this.byId.get(id); }
+  getShip(shipId: string): Ship | undefined {
+    return this.byId.get(shipId);
+  }
 
-  /** Read-only view of every ship the manager owns. Caller must not mutate. */
-  getAllShips(): readonly Ship[] { return this.ships; }
+  /** Read-only view of every ship the manager owns. */
+  getAllShips(): readonly Ship[] {
+    return this.ships;
+  }
 
   /** Every ship whose home is the given station, regardless of in-flight state. */
   getShipsForStation(station: Station): Ship[] {
@@ -76,7 +79,7 @@ export class ShipManager {
   /** Spawn the station's default fleet and register it. Caller typically
    *  doesn't need the returned ships — onAdd observers receive the same list. */
   spawnFleetForStation(station: Station, options?: { shipTypeOverride?: ShipTypeId }): Ship[] {
-    const ships = buildStationShips({
+    const ships = createStationShips({
       station,
       takenShipIds: this.getTakenShipIds(),
       namePool: this.namePool,
@@ -98,4 +101,3 @@ export class ShipManager {
     this.removeObservers.clear();
   }
 }
-

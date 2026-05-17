@@ -1,11 +1,11 @@
-import type { ShipTemplate } from "../data/ship-types";
+import type { ShipTypeTemplate } from "../data/ship-types";
 
 export const SHIP_SQUARE = 16; // Ship hull is 2 squares wide × 1 tall; this is one square's side in source pixels.
 export const TEXTURE_SCALE = 4; // Texture supersampling — draw at 4× then downscale, so taper curves stay crisp at any zoom.
 const DIM_FACTOR = 0.8; // Back-half tint multiplier — gives the two-tone hull its darker stern.
 
 /** Top-left origin and per-square size of one ship hull on the target canvas. */
-export interface HullPlacement {
+export interface HullCanvasOrigin {
   x: number;
   y: number;
   squareSize: number;
@@ -33,117 +33,118 @@ export function tintColor(hex: string, factor: number): string {
  *  taperFrontCurve/taperBackCurve add Bezier bulge (positive = convex). */
 export function drawShipSilhouetteFilled(
   context: CanvasRenderingContext2D,
-  ship: ShipTemplate,
-  placement: HullPlacement,
+  ship: ShipTypeTemplate,
+  canvasOrigin: HullCanvasOrigin,
   palette: HullPalette,
 ): void {
   context.fillStyle = palette.back;
-  traceBackHalfTrapezoid(context, ship, placement);
+  traceBackHalfTrapezoid(context, ship, canvasOrigin);
   context.fill();
 
   context.fillStyle = palette.front;
-  traceFrontHalfTrapezoid(context, ship, placement);
+  traceFrontHalfTrapezoid(context, ship, canvasOrigin);
   context.fill();
 }
 
 /** Stroke the two-half ship silhouette. Used for the HUD seal icon. */
 export function drawShipSilhouetteOutline(
   context: CanvasRenderingContext2D,
-  ship: ShipTemplate,
-  placement: HullPlacement,
+  ship: ShipTypeTemplate,
+  canvasOrigin: HullCanvasOrigin,
   palette: HullPalette,
 ): void {
-  context.lineWidth = Math.max(1, placement.squareSize * 0.08);
+  context.lineWidth = Math.max(1, canvasOrigin.squareSize * 0.08);
   context.lineJoin = "round";
 
   context.strokeStyle = palette.back;
-  traceBackHalfTrapezoid(context, ship, placement);
+  traceBackHalfTrapezoid(context, ship, canvasOrigin);
   context.stroke();
 
   context.strokeStyle = palette.front;
-  traceFrontHalfTrapezoid(context, ship, placement);
+  traceFrontHalfTrapezoid(context, ship, canvasOrigin);
   context.stroke();
 }
 
-/** Trace the stern trapezoid: shorter stern edge + full-height seam edge.
- *  Outer edges may bulge per `taperBackCurve`. Caller decides fill vs stroke. */
 function traceBackHalfTrapezoid(
   context: CanvasRenderingContext2D,
-  ship: ShipTemplate,
-  placement: HullPlacement,
+  ship: ShipTypeTemplate,
+  canvasOrigin: HullCanvasOrigin,
 ): void {
-  const { x, y, squareSize } = placement;
-  const backInset = squareSize * (1 - ship.taperBack) / 2;
-  const backBulge = ship.taperBackCurve * squareSize * 0.5;
-
-  context.beginPath();
-  context.moveTo(x, y + backInset);
-
-  // Top side line: stern top → seam top
-  if (ship.taperBackCurve) {
-    // Control point at line midpoint, offset outward by bulge.
-    const controlX = x + squareSize * 0.5;
-    const controlY = y + backInset * 0.5 - backBulge;
-    context.quadraticCurveTo(controlX, controlY, x + squareSize, y);
-  } else {
-    context.lineTo(x + squareSize, y);
-  }
-
-  // Seam edge runs the full square height — only stern/nose edges taper.
-  context.lineTo(x + squareSize, y + squareSize);
-
-  // Bottom side line: seam bottom → stern bottom
-  if (ship.taperBackCurve) {
-    const controlX = x + squareSize * 0.5;
-    const controlY = y + squareSize - backInset * 0.5 + backBulge;
-    context.quadraticCurveTo(controlX, controlY, x, y + squareSize - backInset);
-  } else {
-    context.lineTo(x, y + squareSize - backInset);
-  }
-
-  context.closePath();
+  traceHalfTrapezoid(context, canvasOrigin, {
+    outerX: canvasOrigin.x,
+    innerX: canvasOrigin.x + canvasOrigin.squareSize,
+    taper: ship.taperBack,
+    taperCurve: ship.taperBackCurve,
+  });
 }
 
-/** Trace the bow trapezoid: full-height seam edge + shorter nose edge.
- *  Outer edges may bulge per `taperFrontCurve`. Caller decides fill vs stroke. */
 function traceFrontHalfTrapezoid(
   context: CanvasRenderingContext2D,
-  ship: ShipTemplate,
-  placement: HullPlacement,
+  ship: ShipTypeTemplate,
+  canvasOrigin: HullCanvasOrigin,
 ): void {
-  const { x, y, squareSize } = placement;
-  const frontInset = squareSize * (1 - ship.taperFront) / 2;
-  const frontBulge = ship.taperFrontCurve * squareSize * 0.5;
+  traceHalfTrapezoid(context, canvasOrigin, {
+    outerX: canvasOrigin.x + canvasOrigin.squareSize * 2,
+    innerX: canvasOrigin.x + canvasOrigin.squareSize,
+    taper: ship.taperFront,
+    taperCurve: ship.taperFrontCurve,
+  });
+}
+
+interface TrapezoidHalf {
+  /** X of the tapered (stern or nose) edge. */
+  outerX: number;
+  /** X of the seam — full-height edge shared with the other half. */
+  innerX: number;
+  /** ship.taperBack or ship.taperFront — fraction of squareSize the outer edge keeps (1 = full, 0 = sharp point). */
+  taper: number;
+  /** ship.taperBackCurve or ship.taperFrontCurve — outward bulge on the side edges. */
+  taperCurve: number;
+}
+
+/** Trace one half-trapezoid (stern or bow). Outer edge is shortened by `taper`;
+ *  side edges may bulge per `taperCurve`. Caller decides fill vs stroke. */
+function traceHalfTrapezoid(
+  context: CanvasRenderingContext2D,
+  canvasOrigin: HullCanvasOrigin,
+  half: TrapezoidHalf,
+): void {
+  const { y, squareSize } = canvasOrigin;
+  const { outerX, innerX, taper, taperCurve } = half;
+  const inset = (squareSize * (1 - taper)) / 2;
+  const bulge = taperCurve * squareSize * 0.5;
+  const sideMidpointX = (outerX + innerX) / 2;
 
   context.beginPath();
-  context.moveTo(x + squareSize, y);
+  context.moveTo(outerX, y + inset);
 
-  // Top side line: seam top → nose top
-  if (ship.taperFrontCurve) {
-    const controlX = x + squareSize * 1.5;
-    const controlY = y + frontInset * 0.5 - frontBulge;
-    context.quadraticCurveTo(controlX, controlY, x + squareSize * 2, y + frontInset);
+  // Top side: outer-top → inner-top, optional outward bulge at midpoint.
+  if (taperCurve) {
+    context.quadraticCurveTo(sideMidpointX, y + inset * 0.5 - bulge, innerX, y);
   } else {
-    context.lineTo(x + squareSize * 2, y + frontInset);
+    context.lineTo(innerX, y);
   }
 
-  // Nose edge stays straight (no curve param) but shortens with taperFront.
-  context.lineTo(x + squareSize * 2, y + squareSize - frontInset);
+  // Seam runs the full square height — only the outer edge tapers.
+  context.lineTo(innerX, y + squareSize);
 
-  // Bottom side line: nose bottom → seam bottom
-  if (ship.taperFrontCurve) {
-    const controlX = x + squareSize * 1.5;
-    const controlY = y + squareSize - frontInset * 0.5 + frontBulge;
-    context.quadraticCurveTo(controlX, controlY, x + squareSize, y + squareSize);
+  // Bottom side: inner-bottom → outer-bottom, mirror bulge.
+  if (taperCurve) {
+    context.quadraticCurveTo(
+      sideMidpointX,
+      y + squareSize - inset * 0.5 + bulge,
+      outerX,
+      y + squareSize - inset,
+    );
   } else {
-    context.lineTo(x + squareSize, y + squareSize);
+    context.lineTo(outerX, y + squareSize - inset);
   }
 
   context.closePath();
 }
 
 /** Render a tinted two-tone ship outline to a `size` × `size/2` canvas — used for HUD seals. */
-export function renderShipIcon(ship: ShipTemplate, nationColor: string, size: number): HTMLCanvasElement {
+export function renderShipIcon(ship: ShipTypeTemplate, nationColor: string, size: number): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size / 2;

@@ -8,193 +8,194 @@
 @import "@fontsource-variable/jetbrains-mono";
 
 :root {
-    /* Surfaces */
-    --ink-0: #0a0d14;
-    --ink-1: #11151f;
-    --ink-2: #1a2030;
+  /* Surfaces */
+  --ink-0: #0a0d14;
+  --ink-1: #11151f;
+  --ink-2: #1a2030;
 
-    /* Lines / dividers */
-    --line: rgba(210, 220, 245, 0.08);
-    --line-2: rgba(210, 220, 245, 0.16);
-    --line-3: rgba(210, 220, 245, 0.28);
+  /* Lines / dividers */
+  --line: rgba(210, 220, 245, 0.08);
+  --line-2: rgba(210, 220, 245, 0.16);
+  --line-3: rgba(210, 220, 245, 0.28);
 
-    /* Foreground */
-    --paper: #e8e4d6;
-    --paper-dim: #b8b3a3;
-    --paper-mute: #7a7668;
-    --paper-faint: #524e44;
+  /* Foreground */
+  --paper: #e8e4d6;
+  --paper-dim: #b8b3a3;
+  --paper-mute: #7a7668;
+  --paper-faint: #524e44;
 
-    /* Accent */
-    --active: #f5c26b; /* gold — active UI state (buttons, speed tick, zoom text) */
-    --accent: #87d186; /* green — value / data / highlighted content */
+  /* Accent */
+  --active: #f5c26b; /* gold — active UI state (buttons, speed tick, zoom text) */
+  --accent: #87d186; /* green — value / data / highlighted content */
 
-    /* Event-log time-color categories reuse --active (emigration/generational-ship)
+  /* Event-log time-color categories reuse --active (emigration/generational-ship)
      and --accent (construction). No separate tokens needed. */
 
-    /* Fonts */
-    --font-display: "Space Grotesk", system-ui, sans-serif;
-    --font-mono: "JetBrains Mono", monospace;
+  /* Fonts */
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
 
-    /* Spacing */
-    --space-xs: 4px;
-    --space-sm: 8px;
-    --space-md: 16px;
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
 
-    /* iOS safe-area insets — use with `max(<base>, var(--safe-*))` so desktop
+  /* iOS safe-area insets — use with `max(<base>, var(--safe-*))` so desktop
        keeps the base padding and phones push content clear of the Dynamic
        Island / home indicator / landscape notch. */
-    --safe-top: env(safe-area-inset-top);
-    --safe-right: env(safe-area-inset-right);
-    --safe-bottom: env(safe-area-inset-bottom);
-    --safe-left: env(safe-area-inset-left);
+  --safe-top: env(safe-area-inset-top);
+  --safe-right: env(safe-area-inset-right);
+  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-left: env(safe-area-inset-left);
 
-    /* Landing action column — 32px gutter per side on phones, caps at 460px.
+  /* Landing action column — 32px gutter per side on phones, caps at 460px.
        Shared by .start-actions so the primary row and any subactions stack
        at the same width. */
-    --landing-action-width: min(460px, 100% - 64px);
+  --landing-action-width: min(460px, 100% - 64px);
 
-    /* Typography scale */
-    --text-sm: 12px;
+  /* Typography scale */
+  --text-sm: 12px;
 
-    /* Z-index tiers — single source of truth for stacking context.
+  /* Z-index tiers — single source of truth for stacking context.
        Within-card tiers (0–3) apply to local stacking inside .id-card /
        .nation-card where pseudo mesh backgrounds and morse bars overlap
        actual content. Global tiers handle overlays above the game canvas. */
-    --z-card-mesh: 0;        /* ::after mesh / guilloche pseudo backgrounds */
-    --z-card-raised: 1;      /* seals, active-pill raise, dropdown menu body */
-    --z-card-content: 2;     /* headers, grids, floating helpers, open dropdown */
-    --z-card-top: 3;         /* morse bar pseudo (topmost within card) */
-    --z-hud: 30;             /* HUD overlays (overview root) */
-    --z-modal: 40;           /* HUD-floating controls above the HUD (speed HUD) */
-    --z-loading-overlay: 1000; /* settings panel + loading curtain */
-    --z-toast: 1100;         /* short non-blocking notifications on top */
+  --z-pseudo-behind: -1; /* pseudo-element backdrop sitting behind host content */
+  --z-card-mesh: 0; /* ::after mesh / guilloche pseudo backgrounds */
+  --z-card-raised: 1; /* seals, active-pill raise, dropdown menu body */
+  --z-card-content: 2; /* headers, grids, floating helpers, open dropdown */
+  --z-card-top: 3; /* morse bar pseudo (topmost within card) */
+  --z-hud: 30; /* HUD overlays (overview root) */
+  --z-modal: 40; /* HUD-floating controls above the HUD (speed HUD) */
+  --z-loading-overlay: 1000; /* settings panel + loading curtain */
+  --z-toast: 1100; /* short non-blocking notifications on top */
 
-    /* Semantic — alert states */
-    --err: #f0b4b4;
-    --err-bg: rgba(60, 20, 20, 0.85);
-    --err-line: rgba(220, 80, 80, 0.4);
-    /* Solid red for destructive-action confirmations. --err is too
+  /* Semantic — alert states */
+  --err: #f0b4b4;
+  --err-bg: rgba(60, 20, 20, 0.85);
+  --err-line: rgba(220, 80, 80, 0.4);
+  /* Solid red for destructive-action confirmations. --err is too
        pale to read as "stop"; this is the saturated fill on white. */
-    --err-solid: #d04545;
-    --err-solid-hover: #e05555;
-    --ok-bg: rgba(10, 40, 20, 0.85);
-    --ok-line: rgba(60, 180, 100, 0.4);
+  --err-solid: #d04545;
+  --err-solid-hover: #e05555;
+  --ok-bg: rgba(10, 40, 20, 0.85);
+  --ok-line: rgba(60, 180, 100, 0.4);
 
-    /* Glass surface. The tint is low-opacity so
+  /* Glass surface. The tint is low-opacity so
      the backdrop color bleeds through as an obvious saturated hint rather
      than getting washed to gray; the strong blur + saturation keep shapes
      abstract and make the bleed-through colors pop. Pair with
      `border: 1px solid var(--line-2)` and `box-shadow: var(--glass-edge)`
      to complete the surface. */
-    --glass-bg: rgba(28, 32, 44, 0.42);
-    --glass-blur: blur(32px) saturate(220%);
-    --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --glass-bg: rgba(28, 32, 44, 0.42);
+  --glass-blur: blur(32px) saturate(220%);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 
-    color-scheme: dark;
+  color-scheme: dark;
 }
 
 /* --- Reset ------------------------------------------------- */
 
 * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 body {
-    min-height: 100vh;
-    background: var(--ink-0);
-    color: var(--paper);
-    font-family: var(--font-display);
-    font-size: 14px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-    /* Suppress the WebKit tap-highlight flash so custom hover/active styles
+  min-height: 100vh;
+  background: var(--ink-0);
+  color: var(--paper);
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  /* Suppress the WebKit tap-highlight flash so custom hover/active styles
        aren't competing with a blue-grey flash on mobile tap. */
-    -webkit-tap-highlight-color: transparent;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button {
-    font: inherit;
-    color: inherit;
+  font: inherit;
+  color: inherit;
 }
 
 /* --- Typography utilities ---------------------------------- */
 
 .mono {
-    font-family: var(--font-mono);
-    font-feature-settings: "zero";
+  font-family: var(--font-mono);
+  font-feature-settings: "zero";
 }
 
 .caps {
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    font-size: 10px;
-    font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  font-weight: 500;
 }
 
 .text-mute {
-    color: var(--paper-mute);
+  color: var(--paper-mute);
 }
 .text-dim {
-    color: var(--paper-dim);
+  color: var(--paper-dim);
 }
 .text-accent {
-    color: var(--accent);
+  color: var(--accent);
 }
 .text-line3 {
-    color: var(--line-3);
+  color: var(--line-3);
 }
 
 /* --- Layout utilities -------------------------------------- */
 
 .row {
-    display: flex;
-    align-items: center;
+  display: flex;
+  align-items: center;
 }
 .col {
-    display: flex;
-    flex-direction: column;
+  display: flex;
+  flex-direction: column;
 }
 .wrap {
-    flex-wrap: wrap;
+  flex-wrap: wrap;
 }
 .items-start {
-    align-items: flex-start;
+  align-items: flex-start;
 }
 
 .gap-xs {
-    gap: 4px;
+  gap: 4px;
 }
 .gap-sm {
-    gap: 6px;
+  gap: 6px;
 }
 .gap-md {
-    gap: 12px;
+  gap: 12px;
 }
 .gap-lg {
-    gap: 20px;
+  gap: 20px;
 }
 .gap-xl {
-    gap: 28px;
+  gap: 28px;
 }
 
 .mb-xs {
-    margin-bottom: 6px;
+  margin-bottom: 6px;
 }
 .mb-sm {
-    margin-bottom: 8px;
+  margin-bottom: 8px;
 }
 .mb-md {
-    margin-bottom: 12px;
+  margin-bottom: 12px;
 }
 
 /* --- Page shell -------------------------------------------- */
 
 .showcase {
-    max-width: 1320px;
-    margin: 0 auto;
-    padding: 0 max(32px, var(--safe-right)) 0 max(32px, var(--safe-left));
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 max(32px, var(--safe-right)) 0 max(32px, var(--safe-left));
 }
 
 /* --- Page masthead ---------------------------------------- *
@@ -205,264 +206,263 @@ button {
    title scales via clamp(), nothing uses nowrap on long text. */
 
 .page-masthead {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: max(40px, var(--safe-top)) 0 8px;
-    margin-bottom: 10px;
-    min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: max(40px, var(--safe-top)) 0 8px;
+  margin-bottom: 10px;
+  min-width: 0;
 }
 .page-masthead-topbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
 /* Back button — glass chip (borrows the .hud-btn vocabulary
    so it reads as clickable, not as small print). Gold numeric
    hint keeps the colophon rhythm from the landing page. */
 .page-masthead-back {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 40px;
-    padding: 0 14px;
-    font-family: var(--font-display);
-    font-weight: 500;
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--paper);
-    text-decoration: none;
-    white-space: nowrap;
-    flex-shrink: 0;
-    border: 1px solid var(--line-2);
-    border-radius: 4px;
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
-    box-shadow:
-        var(--glass-edge),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.4);
-    cursor: pointer;
-    transition: border-color 0.2s, color 0.2s, background 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 14px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper);
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    var(--glass-edge),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    background 0.2s;
 }
 .page-masthead-back:hover {
-    border-color: var(--line-3);
-    background: rgba(38, 42, 56, 0.5);
+  border-color: var(--line-3);
+  background: rgba(38, 42, 56, 0.5);
 }
 .page-masthead-back .num {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    color: var(--active);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--active);
 }
 /* Bureau label — stays on the same row as the back button,
    right-aligned, shrinks with ellipsis if the viewport can't
    fit both. Hidden on very narrow phones where the bureau
    stamp would crowd the back button. */
 .page-masthead-label {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.24em;
-    color: var(--paper);
-    text-transform: uppercase;
-    text-align: right;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  color: var(--paper);
+  text-transform: uppercase;
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .page-masthead-label em {
-    font-style: normal;
-    color: var(--active);
+  font-style: normal;
+  color: var(--active);
 }
 @media (max-width: 420px) {
-    .page-masthead-label { display: none; }
+  .page-masthead-label {
+    display: none;
+  }
 }
 /* Display title. The "Skyshift" brand word wears the gold
    accent (see .page-masthead-brand below); the page name
    stays paper so the two read as <brand> <subject>. */
 .page-masthead-title {
-    font-family: var(--font-display);
-    font-size: clamp(30px, 6.5vw, 44px);
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    line-height: 1.05;
-    color: var(--paper);
-    margin: 0;
-    overflow-wrap: break-word;
+  font-family: var(--font-display);
+  font-size: clamp(30px, 6.5vw, 44px);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
+  color: var(--paper);
+  margin: 0;
+  overflow-wrap: break-word;
 }
 .page-masthead-brand {
-    color: var(--active);
-    filter: drop-shadow(0 0 20px rgba(240, 168, 48, 0.25));
+  color: var(--active);
+  filter: drop-shadow(0 0 20px rgba(240, 168, 48, 0.25));
 }
 .page-masthead-sub {
-    font-size: 13.5px;
-    color: var(--paper-dim);
-    line-height: 1.55;
-    margin: 2px 0 0;
-    max-width: 620px;
+  font-size: 13.5px;
+  color: var(--paper-dim);
+  line-height: 1.55;
+  margin: 2px 0 0;
+  max-width: 620px;
 }
 
 .showcase-section {
-    margin: 56px 0;
+  margin: 56px 0;
 }
 .showcase-section > h2 {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--paper-mute);
-    font-weight: 500;
-    padding-bottom: 12px;
-    margin-bottom: 20px;
-    border-bottom: 1px dashed var(--line-2);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  font-weight: 500;
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+  border-bottom: 1px dashed var(--line-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .showcase-section > h2 .num {
-    color: var(--active);
+  color: var(--active);
 }
 .showcase-subhead {
-    font-family: var(--font-mono);
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    font-size: 13px;
-    color: var(--paper);
-    margin: 36px 0 16px;
-    padding-bottom: 6px;
-    border-bottom: 1px dashed var(--line-2);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 13px;
+  color: var(--paper);
+  margin: 36px 0 16px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--line-2);
 }
 .showcase-subhead:first-of-type {
-    margin-top: 0;
+  margin-top: 0;
 }
 
 /* --- HUD button -------------------------------------------- */
 
 .hud-btn {
-    font-family: var(--font-display);
-    font-weight: 500;
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--paper-dim);
-    /* Glass surface — see --glass-* tokens in :root. The extra
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  /* Glass surface — see --glass-* tokens in :root. The extra
      `inset 0 -1px 0` in box-shadow is button-specific (bottom lip
      depth), not part of the shared glass recipe. */
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--line-2);
-    border-radius: 4px;
-    padding: 0 12px;
-    height: 44px;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    user-select: none;
-    -webkit-user-select: none;
-    transition:
-        border-color 0.2s,
-        color 0.2s,
-        background 0.2s;
-    box-shadow:
-        var(--glass-edge),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 0 12px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    background 0.2s;
+  box-shadow:
+    var(--glass-edge),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4);
 }
 .hud-btn:hover {
-    border-color: var(--line-3);
-    color: var(--paper);
-    background: rgba(38, 42, 56, 0.5);
+  border-color: var(--line-3);
+  color: var(--paper);
+  background: rgba(38, 42, 56, 0.5);
 }
 .hud-btn.is-on {
-    color: var(--active);
-    border-color: var(--active);
-    background:
-        linear-gradient(
-            180deg,
-            rgba(245, 194, 107, 0.14),
-            rgba(245, 194, 107, 0.04)
-        ),
-        var(--glass-bg);
+  color: var(--active);
+  border-color: var(--active);
+  background: linear-gradient(180deg, rgba(245, 194, 107, 0.14), rgba(245, 194, 107, 0.04)), var(--glass-bg);
 }
 /* Destructive-action variant — red text + red outline on the otherwise
    normal glass surface. Used for the first step of a pending/confirm pair
    (e.g. load-error "Clear saves"); the post-pending confirm button uses
    .slot-confirm--danger for the full-saturation red. */
 .hud-btn--danger {
-    color: var(--err);
-    border-color: var(--err-line);
+  color: var(--err);
+  border-color: var(--err-line);
 }
 .hud-btn--danger:hover {
-    color: var(--err);
-    border-color: var(--err);
-    background: var(--err-bg);
+  color: var(--err);
+  border-color: var(--err);
+  background: var(--err-bg);
 }
 .hud-btn-icon {
-    width: 44px;
-    padding: 0;
-    justify-content: center;
+  width: 44px;
+  padding: 0;
+  justify-content: center;
 }
 
 /* Segmented HUD control — tightly joined buttons that share a border,
    used for mutually exclusive toggles (e.g. view mode: zones vs overview). */
 .hud-segment {
-    display: inline-flex;
+  display: inline-flex;
 }
 .hud-segment > .hud-btn {
-    border-radius: 0;
+  border-radius: 0;
 }
 .hud-segment > .hud-btn:first-child {
-    border-top-left-radius: 4px;
-    border-bottom-left-radius: 4px;
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
 }
 .hud-segment > .hud-btn:last-child {
-    border-top-right-radius: 4px;
-    border-bottom-right-radius: 4px;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
 }
 .hud-segment > .hud-btn + .hud-btn {
-    margin-left: -1px;
+  margin-left: -1px;
 }
 .hud-segment > .hud-btn.is-on {
-    position: relative;
-    z-index: var(--z-card-raised);
+  position: relative;
+  z-index: var(--z-card-raised);
 }
 /* Full-width row variant — each button stretches equally across the row,
    with a compact mono caption. Covers both tab switchers (overview
    Wares/Nations/Emigration) and segmented value pickers (emigration
    mode Auto/Manual/None, intensity 25/50/75%). */
 .hud-segment--row {
-    display: flex;
-    width: 100%;
+  display: flex;
+  width: 100%;
 }
 .hud-segment--row > .hud-btn {
-    flex: 1;
-    justify-content: center;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+  flex: 1;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .hud-btn svg {
-    width: 18px;
-    height: 18px;
-    stroke: currentColor;
-    stroke-width: 1.8;
-    fill: none;
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
 }
 
 /* Icon wrappers injected by lucide-static. Keep them tight so they
    don't introduce extra baseline/leading inside flex buttons. */
 [data-icon] {
-    display: inline-flex;
-    line-height: 0;
-    flex-shrink: 0;
+  display: inline-flex;
+  line-height: 0;
+  flex-shrink: 0;
 }
 
 /* --- Zoom dial --------------------------------------------- */
@@ -472,95 +472,95 @@ button {
    separate pills per button group) saves horizontal space — important
    on mobile — and reads as a single related-controls cluster. */
 .zoom-dial {
-    display: inline-flex;
-    align-items: center;
-    border: 1px solid var(--line-2);
-    border-radius: 27px;
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
-    box-shadow: var(--glass-edge);
-    overflow: hidden;
-    user-select: none;
-    -webkit-user-select: none;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line-2);
+  border-radius: 27px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .zoom-btn {
-    width: 54px;
-    height: 54px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--paper-dim);
-    cursor: pointer;
-    transition: color 0.2s;
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--paper-dim);
+  cursor: pointer;
+  transition: color 0.2s;
 }
 .zoom-btn:hover {
-    color: var(--paper);
+  color: var(--paper);
 }
 .zoom-btn svg {
-    width: 24px;
-    height: 24px;
-    stroke: currentColor;
-    stroke-width: 2;
-    fill: none;
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
 }
 .zoom-level {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--active);
-    padding: 0 8px;
-    height: 54px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    letter-spacing: 0.05em;
-    cursor: pointer;
-    transition:
-        background 0.2s,
-        color 0.2s;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--active);
+  padding: 0 8px;
+  height: 54px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    color 0.2s;
 }
 .zoom-level:hover {
-    background: rgba(245, 194, 107, 0.08);
+  background: rgba(245, 194, 107, 0.08);
 }
 
 /* The zoom trio (out / level / in) sits flush inside the shared dial
    pill — no background or border of its own, so the parent .zoom-dial's
    rounded chrome reads as one connected control across toggle + trio. */
 .zoom-group {
-    display: inline-flex;
-    align-items: center;
+  display: inline-flex;
+  align-items: center;
 }
 .zoom-group .zoom-btn {
-    width: 46px;
+  width: 46px;
 }
 .zoom-level-presets {
-    display: flex;
-    gap: 3px;
+  display: flex;
+  gap: 3px;
 }
 .zoom-level-presets .dot {
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background: var(--line-3);
-    transition:
-        background 0.2s,
-        box-shadow 0.2s;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--line-3);
+  transition:
+    background 0.2s,
+    box-shadow 0.2s;
 }
 .zoom-level-presets .dot.on {
-    background: var(--active);
-    box-shadow: 0 0 4px var(--active);
+  background: var(--active);
+  box-shadow: 0 0 4px var(--active);
 }
 
 /* --- HUD stack (labeled groups in the bottom-left column) -- */
 
 .stack-item {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
 }
 /* Stack-labels (the muted "// nw1 * overview" annotations) live entirely
    in design.html now — see its inline <style> block. The live game no
@@ -571,437 +571,374 @@ button {
 /* --- Row label (design-system item header) ----------------- */
 
 .row-label {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.18em;
-    color: var(--paper-mute);
-    text-transform: uppercase;
-    margin-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--paper-mute);
+  text-transform: uppercase;
+  margin-bottom: 6px;
 }
 
 /* --- HUD controls two-column grid -------------------------- */
 
 .hud-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 24px 40px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px 40px;
 }
 
 /* --- HUD state previews (bottom-left corner mockups) ------ */
 
 .hud-preview-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 20px;
-    align-items: start;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  align-items: start;
 }
 .hud-preview {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .hud-preview-label {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.18em;
-    color: var(--paper-mute);
-    text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--paper-mute);
+  text-transform: uppercase;
 }
 .hud-preview-frame {
-    padding: 14px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    overflow: hidden;
-    background-color: #050709;
-    background-image:
-        radial-gradient(
-            circle at 25% 30%,
-            rgba(79, 179, 184, 0.08),
-            transparent 55%
-        ),
-        radial-gradient(
-            circle at 80% 75%,
-            rgba(245, 194, 107, 0.05),
-            transparent 55%
-        );
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background-color: #050709;
+  background-image:
+    radial-gradient(circle at 25% 30%, rgba(79, 179, 184, 0.08), transparent 55%),
+    radial-gradient(circle at 80% 75%, rgba(245, 194, 107, 0.05), transparent 55%);
 }
 .hud-preview-bar {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
 }
 
 /* --- Foundations showcase (palette + type specimens) ------ */
 
 .section-note {
-    color: var(--paper-dim);
-    font-size: 13px;
-    line-height: 1.55;
-    max-width: 720px;
-    margin-bottom: 20px;
+  color: var(--paper-dim);
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 720px;
+  margin-bottom: 20px;
 }
 .section-note .mono {
-    color: var(--paper);
+  color: var(--paper);
 }
 
 .palette {
-    display: flex;
-    flex-direction: column;
+  display: flex;
+  flex-direction: column;
 }
 .palette-group {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.18em;
-    color: var(--paper-mute);
-    text-transform: uppercase;
-    margin-top: 18px;
-    margin-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--paper-mute);
+  text-transform: uppercase;
+  margin-top: 18px;
+  margin-bottom: 6px;
 }
 .palette-group:first-child {
-    margin-top: 0;
+  margin-top: 0;
 }
 .swatch {
-    display: flex;
-    align-items: flex-start;
-    gap: 16px;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
 }
 .swatch-chip {
-    width: 56px;
-    height: 40px;
-    border-radius: 3px;
-    border: 1px solid var(--line-2);
-    flex-shrink: 0;
+  width: 56px;
+  height: 40px;
+  border-radius: 3px;
+  border: 1px solid var(--line-2);
+  flex-shrink: 0;
 }
 .swatch-body {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    min-width: 0;
-    flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
 }
 .swatch-name {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 12px;
-    font-size: 12px;
-    color: var(--paper);
-    font-weight: 500;
-    letter-spacing: 0.01em;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--paper);
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 .swatch-hex {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--paper-mute);
-    font-weight: 400;
-    letter-spacing: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--paper-mute);
+  font-weight: 400;
+  letter-spacing: 0;
 }
 .swatch-code {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--paper-mute);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--paper-mute);
 }
 .swatch-use {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--paper-dim);
-    line-height: 1.4;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--paper-dim);
+  line-height: 1.4;
 }
 
 .type-specimen {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 18px 20px;
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    background: linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
 }
 .type-sample {
-    color: var(--paper);
-    line-height: 1.2;
+  color: var(--paper);
+  line-height: 1.2;
 }
 
 /* --- Map preview stage + floating-panel positioning -------- */
 
 .map-preview {
-    position: relative;
-    border: 1px solid var(--line-2);
-    border-radius: 8px;
-    background:
-        radial-gradient(
-            ellipse at 30% 40%,
-            rgba(0, 249, 255, 0.04),
-            transparent 50%
-        ),
-        radial-gradient(
-            ellipse at 80% 70%,
-            rgba(245, 194, 107, 0.05),
-            transparent 50%
-        ),
-        radial-gradient(circle at center, #0b0f19 0%, #050709 100%);
-    overflow: hidden;
+  position: relative;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background:
+    radial-gradient(ellipse at 30% 40%, rgba(0, 249, 255, 0.04), transparent 50%),
+    radial-gradient(ellipse at 80% 70%, rgba(245, 194, 107, 0.05), transparent 50%),
+    radial-gradient(circle at center, #0b0f19 0%, #050709 100%);
+  overflow: hidden;
 }
 .map-preview::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background-image:
-        radial-gradient(
-            1px 1px at 10% 20%,
-            rgba(255, 255, 255, 0.7),
-            transparent 50%
-        ),
-        radial-gradient(
-            1px 1px at 30% 70%,
-            rgba(255, 255, 255, 0.5),
-            transparent 50%
-        ),
-        radial-gradient(
-            1px 1px at 55% 15%,
-            rgba(255, 255, 255, 0.65),
-            transparent 50%
-        ),
-        radial-gradient(
-            1px 1px at 75% 60%,
-            rgba(255, 255, 255, 0.4),
-            transparent 50%
-        ),
-        radial-gradient(
-            1px 1px at 88% 30%,
-            rgba(255, 255, 255, 0.6),
-            transparent 50%
-        ),
-        radial-gradient(
-            1px 1px at 20% 85%,
-            rgba(255, 255, 255, 0.5),
-            transparent 50%
-        );
-    pointer-events: none;
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 10% 20%, rgba(255, 255, 255, 0.7), transparent 50%),
+    radial-gradient(1px 1px at 30% 70%, rgba(255, 255, 255, 0.5), transparent 50%),
+    radial-gradient(1px 1px at 55% 15%, rgba(255, 255, 255, 0.65), transparent 50%),
+    radial-gradient(1px 1px at 75% 60%, rgba(255, 255, 255, 0.4), transparent 50%),
+    radial-gradient(1px 1px at 88% 30%, rgba(255, 255, 255, 0.6), transparent 50%),
+    radial-gradient(1px 1px at 20% 85%, rgba(255, 255, 255, 0.5), transparent 50%);
+  pointer-events: none;
 }
 
 .floating {
-    position: absolute;
-    z-index: var(--z-card-content);
+  position: absolute;
+  z-index: var(--z-card-content);
 }
 .floating.tl {
-    top: 12px;
-    left: 12px;
+  top: 12px;
+  left: 12px;
 }
 .floating.tr {
-    top: 12px;
-    right: 12px;
+  top: 12px;
+  right: 12px;
 }
 .floating.bl {
-    bottom: 12px;
-    left: 12px;
+  bottom: 12px;
+  left: 12px;
 }
 .floating.br {
-    bottom: 12px;
-    right: 12px;
+  bottom: 12px;
+  right: 12px;
 }
 
 /* --- ID card — selection dossier (ship, station, sector) --- */
 
 .id-card {
-    position: relative;
-    isolation: isolate;
-    background:
+  position: relative;
+  isolation: isolate;
+  background:
     /* Subtle all-over crosshatch — layered on the ink gradient */
-        repeating-linear-gradient(
-            43deg,
-            rgba(245, 194, 107, 0.025) 0 1px,
-            transparent 1px 5px
-        ),
-        repeating-linear-gradient(
-            -43deg,
-            rgba(79, 179, 184, 0.02) 0 1px,
-            transparent 1px 7px
-        ),
-        linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
-    border: 1px solid var(--line-2);
-    border-radius: 6px;
-    padding: 14px 16px 16px;
-    box-shadow:
-        0 20px 60px rgba(0, 0, 0, 0.4),
-        inset 0 0 0 1px rgba(245, 194, 107, 0.05),
-        inset 0 1px 0 rgba(255, 255, 255, 0.04);
-    overflow: hidden;
+    repeating-linear-gradient(43deg, rgba(245, 194, 107, 0.025) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-43deg, rgba(79, 179, 184, 0.02) 0 1px, transparent 1px 7px),
+    linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 14px 16px 16px;
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.4),
+    inset 0 0 0 1px rgba(245, 194, 107, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden;
 }
 .id-card::before {
-    /* silver top stripe — morse code of the id-name's first 4 letters */
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 3px;
-    background: var(--morse-bar, none);
-    pointer-events: none;
-    z-index: var(--z-card-top);
+  /* silver top stripe — morse code of the id-name's first 4 letters */
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: var(--morse-bar, none);
+  pointer-events: none;
+  z-index: var(--z-card-top);
 }
 .id-card::after {
-    /* Denser guilloche fills the bottom of the card; mask fades it into the content. */
-    content: "";
-    position: absolute;
-    inset: 0;
-    background:
-        repeating-linear-gradient(
-            43deg,
-            rgba(245, 194, 107, 0.11) 0 1px,
-            transparent 1px 4px
-        ),
-        repeating-linear-gradient(
-            -43deg,
-            rgba(79, 179, 184, 0.08) 0 1px,
-            transparent 1px 5px
-        );
-    -webkit-mask-image: linear-gradient(
-        180deg,
-        transparent 42%,
-        black 72%,
-        black 100%
-    );
-    mask-image: linear-gradient(180deg, transparent 42%, black 72%, black 100%);
-    pointer-events: none;
-    z-index: var(--z-card-mesh);
+  /* Denser guilloche fills the bottom of the card; mask fades it into the content. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(43deg, rgba(245, 194, 107, 0.11) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-43deg, rgba(79, 179, 184, 0.08) 0 1px, transparent 1px 5px);
+  -webkit-mask-image: linear-gradient(180deg, transparent 42%, black 72%, black 100%);
+  mask-image: linear-gradient(180deg, transparent 42%, black 72%, black 100%);
+  pointer-events: none;
+  z-index: var(--z-card-mesh);
 }
 .id-card > .id-header:only-child {
-    /* When there's no cargo-grid beneath, drop the dashed divider */
-    border-bottom: none;
-    padding-bottom: 0;
-    margin-bottom: 0;
+  /* When there's no cargo-grid beneath, drop the dashed divider */
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
 }
 
 /* Seal icon — outline of the selected entity, tinted by the nation color */
 .id-seal {
-    position: absolute;
-    top: 6px;
-    right: 8px;
-    width: 52px;
-    height: 52px;
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: contain;
-    opacity: 0.55;
-    pointer-events: none;
-    z-index: var(--z-card-raised);
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 52px;
+  height: 52px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: var(--z-card-raised);
 }
 
 /* Header and cargo-grid need relative + z-index to paint above the mesh pseudo */
 .id-header {
-    position: relative;
-    z-index: var(--z-card-content);
+  position: relative;
+  z-index: var(--z-card-content);
 }
 .cargo-grid {
-    position: relative;
-    z-index: var(--z-card-content);
+  position: relative;
+  z-index: var(--z-card-content);
 }
 
 .id-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    padding-bottom: 10px;
-    border-bottom: 2px dashed var(--line-2);
-    margin-bottom: 10px;
-    position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 10px;
+  border-bottom: 2px dashed var(--line-2);
+  margin-bottom: 10px;
+  position: relative;
 }
 .id-header:has(.icon-code) {
-    /* When the header carries a stamped seal, replace the full-width dashed
+  /* When the header carries a stamped seal, replace the full-width dashed
      border with a partial line that stops short of the seal so the icon
      doesn't get clipped by the divider. */
-    border-bottom: none;
+  border-bottom: none;
 }
 .id-header:has(.icon-code)::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 84px; /* 76px seal-stamp container + 8px breathing room */
-    bottom: -2px;
-    border-top: 2px dashed var(--line-2);
-    pointer-events: none;
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 84px; /* 76px seal-stamp container + 8px breathing room */
+  bottom: -2px;
+  border-top: 2px dashed var(--line-2);
+  pointer-events: none;
 }
 .id-card > .id-header:only-child::after {
-    display: none;
+  display: none;
 }
 
 /* Collapsed id-card — sized to align with a single 40px icon button beside it. */
 .id-card.is-collapsed {
-    display: inline-flex;
-    align-items: center;
-    height: 40px;
-    padding: 0 14px;
-    width: auto;
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 14px;
+  width: auto;
 }
 .id-card.is-collapsed > .id-header {
-    padding: 0;
-    margin: 0;
-    border: none;
-    gap: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  gap: 0;
 }
 .id-card.is-collapsed > .id-header::after {
-    display: none;
+  display: none;
 }
 .id-card.is-collapsed .id-type,
 .id-card.is-collapsed .icon-code,
 .id-card.is-collapsed .cargo-grid,
 .id-card.is-collapsed .id-status-band {
-    display: none;
+  display: none;
 }
 
 .id-title {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 .id-name {
-    position: relative;
-    padding-left: 23px;
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    color: var(--paper);
+  position: relative;
+  padding-left: 23px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--paper);
 }
 .id-name::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 50%;
-    width: 17px;
-    height: 17px;
-    transform: translateY(-50%);
-    background-color: var(--nation-accent, var(--active));
-    -webkit-mask: var(--id-icon, linear-gradient(transparent, transparent))
-        center / contain no-repeat;
-    mask: var(--id-icon, linear-gradient(transparent, transparent)) center /
-        contain no-repeat;
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 17px;
+  height: 17px;
+  transform: translateY(-50%);
+  background-color: var(--nation-accent, var(--active));
+  -webkit-mask: var(--id-icon, linear-gradient(transparent, transparent)) center / contain no-repeat;
+  mask: var(--id-icon, linear-gradient(transparent, transparent)) center / contain no-repeat;
 }
 .id-type {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--paper-mute);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--paper-mute);
 }
 .id-serial {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
 }
 .id-serial-code {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    color: var(--nation-accent, var(--active));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--nation-accent, var(--active));
 }
 
 /* icon-code — reusable "icon + code" block. The icon (a .id-seal data-URI)
@@ -1009,59 +946,54 @@ button {
    --stamp) sits at the bottom, half-overhanging the container. Used in
    id-card headers and in the nations panel. */
 .icon-code {
-    position: relative;
-    flex-shrink: 0;
-    min-width: 76px;
-    min-height: 56px;
+  position: relative;
+  flex-shrink: 0;
+  min-width: 76px;
+  min-height: 56px;
 }
 .icon-code > .id-seal {
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    opacity: 0.5;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.5;
 }
 .icon-code > .id-serial-code {
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    transform: translate(-50%, 50%);
-    z-index: var(--z-card-content);
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translate(-50%, 50%);
+  z-index: var(--z-card-content);
 }
 .id-serial-code--stamp {
-    display: inline-flex;
-    align-items: baseline;
-    justify-content: center;
-    padding: 2px 7px 3px;
-    border: 1px solid var(--nation-accent, var(--active));
-    border-radius: 3px;
-    outline: 1.5px dashed rgba(210, 220, 245, 0.55);
-    outline-offset: 2px;
-    background: rgba(10, 13, 20, 0.2);
-    white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  padding: 2px 7px 3px;
+  border: 1px solid var(--nation-accent, var(--active));
+  border-radius: 3px;
+  outline: 1.5px dashed rgba(210, 220, 245, 0.55);
+  outline-offset: 2px;
+  background: rgba(10, 13, 20, 0.2);
+  white-space: nowrap;
 }
 
 /* MRZ-style type bar — used in selection panels inside .id-card after
    the header. */
 .id-type-mrz {
-    position: relative;
-    z-index: var(--z-card-content);
-    display: block;
-    padding: 8px 16px 9px;
-    background:
-        repeating-linear-gradient(
-            43deg,
-            rgba(245, 194, 107, 0.07) 0 1px,
-            transparent 1px 5px
-        ),
-        var(--ink-0);
-    border-top: 1px dashed var(--line-2);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.24em;
-    text-transform: uppercase;
-    text-align: center;
-    color: var(--active);
+  position: relative;
+  z-index: var(--z-card-content);
+  display: block;
+  padding: 8px 16px 9px;
+  background:
+    repeating-linear-gradient(43deg, rgba(245, 194, 107, 0.07) 0 1px, transparent 1px 5px), var(--ink-0);
+  border-top: 1px dashed var(--line-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--active);
 }
 
 /* Status band — standard footer on .id-card for selection info panels.
@@ -1070,130 +1002,130 @@ button {
    but re-tint from the .id-type-mrz amber to accent-green so the "action"
    label reads as status/pulse rather than matching the section headings. */
 .id-status-band {
-    margin: 10px -16px -16px;
-    color: var(--accent);
-    background:
-        repeating-linear-gradient(
-            43deg,
-            color-mix(in srgb, var(--accent) 10%, transparent) 0 1px,
-            transparent 1px 5px
-        ),
-        var(--ink-0);
+  margin: 10px -16px -16px;
+  color: var(--accent);
+  background:
+    repeating-linear-gradient(
+      43deg,
+      color-mix(in srgb, var(--accent) 10%, transparent) 0 1px,
+      transparent 1px 5px
+    ),
+    var(--ink-0);
 }
 
 /* --- Cargo grid — list of wares (label + track on top, stat prose below) inside id-card */
 
 .cargo-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    row-gap: 8px;
-    column-gap: 10px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  row-gap: 8px;
+  column-gap: 10px;
 }
 .cargo-row {
-    display: grid;
-    grid-column: 1 / -1;
-    grid-template-columns: subgrid;
-    row-gap: 2px;
-    align-items: center;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  row-gap: 2px;
+  align-items: center;
 }
 .cargo-label {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--paper-dim);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .cargo-track {
-    position: relative;
-    height: 5px;
-    background: var(--ink-0);
-    border: 1px solid var(--line);
-    border-radius: 2px;
-    overflow: hidden;
+  position: relative;
+  height: 5px;
+  background: var(--ink-0);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  overflow: hidden;
 }
 .cargo-fill {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    background: var(--accent);
-    opacity: 0.85;
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  opacity: 0.85;
 }
 .cargo-stat {
-    grid-column: 2;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--paper);
-    font-weight: 500;
-    letter-spacing: 0.02em;
+  grid-column: 2;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper);
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 .cargo-rate {
-    color: var(--paper-dim);
+  color: var(--paper-dim);
 }
 .cargo-reserve {
-    color: var(--accent);
+  color: var(--accent);
 }
 /* Pill chip — small inline count/rate marker. Shape (rounded rectangle) is
    the shared base; color is a modifier. Used for cargo rate markers
    (+4/s, −2/s), nation stats counts, and any inline numeric chip. */
 .pill-gold,
 .pill-cyan {
-    display: inline-block;
-    padding: 1px 6px;
-    border-radius: 2px;
-    color: var(--paper);
-    font-weight: 500;
-    line-height: 1.4;
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 2px;
+  color: var(--paper);
+  font-weight: 500;
+  line-height: 1.4;
 }
 .pill-gold {
-    background: color-mix(in srgb, var(--active) 12%, transparent);
+  background: color-mix(in srgb, var(--active) 12%, transparent);
 }
 .pill-cyan {
-    background: color-mix(in srgb, #5ed4c7 12%, transparent);
+  background: color-mix(in srgb, #5ed4c7 12%, transparent);
 }
 .cargo-grid .cargo-note {
-    /* Subgrid so label + value align with the ware label/bar columns above. */
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: subgrid;
-    align-items: start;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--paper);
-    letter-spacing: 0.02em;
-    padding-top: 6px;
-    margin-top: 2px;
-    border-top: 1px dashed var(--line);
-    line-height: 1.5;
+  /* Subgrid so label + value align with the ware label/bar columns above. */
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: start;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper);
+  letter-spacing: 0.02em;
+  padding-top: 6px;
+  margin-top: 2px;
+  border-top: 1px dashed var(--line);
+  line-height: 1.5;
 }
 .cargo-note-label {
-    color: var(--paper-dim);
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
+  color: var(--paper-dim);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 .cargo-note-value {
-    min-width: 0;
+  min-width: 0;
 }
 .cargo-note-dim {
-    color: var(--paper-dim);
+  color: var(--paper-dim);
 }
 /* Accent (green) emphasis inside cargo-note values — used for generational-ship
    destination labels. The --lg modifier bumps to a heading-weight treatment
    for the destination block at the top of the generational-ship dossier. */
 .cargo-note-accent {
-    color: var(--accent);
-    font-weight: 600;
+  color: var(--accent);
+  font-weight: 600;
 }
 .cargo-note-accent--lg {
-    font-size: 14px;
-    letter-spacing: 0.01em;
+  font-size: 14px;
+  letter-spacing: 0.01em;
 }
 
 /* Cap the label column so long labels don't starve the value column.
    Match the nation-card treatment (fit-content(45%)) so the two card
    families use the same trick. */
 .cargo-grid--narrow-label {
-    grid-template-columns: fit-content(45%) 1fr;
+  grid-template-columns: fit-content(45%) 1fr;
 }
 
 /* Section header inside cargo-grid — splits produced vs consumed wares
@@ -1201,18 +1133,20 @@ button {
    carry the role distinction so color can stay a calm paper-dim and the
    ware rows remain the primary focus. */
 .cargo-section {
-    grid-column: 1 / -1;
-    font-family: var(--font-mono);
-    font-size: 9px;
-    font-weight: 600;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--paper-dim);
-    padding-bottom: 3px;
-    border-bottom: 1px dashed var(--line);
-    margin-top: 4px;
+  grid-column: 1 / -1;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  padding-bottom: 3px;
+  border-bottom: 1px dashed var(--line);
+  margin-top: 4px;
 }
-.cargo-section:first-child { margin-top: 0; }
+.cargo-section:first-child {
+  margin-top: 0;
+}
 
 /* --- Nation card — nations-panel dossier -------------------
    Nation color tints the serial stamp and morse stripe via
@@ -1220,140 +1154,126 @@ button {
    with an 8px gap between consecutive cards. */
 
 .nation-card {
-    position: relative;
-    isolation: isolate;
-    background:
+  position: relative;
+  isolation: isolate;
+  background:
     /* subtle nation-color wash fading from the top */
-        linear-gradient(
-            180deg,
-            color-mix(
-                    in srgb,
-                    var(--nation-accent, transparent) 10%,
-                    transparent
-                )
-                0%,
-            transparent 55%
-        ),
-        repeating-linear-gradient(
-            43deg,
-            rgba(245, 194, 107, 0.025) 0 1px,
-            transparent 1px 5px
-        ),
-        repeating-linear-gradient(
-            -43deg,
-            rgba(79, 179, 184, 0.02) 0 1px,
-            transparent 1px 7px
-        ),
-        linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
-    border: 1px solid var(--line-2);
-    border-radius: 6px;
-    padding: 12px 14px 14px;
-    overflow: hidden;
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--nation-accent, transparent) 10%, transparent) 0%,
+      transparent 55%
+    ),
+    repeating-linear-gradient(43deg, rgba(245, 194, 107, 0.025) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-43deg, rgba(79, 179, 184, 0.02) 0 1px, transparent 1px 7px),
+    linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 12px 14px 14px;
+  overflow: hidden;
 }
 /* Nation-tinted morse-code stripe across the top — matches .id-card
    language, computed from the first 4 letters of the nation name. */
 .nation-card::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 3px;
-    background: var(--morse-bar, none);
-    pointer-events: none;
-    z-index: var(--z-card-top);
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: var(--morse-bar, none);
+  pointer-events: none;
+  z-index: var(--z-card-top);
 }
 .nation-card + .nation-card {
-    margin-top: 32px;
+  margin-top: 32px;
 }
 
 /* id-header in the nations panel uses the default id-card divider
    style — 2px dashed line-2 partial rule — but with a slimmer icon-code
    (64px vs 76px), so the rule's `right` gap needs adjustment. */
 .nation-card .id-header:has(.icon-code)::after {
-    right: 72px;
+  right: 72px;
 }
 .nation-card .id-name {
-    padding-left: 0;
-    font-size: 16px;
+  padding-left: 0;
+  font-size: 16px;
 }
 .nation-card .id-name::before {
-    display: none;
+  display: none;
 }
 .nation-card .icon-code {
-    min-height: 44px;
-    min-width: 64px;
+  min-height: 44px;
+  min-width: 64px;
 }
 .nation-card .icon-code > .id-seal {
-    opacity: 0.4;
+  opacity: 0.4;
 }
 
 /* Concrete-goal tagline — one highlighted verb (accent green) + 2-3 word
    qualifier (dim). Sits inside id-title as the subtitle under id-name,
    so no outer margin — id-title's flex gap handles spacing. */
 .nation-desire {
-    font-size: 13px;
-    line-height: 1.35;
-    color: var(--paper-dim);
-    letter-spacing: 0.01em;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--paper-dim);
+  letter-spacing: 0.01em;
 }
 .nation-desire b {
-    color: var(--accent);
-    font-weight: 600;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* Single-line stats row: primary-specialty count + total station count,
    side by side. Sits as a block below the id-header with breathing room. */
 .nation-stats {
-    margin: 10px 0 8px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--paper-dim);
-    letter-spacing: 0.02em;
+  margin: 10px 0 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper-dim);
+  letter-spacing: 0.02em;
 }
 .nation-stats .sep {
-    color: var(--line-3);
-    margin: 0 8px;
+  color: var(--line-3);
+  margin: 0 8px;
 }
 
 /* Activity progress bars sit at the bottom of mid-event cards,
    separated from the stats/specialty area by a dashed divider. */
 .nation-card .cargo-grid {
-    grid-template-columns: fit-content(45%) 1fr;
-    margin-top: 14px;
-    padding-top: 12px;
-    border-top: 1px dashed
-        color-mix(in srgb, var(--nation-accent, transparent) 35%, var(--line));
-    row-gap: 10px;
+  grid-template-columns: fit-content(45%) 1fr;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed color-mix(in srgb, var(--nation-accent, transparent) 35%, var(--line));
+  row-gap: 10px;
 }
 .nation-card .cargo-label {
-    font-size: 10px;
-    letter-spacing: 0.12em;
+  font-size: 10px;
+  letter-spacing: 0.12em;
 }
 .nation-card .cargo-stat {
-    font-size: 11px;
+  font-size: 11px;
 }
 
 /* Specialty row — sits under the stats (no divider; they read as one block). */
 .nation-foot {
-    display: flex;
-    gap: 10px;
-    margin-top: 10px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--paper-mute);
-    letter-spacing: 0.04em;
-    line-height: 1.55;
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--paper-mute);
+  letter-spacing: 0.04em;
+  line-height: 1.55;
 }
 .nation-foot .label {
-    color: var(--paper-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    flex-shrink: 0;
+  color: var(--paper-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  flex-shrink: 0;
 }
 .nation-foot .items {
-    flex: 1;
-    min-width: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 /* --- Lore / debug cards (stack under the id-card) --------- */
@@ -1363,63 +1283,63 @@ button {
    (sim is force-paused while in this view). */
 body.view-overview #lore-box,
 body.view-overview #speed-hud {
-    display: none !important;
+  display: none !important;
 }
 
 .lore-card,
 .log-panel {
-    /* Glass surface — see --glass-* tokens. The extra drop-shadow lifts
+  /* Glass surface — see --glass-* tokens. The extra drop-shadow lifts
      these floating cards off the starfield. */
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--line-2);
-    border-radius: 6px;
-    box-shadow:
-        0 16px 40px rgba(0, 0, 0, 0.35),
-        var(--glass-edge);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.35),
+    var(--glass-edge);
 }
 .lore-card {
-    padding: 10px 14px 12px;
+  padding: 10px 14px 12px;
 }
 .log-panel {
-    padding: 10px 14px 12px;
+  padding: 10px 14px 12px;
 }
 .lore-title {
-    /* Name at the top of the lore card — dashed divider underneath echoes the
+  /* Name at the top of the lore card — dashed divider underneath echoes the
      id-header separator for a consistent passport-document feel. */
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: -0.005em;
-    color: var(--paper);
-    margin: 0;
-    padding-bottom: 8px;
-    margin-bottom: 10px;
-    border-bottom: 1px dashed var(--line-2);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--paper);
+  margin: 0;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px dashed var(--line-2);
 }
 .lore-text {
-    font-size: 12px;
-    color: var(--paper-dim);
-    line-height: 1.55;
+  font-size: 12px;
+  color: var(--paper-dim);
+  line-height: 1.55;
 }
 .log-panel-body {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--paper);
-    line-height: 1.45;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--paper);
+  line-height: 1.45;
 }
 .log-panel-body .is-label {
-    color: var(--paper-dim);
+  color: var(--paper-dim);
 }
 .log-panel-body .is-ready {
-    color: var(--accent);
+  color: var(--accent);
 }
 .log-panel-body .is-current {
-    color: var(--accent);
-    font-weight: 600;
+  color: var(--accent);
+  font-weight: 600;
 }
 .log-panel-body .is-blocked {
-    color: var(--paper-dim);
+  color: var(--paper-dim);
 }
 /* Idle-trade log: head/group/foot block structure with dashed dividers so
    ware groups stop blurring into one stream. Dashed rules echo the id-header
@@ -1427,281 +1347,281 @@ body.view-overview #speed-hud {
    min-fill is shown). */
 .log-panel-body .log-head,
 .log-panel-body .log-foot {
-    color: var(--paper-dim);
+  color: var(--paper-dim);
 }
 .log-panel-body .log-head {
-    border-bottom: 1px dashed var(--line-2);
-    padding-bottom: 4px;
-    margin-bottom: 4px;
+  border-bottom: 1px dashed var(--line-2);
+  padding-bottom: 4px;
+  margin-bottom: 4px;
 }
 .log-panel-body .log-group + .log-group,
 .log-panel-body .log-foot {
-    border-top: 1px dashed var(--line-2);
-    margin-top: 4px;
-    padding-top: 4px;
+  border-top: 1px dashed var(--line-2);
+  margin-top: 4px;
+  padding-top: 4px;
 }
 .log-panel-body .log-ware {
-    color: var(--paper);
+  color: var(--paper);
 }
 .log-panel-body .log-num {
-    color: var(--paper);
+  color: var(--paper);
 }
 .log-panel-body .log-dim {
-    color: var(--paper-mute);
+  color: var(--paper-mute);
 }
 .log-panel-body .log-tail {
-    color: var(--paper-dim);
-    font-style: italic;
+  color: var(--paper-dim);
+  font-style: italic;
 }
 
 /* --- Settings / dialog panel --- */
 .settings-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: var(--z-loading-overlay);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px;
-    /* Mild dim tinted toward the game's own void-black (#050709). Settles
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-loading-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  /* Mild dim tinted toward the game's own void-black (#050709). Settles
        the HUD + simulation into the background so the panel's full glass
        blur pops on top, without blanketing the viewport the way a
        backdrop-filter blur would. */
-    background: rgba(5, 7, 9, 0.55);
+  background: rgba(5, 7, 9, 0.55);
 }
 .settings-overlay.hidden {
-    display: none;
+  display: none;
 }
 
 /* Dialog card — id-card shell (for morse bar + padding + border radius) with
    the glass surface from .lore-card / .log-panel swapped in over the default
    ink gradient, so the running game stays visible behind it. */
 .settings-modal {
-    max-width: 480px;
-    width: 100%;
-    padding: 14px 20px 20px;
-    box-sizing: border-box;
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
-    box-shadow:
-        0 16px 40px rgba(0, 0, 0, 0.35),
-        var(--glass-edge),
-        inset 0 0 0 1px rgba(245, 194, 107, 0.05);
+  max-width: 480px;
+  width: 100%;
+  padding: 14px 20px 20px;
+  box-sizing: border-box;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.35),
+    var(--glass-edge),
+    inset 0 0 0 1px rgba(245, 194, 107, 0.05);
 }
 /* Drop the id-card guilloche mesh — glass surfaces read cleaner without it.
    The ::before (morse-code top bar) still paints because only ::after is hidden. */
 .settings-modal::after {
-    display: none;
+  display: none;
 }
 
 /* Header — mirrors id-header: dashed bottom divider, title in dossier id-name style */
 .settings-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding-bottom: 10px;
-    border-bottom: 2px dashed var(--line-2);
-    margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 10px;
+  border-bottom: 2px dashed var(--line-2);
+  margin-bottom: 14px;
 }
 .settings-head > span {
-    font-size: 26px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    line-height: 1.1;
-    color: var(--paper);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: var(--paper);
 }
 .settings-close {
-    flex-shrink: 0;
+  flex-shrink: 0;
 }
 
 /* Breathing room between stacked sections so the hatched h3 bars don't butt up */
 .settings-section + .settings-section {
-    margin-top: var(--space-md);
+  margin-top: var(--space-md);
 }
 
 /* Section label — id-type-mrz visual treatment: diagonal hatch, edge bleed.
    Tinted accent-green to match the card status-band language rather than
    the gold headings. */
 .settings-section h3 {
-    margin: 0 -20px var(--space-sm);
-    padding: 7px 20px 8px;
-    background:
-        repeating-linear-gradient(
-            43deg,
-            color-mix(in srgb, var(--accent) 10%, transparent) 0 1px,
-            transparent 1px 5px
-        ),
-        var(--ink-0);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.24em;
-    text-transform: uppercase;
-    color: var(--accent);
+  margin: 0 -20px var(--space-sm);
+  padding: 7px 20px 8px;
+  background:
+    repeating-linear-gradient(
+      43deg,
+      color-mix(in srgb, var(--accent) 10%, transparent) 0 1px,
+      transparent 1px 5px
+    ),
+    var(--ink-0);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 .slot-list {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--space-xs);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-xs);
 }
 .slot-row {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font: inherit;
-    font-size: var(--text-sm);
-    min-height: 58px;
-    padding: 6px 8px;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid var(--line-3);
-    border-radius: 3px;
-    color: var(--paper);
-    cursor: pointer;
-    text-align: left;
-    transition:
-        border-color 0.15s,
-        background 0.15s;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font: inherit;
+  font-size: var(--text-sm);
+  min-height: 58px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line-3);
+  border-radius: 3px;
+  color: var(--paper);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 .slot-row:hover {
-    border-color: var(--paper-mute);
+  border-color: var(--paper-mute);
 }
 .slot-row.is-selected {
-    border-color: var(--active);
-    background: color-mix(in srgb, var(--active) 8%, transparent);
+  border-color: var(--active);
+  background: color-mix(in srgb, var(--active) 8%, transparent);
 }
 .slot-label {
-    color: var(--paper);
-    font-size: 13px;
-    font-weight: 700;
-    white-space: nowrap;
+  color: var(--paper);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 .slot-num {
-    position: absolute;
-    top: 0;
-    right: 0;
-    padding: 2px 8px;
-    border-radius: 0 2px 0 4px;
-    color: var(--paper);
-    font-size: 12px;
-    font-weight: 700;
-    line-height: 1.2;
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 2px 8px;
+  border-radius: 0 2px 0 4px;
+  color: var(--paper);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 .slot-num--manual,
 .slot-num--auto {
-    background: color-mix(in srgb, var(--active) 22%, transparent);
-    color: var(--active);
+  background: color-mix(in srgb, var(--active) 22%, transparent);
+  color: var(--active);
 }
 .slot-num.is-empty {
-    background: color-mix(in srgb, var(--paper-mute) 18%, transparent);
-    color: var(--paper-mute);
+  background: color-mix(in srgb, var(--paper-mute) 18%, transparent);
+  color: var(--paper-mute);
 }
 .slot-time {
-    display: flex;
-    flex-direction: column;
-    color: var(--paper-dim);
-    font-size: 11px;
-    font-family: var(--font-mono);
-    line-height: 1.3;
+  display: flex;
+  flex-direction: column;
+  color: var(--paper-dim);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  line-height: 1.3;
 }
 .slot-time-empty {
-    font-style: italic;
-    font-family: var(--font-display);
+  font-style: italic;
+  font-family: var(--font-display);
 }
 .slot-time-date {
-    letter-spacing: 0.02em;
-    white-space: nowrap;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 .slot-time-time {
-    letter-spacing: 0.02em;
-    white-space: nowrap;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 /* Action bar — sits below the slot list; shows actions for the selected slot */
 .slot-action-bar {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    min-height: 44px;
-    margin-top: var(--space-sm);
-    margin-bottom: var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 44px;
+  margin-top: var(--space-sm);
+  margin-bottom: var(--space-md);
 }
 .slot-action-hint {
-    color: var(--paper);
-    font-size: var(--text-sm);
+  color: var(--paper);
+  font-size: var(--text-sm);
 }
 .slot-confirm {
-    background: var(--active);
-    border-color: var(--active);
-    color: #000;
-    font-weight: 700;
-    box-shadow: none;
+  background: var(--active);
+  border-color: var(--active);
+  color: #000;
+  font-weight: 700;
+  box-shadow: none;
 }
 /* Destructive variant of the post-pending confirm button — saturated red
    instead of gold to signal that the action is irreversible (e.g. the
    load-error "Confirm clear all saves?" step that wipes localStorage). */
 .slot-confirm--danger {
-    background: var(--err-solid);
-    border-color: var(--err-solid);
-    color: #fff;
+  background: var(--err-solid);
+  border-color: var(--err-solid);
+  color: #fff;
 }
 .slot-confirm--danger:hover {
-    background: var(--err-solid-hover);
-    border-color: var(--err-solid-hover);
-    color: #fff;
+  background: var(--err-solid-hover);
+  border-color: var(--err-solid-hover);
+  color: #fff;
 }
 .slot-pending {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    color: var(--paper-mute);
-    font-size: 20px;
-    letter-spacing: 4px;
-    animation: slot-pending-pulse 0.6s ease-in-out infinite alternate;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--paper-mute);
+  font-size: 20px;
+  letter-spacing: 4px;
+  animation: slot-pending-pulse 0.6s ease-in-out infinite alternate;
 }
 @keyframes slot-pending-pulse {
-    from {
-        opacity: 0.3;
-    }
-    to {
-        opacity: 1;
-    }
+  from {
+    opacity: 0.3;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Labeled row — one setting per line, label on the left, control on the right */
 .settings-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    font-size: var(--text-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--text-sm);
 }
 .settings-row-label {
-    flex: 1;
-    color: var(--paper);
+  flex: 1;
+  color: var(--paper);
 }
 
 /* Action footer — pair of buttons for export/import */
 .settings-actions {
-    display: flex;
-    gap: var(--space-sm);
+  display: flex;
+  gap: var(--space-sm);
 }
 .settings-toast {
-    margin-top: var(--space-sm);
-    padding: 6px 10px;
-    background: var(--err-bg);
-    border: 1px solid var(--err-line);
-    border-radius: 4px;
-    font-size: var(--text-sm);
-    color: var(--err);
+  margin-top: var(--space-sm);
+  padding: 6px 10px;
+  background: var(--err-bg);
+  border: 1px solid var(--err-line);
+  border-radius: 4px;
+  font-size: var(--text-sm);
+  color: var(--err);
 }
 .settings-toast.settings-toast--ok {
-    background: var(--ok-bg);
-    border-color: var(--ok-line);
-    color: var(--accent);
+  background: var(--ok-bg);
+  border-color: var(--ok-line);
+  color: var(--accent);
 }
 .settings-toast.hidden {
-    display: none;
+  display: none;
 }
 
 /* --- Unified toast ----------------------------------------
@@ -1710,50 +1630,50 @@ body.view-overview #speed-hud {
    cards. Success state adds `.toast--ok` (accent-green border).
    ----------------------------------------------------------- */
 .toast-root {
-    position: fixed;
-    top: max(16px, var(--safe-top));
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: var(--z-toast);
-    pointer-events: none;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-    align-items: center;
+  position: fixed;
+  top: max(16px, var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: center;
 }
 /* Blocking variant dims the screen behind the toast stack. */
 .toast-root--blocking::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    background: rgba(5, 7, 9, 0.45);
-    z-index: -1;
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 7, 9, 0.45);
+  z-index: var(--z-pseudo-behind);
 }
 .toast-item {
-    min-width: 240px;
-    max-width: 420px;
-    padding: 10px 16px;
-    pointer-events: auto;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    letter-spacing: 0.02em;
-    color: var(--paper);
-    text-align: center;
-    opacity: 1;
-    transition: opacity 400ms ease;
+  min-width: 240px;
+  max-width: 420px;
+  padding: 10px 16px;
+  pointer-events: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--paper);
+  text-align: center;
+  opacity: 1;
+  transition: opacity 400ms ease;
 }
 .toast-item.toast--ok {
-    border-color: var(--accent);
-    color: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .toast-item.toast--blocking {
-    pointer-events: auto;
+  pointer-events: auto;
 }
 .toast-item--fading {
-    opacity: 0;
+  opacity: 0;
 }
 .log-panel-body .log-sub {
-    color: var(--paper-mute);
+  color: var(--paper-mute);
 }
 
 /* --- Load-error page --------------------------------------
@@ -1763,170 +1683,164 @@ body.view-overview #speed-hud {
    in this markup; keep it self-contained and dependency-free of
    other HUD chrome. */
 .load-error {
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    padding: var(--space-md);
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-md);
 }
 .load-error__panel {
-    max-width: 520px;
-    width: 100%;
-    padding: 24px 28px;
-    border: 1px solid var(--line-2);
-    border-radius: 6px;
-    background: var(--ink-1);
+  max-width: 520px;
+  width: 100%;
+  padding: 24px 28px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--ink-1);
 }
 .load-error__eyebrow {
-    margin-bottom: 10px;
-    font-size: var(--text-sm);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--err);
+  margin-bottom: 10px;
+  font-size: var(--text-sm);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--err);
 }
 .load-error__title {
-    margin-bottom: 12px;
-    font-size: 24px;
-    line-height: 1.15;
-    color: var(--paper);
+  margin-bottom: 12px;
+  font-size: 24px;
+  line-height: 1.15;
+  color: var(--paper);
 }
 .load-error__detail {
-    margin-bottom: 20px;
-    font-size: 14px;
-    line-height: 1.6;
-    color: var(--paper-dim);
+  margin-bottom: 20px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--paper-dim);
 }
 /* Optional <details> toggle for extra diagnostic content — hidden by
    default; renderLoadError flips `hidden` off when a diagnostic string
    is supplied. Body is a <pre> with mono type + wrapping + scroll so it
    can hold shape-error paths, raw-save previews, or stack traces. */
 .load-error__diagnostic {
-    margin-bottom: 20px;
+  margin-bottom: 20px;
 }
 .load-error__diagnostic summary {
-    cursor: pointer;
-    padding: 6px 0;
-    color: var(--paper-mute);
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    font-size: var(--text-sm);
-    -webkit-user-select: none;
-    user-select: none;
+  cursor: pointer;
+  padding: 6px 0;
+  color: var(--paper-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: var(--text-sm);
+  -webkit-user-select: none;
+  user-select: none;
 }
 .load-error__diagnostic summary:hover {
-    color: var(--paper-dim);
+  color: var(--paper-dim);
 }
 .load-error__diagnostic-body {
-    margin-top: 8px;
-    padding: 10px 12px;
-    background: var(--ink-0);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--paper);
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 240px;
-    overflow: auto;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--ink-0);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--paper);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
 }
 .load-error__actions {
-    display: flex;
-    gap: var(--space-sm);
+  display: flex;
+  gap: var(--space-sm);
 }
 
 /* --- Speed HUD (top-right collapsible pill) --------------- */
 
 .speed-hud {
-    position: absolute;
-    bottom: 12px;
-    right: 12px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
-    z-index: var(--z-modal);
-    pointer-events: none;
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  z-index: var(--z-modal);
+  pointer-events: none;
 }
 .speed-hud[hidden] {
-    display: none;
+  display: none;
 }
 .speed-hud__row {
-    display: flex;
-    gap: 6px;
-    pointer-events: auto;
+  display: flex;
+  gap: 6px;
+  pointer-events: auto;
 }
 .speed-hud__elapsed {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--paper-mute);
-    letter-spacing: 0.02em;
-    text-transform: lowercase;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--paper-mute);
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .speed-hud__elapsed .num {
-    font-weight: 700;
+  font-weight: 700;
 }
 .speed-pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 0 14px;
-    height: 44px;
-    border: 1px solid var(--line-2);
-    border-radius: 6px;
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
-    box-shadow: var(--glass-edge);
-    color: var(--active);
-    cursor: pointer;
-    pointer-events: auto;
-    user-select: none;
-    -webkit-user-select: none;
-    font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 44px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge);
+  color: var(--active);
+  cursor: pointer;
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  font: inherit;
 }
 .speed-pill:hover {
-    border-color: var(--line);
-    background: rgba(38, 42, 56, 0.5);
+  border-color: var(--line);
+  background: rgba(38, 42, 56, 0.5);
 }
 .speed-pill.is-on {
-    border-color: var(--active);
-    background:
-        linear-gradient(
-            180deg,
-            rgba(245, 194, 107, 0.14),
-            rgba(245, 194, 107, 0.04)
-        ),
-        var(--glass-bg);
+  border-color: var(--active);
+  background: linear-gradient(180deg, rgba(245, 194, 107, 0.14), rgba(245, 194, 107, 0.04)), var(--glass-bg);
 }
 .speed-pill--icon {
-    width: 44px;
-    padding: 0;
+  width: 44px;
+  padding: 0;
 }
 .speed-pill--cycle {
-    /* Icon + speed-text pair (e.g. ▶ 1×). Padding accommodates both
+  /* Icon + speed-text pair (e.g. ▶ 1×). Padding accommodates both
      comfortably without forcing a fixed width. */
-    padding: 0 14px;
+  padding: 0 14px;
 }
 .speed-pill__icon svg {
-    width: 16px;
-    height: 16px;
-    stroke: currentColor;
-    stroke-width: 2;
-    fill: none;
-    display: block;
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  display: block;
 }
 .speed-pill[hidden] {
-    display: none;
+  display: none;
 }
 .speed-pill__text {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1936,40 +1850,40 @@ body.view-overview #speed-hud {
    pointer events above the HUD (z-index 30, pointer-events auto on children).
    --------------------------------------------------------------------------- */
 .trade-route-overlay {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: var(--z-hud);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-hud);
 }
 .trade-route-overlay[hidden] {
-    display: none;
+  display: none;
 }
 
 .trade-route-overlay .ware-sidebar-wrap {
-    position: absolute;
-    top: 16px;
-    left: 16px;
-    width: 200px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    align-items: stretch;
-    pointer-events: none;
-    user-select: none;
-    -webkit-user-select: none;
-    transition: width 160ms ease;
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: width 160ms ease;
 }
 /* Nations tab needs extra horizontal room for the five-tab nation strip and
    the wider cards underneath. 1.5× the default 200px. */
 .trade-route-overlay .ware-sidebar-wrap--wide {
-    width: 300px;
+  width: 300px;
 }
 /* Wrap is pointer-events:none so the canvas underneath stays draggable in
    gaps. Re-enable on every direct child so the tab bar and the lazily
    populated nations/emigration panels receive clicks (the wares panel was
    already covered by .ware-sidebar's own pointer-events:auto rule). */
 .trade-route-overlay .ware-sidebar-wrap > * {
-    pointer-events: auto;
+  pointer-events: auto;
 }
 
 /* Nations tab pane: thin column wrapper around the nation-tab strip and
@@ -1979,35 +1893,27 @@ body.view-overview #speed-hud {
    the outer .ware-sidebar-wrap gap so the (top-tabs → nation-tabs) and
    (nation-tabs → card) spacings read as one consistent rhythm. */
 .trade-route-overlay .nations-pane {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 /* Nation tabs reuse hud-segment chrome but tint the active button in the
    nation's accent color instead of the default gold, matching the seal/
    morse-stripe coloring on the card below. */
 .trade-route-overlay .nation-tabs > .hud-btn {
-    padding: 0 6px;
-    font-size: 10px;
+  padding: 0 6px;
+  font-size: 10px;
 }
 .trade-route-overlay .nation-tabs > .hud-btn.is-on {
-    color: var(--nation-accent, var(--active));
-    border-color: var(--nation-accent, var(--active));
-    background:
-        linear-gradient(
-            180deg,
-            color-mix(
-                in srgb,
-                var(--nation-accent, var(--active)) 12%,
-                transparent
-            ),
-            color-mix(
-                in srgb,
-                var(--nation-accent, var(--active)) 3%,
-                transparent
-            )
-        ),
-        var(--glass-bg);
+  color: var(--nation-accent, var(--active));
+  border-color: var(--nation-accent, var(--active));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--nation-accent, var(--active)) 12%, transparent),
+      color-mix(in srgb, var(--nation-accent, var(--active)) 3%, transparent)
+    ),
+    var(--glass-bg);
 }
 /* Hidden nation cards still occupy the document's sibling order, so the
    global `.nation-card + .nation-card { margin-top: 32px }` rule fires for
@@ -2016,246 +1922,233 @@ body.view-overview #speed-hud {
    at a time, so kill the inter-card margin entirely (and hide the hidden
    ones from layout). */
 .trade-route-overlay .nations-pane-cards .nation-card[hidden] {
-    display: none;
+  display: none;
 }
 .trade-route-overlay .nations-pane-cards .nation-card + .nation-card {
-    margin-top: 0;
+  margin-top: 0;
 }
 .trade-route-overlay .ware-sidebar {
-    position: relative;
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
-    box-shadow: var(--glass-edge);
-    border: 1px solid var(--line-2);
-    border-radius: 6px;
-    pointer-events: auto;
-    padding: 8px 0;
-    /* No overflow:hidden here — the dropdown menu is absolutely positioned
+  position: relative;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  pointer-events: auto;
+  padding: 8px 0;
+  /* No overflow:hidden here — the dropdown menu is absolutely positioned
      below the trigger and needs to extend past the sidebar's bottom edge. */
 }
 .trade-route-overlay .ware-sidebar::before {
-    /* Morse stripe across the top — same pattern as the id-card / settings modal.
+  /* Morse stripe across the top — same pattern as the id-card / settings modal.
      Own border-radius so the stripe corners stay rounded without relying on
      the parent's overflow:hidden. */
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 3px;
-    background: var(--morse-bar, none);
-    border-radius: 6px 6px 0 0;
-    pointer-events: none;
-    z-index: var(--z-card-top);
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: var(--morse-bar, none);
+  border-radius: 6px 6px 0 0;
+  pointer-events: none;
+  z-index: var(--z-card-top);
 }
 .trade-route-overlay .ware-sidebar-head {
-    padding: 10px 14px 8px;
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    color: var(--paper);
-    text-transform: none;
+  padding: 10px 14px 8px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--paper);
+  text-transform: none;
 }
 /* Ware dropdown: trigger button shows the current selection; menu overlays
    the sidebar below the trigger when open. Closed by default so only the
    active ware is visible. */
 .trade-route-overlay .ware-dropdown {
-    position: relative;
-    padding: 8px 14px;
-    border-top: 1px dashed var(--line-2);
+  position: relative;
+  padding: 8px 14px;
+  border-top: 1px dashed var(--line-2);
 }
 .trade-route-overlay .ware-section {
-    padding: 10px 14px;
-    border-top: 1px dashed var(--line-2);
+  padding: 10px 14px;
+  border-top: 1px dashed var(--line-2);
 }
 .trade-route-overlay .ware-section-label {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--paper-mute);
-    margin-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  margin-bottom: 6px;
 }
-/* Two-column section header: "Wares" left, "Shipments" right — acts as
-   column headers above the dropdown rows so users know what the count means. */
-.trade-route-overlay .ware-section-label--split {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 8px;
-}
+
 /* Section header styled to match .settings-section h3 — diagonal hatch,
    accent-green, edge-bleed. Used when sections need stronger separation
    inside a ware-sidebar, e.g. the emigration controls panel. */
 .trade-route-overlay .ware-section-label--settings {
-    margin: -10px -14px 10px;
-    padding: 7px 14px 8px;
-    background:
-        repeating-linear-gradient(
-            43deg,
-            color-mix(in srgb, var(--accent) 10%, transparent) 0 1px,
-            transparent 1px 5px
-        ),
-        var(--ink-0);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.24em;
-    color: var(--accent);
+  margin: -10px -14px 10px;
+  padding: 7px 14px 8px;
+  background:
+    repeating-linear-gradient(
+      43deg,
+      color-mix(in srgb, var(--accent) 10%, transparent) 0 1px,
+      transparent 1px 5px
+    ),
+    var(--ink-0);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  color: var(--accent);
 }
 .trade-route-overlay .ware-empty-state {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--paper-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--paper-dim);
 }
 /* Muted description line below a section control — shared shape used by the
    overview-emigration panel and the economy editor's field descriptions. */
 .description-text-dim {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    line-height: 1.5;
-    color: var(--paper-dim);
-    margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  margin-top: 8px;
 }
 /* Sidebar header blurb — sits directly below .ware-sidebar-head as a one or
    two-line muted-mono description of what the panel does. Edge-bleeds to the
    sidebar's content padding so it visually belongs to the head, not the
    first .ware-section below it. */
 .trade-route-overlay .ware-sidebar-blurb {
-    padding: 0 14px 10px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    line-height: 1.5;
-    color: var(--paper-dim);
+  padding: 0 14px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--paper-dim);
 }
 .trade-route-overlay .ware-dropdown-trigger {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto 14px;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    padding: 8px 10px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--line-2);
-    border-radius: 4px;
-    cursor: pointer;
-    color: var(--paper);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    text-align: left;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto 14px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
 }
 /* Pin the chevron to the last grid column so it stays flush right even when
    the ware-count (column 3) is hidden for the "None" selection. Otherwise
    grid auto-placement drops the chevron into the empty count column and
    leaves a 14px gap to its right. */
 .trade-route-overlay .ware-dropdown-trigger .ware-dropdown-chevron {
-    grid-column: 4;
+  grid-column: 4;
 }
 .trade-route-overlay .ware-dropdown-trigger:hover {
-    border-color: var(--line);
-    background: rgba(255, 255, 255, 0.06);
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.06);
 }
 .trade-route-overlay .ware-dropdown.is-open .ware-dropdown-trigger {
-    border-color: var(--accent);
+  border-color: var(--accent);
 }
 /* The active .hud-btn.is-on pill below sets z-index:1, which would
    otherwise render above the absolutely-positioned dropdown menu. Raise
    the open dropdown to form its own stacking context so the entire menu
    subtree sits above sibling pill tabs. */
 .trade-route-overlay .ware-dropdown.is-open {
-    z-index: var(--z-card-content);
+  z-index: var(--z-card-content);
 }
 .trade-route-overlay .ware-dropdown-chevron {
-    width: 14px;
-    height: 14px;
-    color: var(--paper-dim);
-    transition: transform 120ms ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--paper-dim);
+  transition: transform 120ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .trade-route-overlay .ware-dropdown-chevron svg {
-    width: 14px;
-    height: 14px;
-    stroke: currentColor;
-    stroke-width: 2;
-    fill: none;
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
 }
 .trade-route-overlay .ware-dropdown.is-open .ware-dropdown-chevron {
-    transform: rotate(180deg);
+  transform: rotate(180deg);
 }
 .trade-route-overlay .ware-dropdown-menu {
-    /* No max-height / overflow: ware list is short (12 rows incl. "None") and
+  /* No max-height / overflow: ware list is short (12 rows incl. "None") and
      some users can't scroll inside a dropdown (trackpad quirks, mobile).
      Keep every row visible when the menu is open — the parent sidebar
      intentionally lets us extend past its own bottom edge. */
-    position: absolute;
-    top: calc(100% - 4px);
-    left: 14px;
-    right: 14px;
-    /* Solid ink-0 surface — the parent .ware-sidebar already applies
-     backdrop-filter, and nesting backdrop-filter inside an ancestor that
-     also uses it routinely no-ops. A solid dark fill guarantees the menu
-     rows are readable regardless of what's behind them (sidebar chrome,
-     mode pills, or the game canvas below the sidebar's bottom edge). */
-    background: var(--ink-0);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    display: none;
-    z-index: var(--z-card-raised);
-    box-shadow:
-        0 10px 24px rgba(0, 0, 0, 0.4),
-        var(--glass-edge);
+  position: absolute;
+  top: calc(100% - 4px);
+  left: 14px;
+  right: 14px;
+  /* Solid ink-0 surface — the parent .ware-sidebar already applies
+     backdrop-filter, and a nested backdrop-filter inside an ancestor that
+     also uses one usually produces no visible blur. A solid dark fill
+     guarantees the menu rows are readable regardless of what's behind them
+     (sidebar chrome, mode pills, or the game canvas below the sidebar's
+     bottom edge). */
+  background: var(--ink-0);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  display: none;
+  z-index: var(--z-card-raised);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.4),
+    var(--glass-edge);
 }
 .trade-route-overlay .ware-dropdown.is-open .ware-dropdown-menu {
-    display: block;
+  display: block;
 }
 .trade-route-overlay .ware-item {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 14px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--paper-mute);
-    cursor: pointer;
-    border-left: 2px solid transparent;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  cursor: pointer;
+  border-left: 2px solid transparent;
 }
 .trade-route-overlay .ware-item:hover {
-    background: rgba(135, 209, 134, 0.06);
-    color: var(--paper);
+  background: rgba(135, 209, 134, 0.06);
+  color: var(--paper);
 }
 .trade-route-overlay .ware-item.is-selected {
-    color: var(--paper);
-    border-left-color: var(--accent);
+  color: var(--paper);
+  border-left-color: var(--accent);
 }
 .trade-route-overlay .ware-prefix {
-    /* Stack-label style // marker — matches the rest of the HUD register and
+  /* Stack-label style // marker — matches the rest of the HUD register and
      deliberately carries no ware-specific signal. */
-    color: var(--paper-faint);
-    font-weight: 500;
+  color: var(--paper-faint);
+  font-weight: 500;
 }
 .trade-route-overlay .ware-count {
-    color: var(--paper-dim);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+  color: var(--paper-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .trade-route-overlay .ware-item.is-selected .ware-prefix,
 .trade-route-overlay .ware-dropdown-trigger .ware-prefix {
-    color: var(--paper-dim);
-}
-/* Time-window pill tabs (30m / 2h / All). Reuses .hud-segment + .hud-btn
-   from the top-level tab bar but sized smaller so it reads as a subordinate
-   control inside the sidebar. */
-.trade-route-overlay .ware-modes > .ware-mode {
-    padding: 0 6px;
-    font-size: 10px;
+  color: var(--paper-dim);
 }
 
 /* Event-log tab — scrollable list of world events (emigration start/end,
@@ -2264,128 +2157,128 @@ body.view-overview #speed-hud {
    per-entry class applied to .event-log-text. Uses the same black-blur
    chrome as .ware-sidebar so all overview tabs read as one family. */
 .event-log-pane {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 10px 12px 12px;
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
-    box-shadow: var(--glass-edge);
-    border: 1px solid var(--line-2);
-    border-radius: 6px;
-    pointer-events: auto;
-    font-family: var(--font-mono);
-    font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px 12px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  pointer-events: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 .event-log-pane .event-log-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    padding-bottom: 4px;
-    border-bottom: 1px dashed var(--line-2);
-    font-size: 10px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--paper-mute);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--line-2);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--paper-mute);
 }
 .event-log-pane .event-log-head-count {
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    color: var(--paper-faint);
-    font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--paper-faint);
+  font-variant-numeric: tabular-nums;
 }
 .event-log-pane .event-log-list {
-    display: flex;
-    flex-direction: column;
-    max-height: 420px;
-    overflow-y: auto;
-    padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 .event-log-pane .event-log-row {
-    display: flex;
-    gap: 8px;
-    padding: 3px 0;
-    border-bottom: 1px dashed var(--line);
-    line-height: 1.35;
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--line);
+  line-height: 1.35;
 }
 .event-log-pane .event-log-row:last-child {
-    border-bottom: none;
+  border-bottom: none;
 }
 .event-log-pane .event-log-time {
-    flex: 0 0 auto;
-    color: var(--paper-mute);
-    font-variant-numeric: tabular-nums;
-    min-width: 56px;
+  flex: 0 0 auto;
+  color: var(--paper-mute);
+  font-variant-numeric: tabular-nums;
+  min-width: 56px;
 }
 .event-log-pane .event-log-text {
-    flex: 1 1 auto;
-    color: var(--paper-dim);
+  flex: 1 1 auto;
+  color: var(--paper-dim);
 }
 /* Time-only category accents — body text stays uniform (var(--paper-dim)
    via .event-log-text) and the category signal lives on the timestamp.
    Gen-ship arrivals reuse the emigration gold, so there are only two
    active time modifiers. Nation codes inside the text get colored inline
-   by the caller (see src/nation-code-format.ts). */
+   by the caller (see src/sim-nation-code-format.ts). */
 .event-log-pane .event-log-time--emigration {
-    color: var(--active);
+  color: var(--active);
 }
 .event-log-pane .event-log-time--construction {
-    color: var(--accent);
+  color: var(--accent);
 }
 /* Legend row — maps the time-accent colors to human labels. Sits
    between .event-log-head and .event-log-list and stays fixed while
    the list scrolls (scrolling lives inside .event-log-list). */
 .event-log-pane .event-log-legend {
-    display: flex;
-    gap: 14px;
-    padding: 6px 0 4px;
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--paper-mute);
+  display: flex;
+  gap: 14px;
+  padding: 6px 0 4px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--paper-mute);
 }
 .event-log-pane .event-log-legend-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .event-log-pane .event-log-legend-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
 .event-log-pane .event-log-legend-item--emigration .event-log-legend-dot {
-    background: var(--active);
+  background: var(--active);
 }
 .event-log-pane .event-log-legend-item--construction .event-log-legend-dot {
-    background: var(--accent);
+  background: var(--accent);
 }
 .event-log-pane .event-log-empty {
-    padding: 10px 2px 4px;
-    color: var(--paper-mute);
-    font-size: 11px;
-    line-height: 1.45;
+  padding: 10px 2px 4px;
+  color: var(--paper-mute);
+  font-size: 11px;
+  line-height: 1.45;
 }
 .event-log-pane .event-log-empty-head {
-    color: var(--paper-dim);
-    margin-bottom: 6px;
+  color: var(--paper-dim);
+  margin-bottom: 6px;
 }
 .event-log-pane .event-log-empty-list {
-    margin: 0;
-    padding: 0 0 0 14px;
-    list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+  list-style: none;
 }
 .event-log-pane .event-log-empty-list li {
-    position: relative;
-    padding-left: 10px;
+  position: relative;
+  padding-left: 10px;
 }
 .event-log-pane .event-log-empty-list li::before {
-    content: "·";
-    position: absolute;
-    left: -4px;
-    color: var(--paper-faint);
+  content: "·";
+  position: absolute;
+  left: -4px;
+  color: var(--paper-faint);
 }
 
 /* --- Landing page — hero wordmark, faction register, colophon
@@ -2394,15 +2287,15 @@ body.view-overview #speed-hud {
    surrounding glass background, etc.) lives with the page. */
 
 .landing-hero {
-    font-family: var(--font-display);
-    font-size: clamp(36px, 8vw, 58px);
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    line-height: 1;
-    text-transform: uppercase;
-    color: var(--active);
-    filter: drop-shadow(0 0 25px rgba(240, 168, 48, 0.2));
-    margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(36px, 8vw, 58px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--active);
+  filter: drop-shadow(0 0 25px rgba(240, 168, 48, 0.2));
+  margin: 0;
 }
 
 /* Landing caption — mono register that sits directly under the Skyshift
@@ -2410,26 +2303,26 @@ body.view-overview #speed-hud {
    No box, no background; relies on typography alone so it reads as part
    of the title rather than a separate panel on the starfield. */
 .landing-caption {
-    margin-top: 12px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.2em;
-    color: var(--paper-mute);
-    text-align: center;
+  margin-top: 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--paper-mute);
+  text-align: center;
 }
 .landing-caption b {
-    color: var(--paper);
-    font-weight: 500;
+  color: var(--paper);
+  font-weight: 500;
 }
 .landing-caption .codes {
-    margin-top: 6px;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
 }
 .landing-caption .codes .sep {
-    color: var(--line-3);
-    font-weight: 400;
+  color: var(--line-3);
+  font-weight: 400;
 }
 
 /* Start-actions column — holds either two Enter-universe buttons (first
@@ -2437,182 +2330,190 @@ body.view-overview #speed-hud {
    Width tracks --landing-action-width so it stays flush with the hero's
    32px phone gutter and caps at 460px. */
 .start-actions {
-    width: var(--landing-action-width);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+  width: var(--landing-action-width);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .start-primary-row {
-    display: flex;
-    gap: 12px;
+  display: flex;
+  gap: 12px;
 }
 
 /* Three-line start button: tiny "Enter universe" mono caption over a big
    display-font title over a mono description. Extends .hud-btn — inherits
    glass surface, border, and is-on gold treatment. */
 .start-btn {
-    flex: 1;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 4px;
-    min-height: 116px;
-    padding: 20px 22px 18px;
-    line-height: 1.2;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  min-height: 116px;
+  padding: 20px 22px 18px;
+  line-height: 1.2;
 }
 .start-btn-sub {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.18em;
-    color: var(--paper-mute);
-    text-transform: uppercase;
-    font-weight: 400;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--paper-mute);
+  text-transform: uppercase;
+  font-weight: 400;
 }
 .start-btn-title {
-    font-family: var(--font-display);
-    font-size: 20px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .start-btn-note {
-    margin-top: 4px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    color: var(--paper-mute);
-    text-transform: none;
-    font-weight: 400;
-    line-height: 1.3;
-    max-width: 200px;
-    text-align: center;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--paper-mute);
+  text-transform: none;
+  font-weight: 400;
+  line-height: 1.3;
+  max-width: 200px;
+  text-align: center;
 }
 .start-btn.is-on .start-btn-sub {
-    color: color-mix(in srgb, var(--active) 70%, transparent);
+  color: color-mix(in srgb, var(--active) 70%, transparent);
 }
 
 /* Morse-code top stripe — borrows the .id-card passport detail without
    the rest of the card chassis. Requires relative position + overflow
    clip on the container for the pseudo-element. */
 .start-btn--morse {
-    position: relative;
-    overflow: hidden;
+  position: relative;
+  overflow: hidden;
 }
 .start-btn--morse::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 3px;
-    background: var(--morse-bar, none);
-    pointer-events: none;
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: var(--morse-bar, none);
+  pointer-events: none;
 }
 
 /* Wide continue variant (save-exists state) — stacks "Continue saved"
    title over the map + date stamp. */
 .start-continue {
-    width: 100%;
-    min-height: 92px;
-    padding: 18px 22px;
-    line-height: 1.15;
+  width: 100%;
+  min-height: 92px;
+  padding: 18px 22px;
+  line-height: 1.15;
 }
-.start-continue .start-btn-title { font-size: 22px; }
+.start-continue .start-btn-title {
+  font-size: 22px;
+}
 .continue-date {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--paper-mute);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    font-weight: 400;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--paper-mute);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 400;
 }
 /* Date on the gold Continue button stays in the paper palette (no gold
    tint) and drops a step to --paper-mute so the timestamp reads as a
    quiet receipt under the big "Continue saved" title without going
    fully dark. */
 .start-continue.is-on .continue-date {
-    color: var(--paper-mute);
+  color: var(--paper-mute);
 }
 
 /* Second-tier start buttons shown when a save exists — players already
    know universes are the concept, so these sit smaller and dimmer than
    their first-visit equivalents. */
 .start-subactions {
-    display: flex;
-    gap: 10px;
-    width: 100%;
+  display: flex;
+  gap: 10px;
+  width: 100%;
 }
 .start-subactions .hud-btn {
-    flex: 1;
-    justify-content: center;
-    min-height: 56px;
-    padding: 10px 16px;
-    font-size: 10px;
-    line-height: 1.4;
-    color: var(--paper-mute);
-    text-align: center;
+  flex: 1;
+  justify-content: center;
+  min-height: 56px;
+  padding: 10px 16px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--paper-mute);
+  text-align: center;
 }
 
 /* Two-tier landing nav — bright Orientation/Lore with numbered prefixes
    on top, dimmer utility links below. Both rows share the same 11px mono
    register; hierarchy comes from color and weight. */
 .landing-nav {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
 }
 .landing-nav-primary,
 .landing-nav-secondary {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    justify-content: center;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
 }
-.landing-nav-primary { gap: 28px; }
-.landing-nav-secondary { gap: 16px; }
+.landing-nav-primary {
+  gap: 28px;
+}
+.landing-nav-secondary {
+  gap: 16px;
+}
 /* Faint underline on every nav link so they read unambiguously as links
    against the starfield. Uses --line-2 at rest (barely visible) and lifts
    to currentColor on hover, which tracks the same color transition the
    label already runs. */
 .landing-nav-primary a,
 .landing-nav-secondary a {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    text-decoration: underline;
-    text-decoration-color: var(--line-2);
-    text-decoration-thickness: 1px;
-    text-underline-offset: 4px;
-    transition: color 0.2s, text-decoration-color 0.2s;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  transition:
+    color 0.2s,
+    text-decoration-color 0.2s;
 }
 .landing-nav-primary a:hover,
 .landing-nav-secondary a:hover {
-    text-decoration-color: currentColor;
+  text-decoration-color: currentColor;
 }
 .landing-nav-primary a {
-    font-weight: 600;
-    color: var(--paper);
+  font-weight: 600;
+  color: var(--paper);
 }
 .landing-nav-primary a .num {
-    font-weight: 700;
-    color: var(--paper-dim);
-    letter-spacing: 0.1em;
-    margin-right: 2px;
-    transition: color 0.2s;
+  font-weight: 700;
+  color: var(--paper-dim);
+  letter-spacing: 0.1em;
+  margin-right: 2px;
+  transition: color 0.2s;
 }
 .landing-nav-primary a:hover,
 .landing-nav-primary a:hover .num {
-    color: var(--active);
+  color: var(--active);
 }
 .landing-nav-secondary a {
-    font-size: 10px;
-    letter-spacing: 0.16em;
-    color: var(--paper-mute);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--paper-mute);
 }
 .landing-nav-secondary a:hover {
-    color: var(--paper-dim);
+  color: var(--paper-dim);
 }
 
 /* --- Loading state ---------------------------------------
@@ -2625,189 +2526,205 @@ body.view-overview #speed-hud {
 /* Loading card drops the masked left-icon slot entirely — the title
    sits flush-left since there's no nation/entity identity to stamp. */
 .id-card.is-loading .id-name {
-    padding-left: 0;
+  padding-left: 0;
 }
 .id-card.is-loading .id-name::before {
-    display: none;
+  display: none;
 }
 
 .loading-bar {
-    position: relative;
-    height: 2px;
-    background: var(--line);
-    border-radius: 2px;
-    overflow: hidden;
+  position: relative;
+  height: 2px;
+  background: var(--line);
+  border-radius: 2px;
+  overflow: hidden;
 }
 .loading-bar::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-        90deg,
-        transparent 0%,
-        rgba(245, 194, 107, 0.9) 50%,
-        transparent 100%
-    );
-    animation: loading-sweep 1.4s linear infinite;
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(245, 194, 107, 0.9) 50%, transparent 100%);
+  animation: loading-sweep 1.4s linear infinite;
 }
 @keyframes loading-sweep {
-    from { transform: translateX(-60%); }
-    to   { transform: translateX(160%); }
+  from {
+    transform: translateX(-60%);
+  }
+  to {
+    transform: translateX(160%);
+  }
 }
 
 /* Hero variant — thick enough to dominate the card body. The sweep
    gradient is widened so the gold mass reads at this height. */
 .loading-bar--hero {
-    height: 8px;
-    margin: 16px 14px;
-    border-radius: 4px;
-    background: var(--ink-0);
-    box-shadow: inset 0 0 0 1px var(--line);
+  height: 8px;
+  margin: 16px 14px;
+  border-radius: 4px;
+  background: var(--ink-0);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 .loading-bar--hero::before {
-    background: linear-gradient(
-        90deg,
-        transparent 0%,
-        rgba(245, 194, 107, 0.15) 30%,
-        var(--active) 50%,
-        rgba(245, 194, 107, 0.15) 70%,
-        transparent 100%
-    );
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(245, 194, 107, 0.15) 30%,
+    var(--active) 50%,
+    rgba(245, 194, 107, 0.15) 70%,
+    transparent 100%
+  );
 }
 
 /* --- Stations Timelapse Log + tools/Timelapse — shared component -------- */
 
 .stations-timelapse-counts {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    flex-wrap: wrap;
-    justify-content: center;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    color: var(--paper-mute);
-    font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--paper-mute);
+  font-variant-numeric: tabular-nums;
 }
 .stations-timelapse-counts-label {
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    font-size: 10px;
-    color: var(--paper-mute);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 10px;
+  color: var(--paper-mute);
 }
-.stations-timelapse-counts-nation { font-weight: 700; }
-.stations-timelapse-counts-sep { color: var(--line-3); font-weight: 700; }
+.stations-timelapse-counts-nation {
+  font-weight: 700;
+}
+.stations-timelapse-counts-sep {
+  color: var(--line-3);
+  font-weight: 700;
+}
 
 .stations-timelapse-controls {
-    margin: 12px 0;
+  margin: 12px 0;
 }
 .stations-timelapse-controls.hud-segment--row > .hud-btn {
-    flex: 1;
-    font-size: 10px;
-    padding: 8px 6px;
-    min-height: 32px;
-    height: auto;
-    letter-spacing: 0.04em;
+  flex: 1;
+  font-size: 10px;
+  padding: 8px 6px;
+  min-height: 32px;
+  height: auto;
+  letter-spacing: 0.04em;
 }
 
 .stations-timelapse-bars {
-    --bars-max: 1;
-    display: flex;
-    align-items: flex-end;
-    gap: 1px;
-    height: 56px;
-    margin-bottom: 4px;
-    touch-action: none;
-    position: relative;
-    cursor: ew-resize;
+  --bars-max: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 56px;
+  margin-bottom: 4px;
+  touch-action: none;
+  position: relative;
+  cursor: ew-resize;
 }
 .stations-timelapse-bars.is-empty {
-    align-items: center;
-    justify-content: center;
-    cursor: default;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
 }
 .stations-timelapse-empty {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    line-height: 1.5;
-    color: var(--paper-dim);
-    text-align: center;
-    padding: 0 8px;
-    letter-spacing: 0.04em;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  text-align: center;
+  padding: 0 8px;
+  letter-spacing: 0.04em;
 }
 .stations-timelapse-bar {
-    flex: 1;
-    display: flex;
-    flex-direction: column-reverse;
-    height: calc(var(--t, 1) / var(--bars-max) * 100%);
-    min-height: 2px;
-    border-radius: 1px;
-    overflow: hidden;
+  flex: 1;
+  display: flex;
+  flex-direction: column-reverse;
+  height: calc(var(--t, 1) / var(--bars-max) * 100%);
+  min-height: 2px;
+  border-radius: 1px;
+  overflow: hidden;
 }
 .stations-timelapse-bar > i {
-    display: block;
-    width: 100%;
-    flex: var(--c, 1);
+  display: block;
+  width: 100%;
+  flex: var(--c, 1);
 }
-.stations-timelapse-bar.is-future > i { opacity: 0.3; }
-.stations-timelapse-bar__seg--hub { background: #0069B3; }
-.stations-timelapse-bar__seg--bio { background: #4CAF50; }
-.stations-timelapse-bar__seg--ore { background: #B36100; }
-.stations-timelapse-bar__seg--sky { background: #00F9FF; }
-.stations-timelapse-bar__seg--far { background: #E8C840; }
+.stations-timelapse-bar.is-future > i {
+  opacity: 0.3;
+}
+.stations-timelapse-bar__seg--hub {
+  background: #0069b3;
+}
+.stations-timelapse-bar__seg--bio {
+  background: #4caf50;
+}
+.stations-timelapse-bar__seg--ore {
+  background: #b36100;
+}
+.stations-timelapse-bar__seg--sky {
+  background: #00f9ff;
+}
+.stations-timelapse-bar__seg--far {
+  background: #e8c840;
+}
 
 .stations-timelapse-playhead {
-    position: absolute;
-    top: -3px;
-    height: calc(100% + 6px);
-    width: 2px;
-    background: var(--active);
-    transform: translateX(-50%);
-    border-radius: 1px;
-    pointer-events: none;
+  position: absolute;
+  top: -3px;
+  height: calc(100% + 6px);
+  width: 2px;
+  background: var(--active);
+  transform: translateX(-50%);
+  border-radius: 1px;
+  pointer-events: none;
 }
 
 .stations-timelapse-axis {
-    display: flex;
-    justify-content: space-between;
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.16em;
-    color: var(--paper-mute);
-    margin-top: 5px;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--paper-mute);
+  margin-top: 5px;
 }
 
 /* --- Stations Timelapse Log — game overview tab frame ------------------- */
 
 .stations-timelapse-frame {
-    width: 100%;
+  width: 100%;
 }
 /* Inset the chart so it sits inside the ware-sidebar's panel padding instead
    of touching the panel's left/right edges. Scoped to the frame so tools
    /Timelapse — which mounts the control without a panel wrapper — keeps its
    own outer padding. */
 .stations-timelapse-frame .stations-timelapse-root {
-    padding: 0 14px;
+  padding: 0 14px;
 }
 .stations-timelapse-frame-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--paper-mute);
-    padding: 6px 14px 8px;
-    margin-bottom: 10px;
-    border-bottom: 1px dashed var(--line-2);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  padding: 6px 14px 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px dashed var(--line-2);
 }
 .stations-timelapse-frame-time {
-    text-transform: none;
-    color: var(--paper);
-    font-size: 15px;
-    letter-spacing: 0.04em;
-    font-variant-numeric: tabular-nums;
-    font-weight: 500;
-    line-height: 1;
+  text-transform: none;
+  color: var(--paper);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: 1;
 }

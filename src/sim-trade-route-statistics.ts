@@ -104,7 +104,11 @@ function addDeliveryToTotals(event: DeliveryEvent, totalsByRoute: TotalsByRoute)
   const key = pairKey(event.fromStationId, event.toStationId);
   let routeTotals = totalsByRoute.get(key);
   if (!routeTotals) {
-    routeTotals = { fromStationId: event.fromStationId, toStationId: event.toStationId, wares: new Map() };
+    routeTotals = {
+      fromStationId: event.fromStationId,
+      toStationId: event.toStationId,
+      wares: new Map(),
+    };
     totalsByRoute.set(key, routeTotals);
   }
   const wareTotals = routeTotals.wares.get(event.wareId);
@@ -162,9 +166,7 @@ function buildRouteStatsFromWareTotals(routeTotals: RouteTotals): RouteStats | n
   };
 }
 
-export function createTradeRouteStatistics(
-  options: TradeRouteStatisticsOptions,
-): TradeRouteStatistics {
+export function createTradeRouteStatistics(options: TradeRouteStatisticsOptions): TradeRouteStatistics {
   const events: DeliveryEvent[] = [];
   let cachedRouteStats: RouteStats[] | null = null;
   let cachedRouteStatsTime = -Infinity;
@@ -203,7 +205,8 @@ export function createTradeRouteStatistics(
       pruneEventsOutsideDefaultWindow(event.time);
     },
     getAllRouteStats(now) {
-      if (cachedRouteStats && now - cachedRouteStatsTime < options.cacheRefreshSeconds) return cachedRouteStats;
+      if (cachedRouteStats && now - cachedRouteStatsTime < options.cacheRefreshSeconds)
+        return cachedRouteStats;
       pruneEventsOutsideDefaultWindow(now);
       cachedRouteStats = computeInWindow(now, options.windowSeconds);
       cachedRouteStatsTime = now;

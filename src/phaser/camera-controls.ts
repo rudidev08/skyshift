@@ -1,5 +1,16 @@
 import * as Phaser from "phaser";
-import { cameraMinZoom, cameraMaxZoom, cameraZoomStep, cameraDragFriction } from "../../data/controls-camera";
+import {
+  cameraMinZoomPhaserClamp,
+  cameraMaxZoomPhaserClamp,
+  cameraZoomLevelMin,
+  cameraZoomLevelMax,
+  cameraWheelZoomLevelStep,
+  cameraDragFriction,
+} from "../../data/controls-camera";
+
+const wheelInternalStep =
+  (cameraWheelZoomLevelStep * (cameraMaxZoomPhaserClamp - cameraMinZoomPhaserClamp)) /
+  (cameraZoomLevelMax - cameraZoomLevelMin);
 
 export interface CameraControlsConfig {
   minZoom?: number;
@@ -25,9 +36,9 @@ export interface ScrollBounds {
 }
 
 const defaults: Omit<Required<CameraControlsConfig>, "onZoom"> = {
-  minZoom: cameraMinZoom,
-  maxZoom: cameraMaxZoom,
-  zoomStep: cameraZoomStep,
+  minZoom: cameraMinZoomPhaserClamp,
+  maxZoom: cameraMaxZoomPhaserClamp,
+  zoomStep: wheelInternalStep,
   friction: cameraDragFriction,
 };
 
@@ -49,12 +60,24 @@ interface PinchZoomHandlers {
   onPointerUp: () => void;
 }
 
+type ResolvedCameraOptions = Required<Omit<CameraControlsConfig, "onZoom">> & {
+  onZoom?: () => void;
+};
+
+interface CameraControlsContext {
+  scene: Phaser.Scene;
+  camera: Phaser.Cameras.Scene2D.Camera;
+  clampCamera: () => void;
+  isEnabled: () => boolean;
+  options: ResolvedCameraOptions;
+}
+
 export function setupCameraControls(
   scene: Phaser.Scene,
   bounds: ScrollBounds,
   config: CameraControlsConfig = {},
 ): CameraControlsHandle {
-  const options = { ...defaults, ...config };
+  const options: ResolvedCameraOptions = { ...defaults, ...config };
   const camera = scene.cameras.main;
   let enabled = true;
   const dragState: DragState = { velocityX: 0, velocityY: 0, lastX: 0, lastY: 0, dragging: false };
@@ -64,11 +87,19 @@ export function setupCameraControls(
   scene.input.addPointer(1);
 
   const clampCamera = createCameraClamper(camera, bounds);
-  const restoreUpdate = wireDragPanIntoSceneUpdate(scene, () => enabled, dragState, options.friction, camera, clampCamera);
-  const detachWheelZoom = setupWheelZoom(scene, camera, options, clampCamera, () => enabled);
-  const detachPinchZoom = setupPinchZoom(scene, camera, options, clampCamera, pinchState);
+  const context: CameraControlsContext = {
+    scene,
+    camera,
+    clampCamera,
+    isEnabled: () => enabled,
+    options,
+  };
 
-  const destroy = registerCameraTeardown(scene, restoreUpdate, detachWheelZoom, detachPinchZoom);
+  const detachDragPan = attachDragPanToSceneUpdate(context, dragState);
+  const detachWheelZoom = setupWheelZoom(context);
+  const detachPinchZoom = setupPinchZoom(context, pinchState);
+
+  const destroy = registerCameraTeardown(scene, detachDragPan, detachWheelZoom, detachPinchZoom);
 
   return {
     destroy,
@@ -106,66 +137,70 @@ function resetDragState(dragState: DragState): void {
   dragState.velocityY = 0;
 }
 
-/**
- * Drag to pan with inertia. Tracks position manually because Phaser's
- * prevPosition goes stale on mobile and produces growing jumps between touches.
- */
+/** Drag to pan with inertia. Tracks position manually because Phaser's
+ *  prevPosition goes stale on mobile and produces growing jumps between touches. */
 function updateDragPan(
   pointer: Phaser.Input.Pointer,
-  scene: Phaser.Scene,
-  enabled: boolean,
+  context: CameraControlsContext,
   dragState: DragState,
-  friction: number,
-  camera: Phaser.Cameras.Scene2D.Camera,
-  clampCamera: () => void,
 ): void {
-  const isDown = pointer.isDown && !scene.input.pointer2?.isDown;
-  if (isDown && enabled) {
-    if (!dragState.dragging) {
-      // New drag starts from a fresh anchor; any leftover inertia from the previous drag would jerk the camera.
-      dragState.lastX = pointer.x;
-      dragState.lastY = pointer.y;
-      dragState.velocityX = 0;
-      dragState.velocityY = 0;
-      dragState.dragging = true;
-    } else {
-      const dx = (pointer.x - dragState.lastX) / camera.zoom;
-      const dy = (pointer.y - dragState.lastY) / camera.zoom;
-      camera.scrollX -= dx;
-      camera.scrollY -= dy;
-      dragState.velocityX = dx;
-      dragState.velocityY = dy;
-      dragState.lastX = pointer.x;
-      dragState.lastY = pointer.y;
-    }
+  const isDown = pointer.isDown && !context.scene.input.pointer2?.isDown;
+  if (isDown && context.isEnabled()) {
+    applyDragMotion(pointer, context.camera, dragState);
   } else {
-    dragState.dragging = false;
-    if (Math.abs(dragState.velocityX) > 0.1 || Math.abs(dragState.velocityY) > 0.1) {
-      camera.scrollX -= dragState.velocityX;
-      camera.scrollY -= dragState.velocityY;
-      dragState.velocityX *= friction;
-      dragState.velocityY *= friction;
-    } else {
-      dragState.velocityX = 0;
-      dragState.velocityY = 0;
-    }
+    applyInertiaGlide(context.camera, context.options.friction, dragState);
   }
-  clampCamera();
+  context.clampCamera();
+}
+
+function applyDragMotion(
+  pointer: Phaser.Input.Pointer,
+  camera: Phaser.Cameras.Scene2D.Camera,
+  dragState: DragState,
+): void {
+  if (!dragState.dragging) {
+    // New drag starts from a fresh anchor; any leftover inertia from the previous drag would jerk the camera.
+    dragState.lastX = pointer.x;
+    dragState.lastY = pointer.y;
+    dragState.velocityX = 0;
+    dragState.velocityY = 0;
+    dragState.dragging = true;
+    return;
+  }
+  const dx = (pointer.x - dragState.lastX) / camera.zoom;
+  const dy = (pointer.y - dragState.lastY) / camera.zoom;
+  camera.scrollX -= dx;
+  camera.scrollY -= dy;
+  dragState.velocityX = dx;
+  dragState.velocityY = dy;
+  dragState.lastX = pointer.x;
+  dragState.lastY = pointer.y;
+}
+
+function applyInertiaGlide(
+  camera: Phaser.Cameras.Scene2D.Camera,
+  friction: number,
+  dragState: DragState,
+): void {
+  dragState.dragging = false;
+  if (Math.abs(dragState.velocityX) > 0.1 || Math.abs(dragState.velocityY) > 0.1) {
+    camera.scrollX -= dragState.velocityX;
+    camera.scrollY -= dragState.velocityY;
+    dragState.velocityX *= friction;
+    dragState.velocityY *= friction;
+  } else {
+    dragState.velocityX = 0;
+    dragState.velocityY = 0;
+  }
 }
 
 /** Wraps `scene.update` so drag-pan runs each frame; returns a function that restores the original update. */
-function wireDragPanIntoSceneUpdate(
-  scene: Phaser.Scene,
-  isEnabled: () => boolean,
-  dragState: DragState,
-  friction: number,
-  camera: Phaser.Cameras.Scene2D.Camera,
-  clampCamera: () => void,
-): () => void {
+function attachDragPanToSceneUpdate(context: CameraControlsContext, dragState: DragState): () => void {
+  const { scene } = context;
   const originalUpdate = scene.update.bind(scene);
   const wrappedUpdate = (time: number, delta: number) => {
     originalUpdate(time, delta);
-    updateDragPan(scene.input.activePointer, scene, isEnabled(), dragState, friction, camera, clampCamera);
+    updateDragPan(scene.input.activePointer, context, dragState);
   };
   scene.update = wrappedUpdate;
   return () => {
@@ -176,20 +211,15 @@ function wireDragPanIntoSceneUpdate(
 }
 
 /** Returns a detach function that removes the wheel listener. */
-function setupWheelZoom(
-  scene: Phaser.Scene,
-  camera: Phaser.Cameras.Scene2D.Camera,
-  options: Required<Omit<CameraControlsConfig, "onZoom">> & { onZoom?: () => void },
-  clampCamera: () => void,
-  isEnabled: () => boolean,
-): () => void {
+function setupWheelZoom(context: CameraControlsContext): () => void {
+  const { scene, camera, clampCamera, options } = context;
   const onWheel = (
     _pointer: Phaser.Input.Pointer,
     _gameObjects: Phaser.GameObjects.GameObject[],
     _deltaX: number,
     deltaY: number,
   ) => {
-    if (!isEnabled()) return;
+    if (!context.isEnabled()) return;
     const newZoom = camera.zoom - Math.sign(deltaY) * options.zoomStep;
     camera.zoom = Phaser.Math.Clamp(newZoom, options.minZoom, options.maxZoom);
     clampCamera();
@@ -200,19 +230,19 @@ function setupWheelZoom(
 }
 
 /** Returns a detach function that removes the three pointer listeners. */
-function setupPinchZoom(
-  scene: Phaser.Scene,
-  camera: Phaser.Cameras.Scene2D.Camera,
-  options: Required<Omit<CameraControlsConfig, "onZoom">> & { onZoom?: () => void },
-  clampCamera: () => void,
-  pinchState: PinchState,
-): () => void {
+function setupPinchZoom(context: CameraControlsContext, pinchState: PinchState): () => void {
+  const { scene, camera, clampCamera, options } = context;
   const handlers: PinchZoomHandlers = {
     onPointerDown: () => {
       const pointer1 = scene.input.pointer1;
       const pointer2 = scene.input.pointer2;
       if (pointer1.isDown && pointer2.isDown) {
-        pinchState.lastPinchDistance = Phaser.Math.Distance.Between(pointer1.x, pointer1.y, pointer2.x, pointer2.y);
+        pinchState.lastPinchDistance = Phaser.Math.Distance.Between(
+          pointer1.x,
+          pointer1.y,
+          pointer2.x,
+          pointer2.y,
+        );
       }
     },
     onPointerMove: () => {
@@ -244,10 +274,7 @@ function setupPinchZoom(
 }
 
 /** Wires shutdown/destroy to call all detach functions exactly once; returns the destroy callback. */
-function registerCameraTeardown(
-  scene: Phaser.Scene,
-  ...detachers: (() => void)[]
-): () => void {
+function registerCameraTeardown(scene: Phaser.Scene, ...detachers: (() => void)[]): () => void {
   let destroyed = false;
   const destroy = () => {
     if (destroyed) return;

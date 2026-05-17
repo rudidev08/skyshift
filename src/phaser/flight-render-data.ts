@@ -3,20 +3,17 @@
 // Sim never reads these — they exist so render can position the ship sprite,
 // trail, and engine glow along a smooth bezier between station endpoints.
 
-import type { ShipTemplate } from "../../data/ship-types";
+import type { ShipTypeTemplate } from "../../data/ship-types";
 import type { Station } from "../sim-station-types";
 import type { TravelEndpoint } from "../sim-travel-types";
-import { type FlightData, resolveEndpointPos } from "../sim-travel";
+import { type FlightData, resolveEndpointPosition } from "../sim-travel";
 
 export interface FlightRenderData {
   startX: number;
   startY: number;
   endX: number;
   endY: number;
-  /** Random per-flight curve magnitude in degrees; sign flips give clockwise vs
-   *  counter-clockwise sweep. Re-rolled each time render builds a fresh
-   *  FlightRenderData (mid-flight loads pick a new curve since this isn't
-   *  persisted in snapshots). */
+  /** Random per-flight curve magnitude in degrees; sign flips give clockwise vs counter-clockwise sweep. */
   curveAngle: number;
 }
 
@@ -30,16 +27,19 @@ export interface FlightEndpointInput {
   spritePositionOverride?: { x: number; y: number };
 }
 
-/** Build render geometry for a flight. */
+/** Build render geometry for a flight. Re-rolls `curveAngle` each call (it
+ *  isn't persisted in snapshots, so mid-flight loads pick a fresh curve — fine
+ *  because the curve is render-only and doesn't affect sim arrival time). */
 export function createFlightRenderData(
   origin: FlightEndpointInput,
   destination: FlightEndpointInput,
-  ship: ShipTemplate,
+  ship: ShipTypeTemplate,
 ): FlightRenderData {
-  const originPos = origin.spritePositionOverride ?? resolveEndpointPos(origin.endpoint, origin.station);
-  const destinationPos = destination.spritePositionOverride ?? resolveEndpointPos(destination.endpoint, destination.station);
+  const originPos = origin.spritePositionOverride ?? resolveEndpointPosition(origin.endpoint, origin.station);
+  const destinationPos =
+    destination.spritePositionOverride ?? resolveEndpointPosition(destination.endpoint, destination.station);
 
-  const curveAngle = pickRandomCurveAngle(ship);
+  const curveAngle = rollFlightCurveAngle(ship);
 
   return {
     startX: originPos.x,
@@ -50,7 +50,7 @@ export function createFlightRenderData(
   };
 }
 
-function pickRandomCurveAngle(ship: ShipTemplate): number {
+function rollFlightCurveAngle(ship: ShipTypeTemplate): number {
   const minDegrees = ship.flightPathCurveAngleMinDegrees;
   const maxDegrees = ship.flightPathCurveAngleMaxDegrees;
   const magnitude = minDegrees + Math.random() * (maxDegrees - minDegrees);
@@ -58,7 +58,7 @@ function pickRandomCurveAngle(ship: ShipTemplate): number {
   return magnitude * sign;
 }
 
-/** Quadratic bezier point at t (0-1). Returns a fresh `{ x, y }` each call. */
+/** Quadratic bezier point at t (0-1). */
 export function getPointOnCurve(render: FlightRenderData, t: number): { x: number; y: number } {
   const dx = render.endX - render.startX;
   const dy = render.endY - render.startY;

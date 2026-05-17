@@ -7,8 +7,15 @@ import type { Station } from "./sim-station";
 type CargoWithdrawalAction = Extract<ShipAction, { type: "cargo-withdrawal" }>;
 type CargoWithdrawalActionSnapshot = Extract<ShipActionSnapshot, { type: "cargo-withdrawal" }>;
 
-export function shipCargoWithdrawalActionToSnapshot(action: CargoWithdrawalAction): CargoWithdrawalActionSnapshot {
-  return { type: "cargo-withdrawal", stationId: action.station.id, wareId: action.wareId, amount: action.amount };
+export function shipCargoWithdrawalActionToSnapshot(
+  action: CargoWithdrawalAction,
+): CargoWithdrawalActionSnapshot {
+  return {
+    type: "cargo-withdrawal",
+    stationId: action.station.id,
+    wareId: action.wareId,
+    amount: action.amount,
+  };
 }
 
 /** Reconstruct a cargo-withdrawal action. Returns a `wait` placeholder when the

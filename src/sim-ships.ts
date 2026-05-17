@@ -1,11 +1,11 @@
 import type { Station } from "./sim-station-types";
-import type { ShipTypeId } from "../data/ship-types";
-import type { ShipTemplate } from "../data/ship-types";
+import type { ShipTypeId, ShipTypeTemplate } from "../data/ship-types";
+import type { StationBuild } from "../data/station-types";
 import type { WareId } from "../data/ware-types";
 import type { Nation } from "./sim-nation";
 import type { ShipSnapshot } from "./sim-save-types";
-import { shipCountBySize } from "../data/stations";
-import { getShipTemplate } from "./sim-ship-template";
+import { shipsPerStationBySize } from "../data/stations";
+import { getShipTypeTemplate } from "./sim-ship-template";
 import { isStationUnderConstruction } from "./sim-station";
 import { getWareTemplate } from "./sim-ware-template";
 import type { NamePool } from "./sim-name-pool";
@@ -40,11 +40,11 @@ export interface Ship {
 
 /** Ship type for a nation. Throws for nations with no primary fleet (WAY) —
  *  guard at the call site (only nations that spawn ships should call this). */
-export function getNationShipTemplate(nation: Nation): ShipTemplate {
+export function getNationShipTypeTemplate(nation: Nation): ShipTypeTemplate {
   if (!nation.shipTypeId) {
     throw new Error(`Nation ${nation.id} has no primary ship type`);
   }
-  return getShipTemplate(nation.shipTypeId);
+  return getShipTypeTemplate(nation.shipTypeId);
 }
 
 export interface CreateStationShipsOptions {
@@ -55,26 +55,23 @@ export interface CreateStationShipsOptions {
   shipTypeOverride?: ShipTypeId;
 }
 
-/** Does the ship's `allowedWares` overlap with the station's trade needs?
- *  Operational stations: produced output + production inputs. Build sites:
- *  the construction wares in `station.build.waresRequired`. Gates
- *  `createStationShips` from spawning a fleet that can't trade for its home. */
-function canShipCarryAnyWareThatStationUses(station: Station, shipTemplate: ShipTemplate): boolean {
-  const allowedWares = new Set(shipTemplate.allowedWares);
-
-  // A build site's only trade-relevant wares are its construction inputs;
-  // the operational set isn't trade-relevant until the building → producing
-  // flip respawns the regular fleet (see sim-lifecycle.ts onFlip handler).
-  if (isStationUnderConstruction(station)) {
-    const requiredWareIds = Object.keys(station.build.waresRequired) as WareId[];
-    for (const wareId of requiredWareIds) {
-      if (allowedWares.has(wareId)) return true;
-    }
-    return false;
+/** Build sites' only trade-relevant wares are their construction inputs; the
+ *  operational set isn't trade-relevant until the building → producing flip
+ *  respawns the regular fleet (see sim-lifecycle.ts onFlip handler). */
+function canShipCarryAnyBuildSiteWare(
+  station: Station & { build: StationBuild },
+  allowedWares: Set<WareId>,
+): boolean {
+  const requiredWareIds = Object.keys(station.build.waresRequired) as WareId[];
+  for (const wareId of requiredWareIds) {
+    if (allowedWares.has(wareId)) return true;
   }
+  return false;
+}
 
-  // Sink wares have no output slot — trade-relevant wares are real outputs
-  // plus every input the station needs replenished.
+/** Sink wares have no output slot — trade-relevant wares are real outputs plus
+ *  every input the station needs replenished. */
+function canShipCarryAnyOperationalWare(station: Station, allowedWares: Set<WareId>): boolean {
   for (const producedWareId of station.stationType.produces) {
     const producedWare = getWareTemplate(producedWareId);
     if (producedWare.productionOutput > 0 && allowedWares.has(producedWareId)) {
@@ -86,8 +83,17 @@ function canShipCarryAnyWareThatStationUses(station: Station, shipTemplate: Ship
       }
     }
   }
-
   return false;
+}
+
+/** Does the ship's `allowedWares` overlap with the station's trade needs?
+ *  Operational stations route to the produced output + production inputs;
+ *  build sites route to the construction wares in `station.build.waresRequired`. */
+function canShipCarryAnyWareThatStationUses(station: Station, shipTemplate: ShipTypeTemplate): boolean {
+  const allowedWares = new Set(shipTemplate.allowedWares);
+  return isStationUnderConstruction(station)
+    ? canShipCarryAnyBuildSiteWare(station, allowedWares)
+    : canShipCarryAnyOperationalWare(station, allowedWares);
 }
 
 export interface CreateStationShipsInput {
@@ -105,16 +111,13 @@ export function createStationShips(input: CreateStationShipsInput): Ship[] {
   const { station, takenShipIds, namePool, options } = input;
   const shipTypeId = options?.shipTypeOverride ?? station.nation.shipTypeId;
   if (!shipTypeId) return [];
-  const shipTemplate = getShipTemplate(shipTypeId);
-  if (
-    !options?.ignoreCargoCompatibility &&
-    !canShipCarryAnyWareThatStationUses(station, shipTemplate)
-  ) {
+  const shipTemplate = getShipTypeTemplate(shipTypeId);
+  if (!options?.ignoreCargoCompatibility && !canShipCarryAnyWareThatStationUses(station, shipTemplate)) {
     return [];
   }
 
   const nationCode = station.nation.codeName;
-  const count = shipCountBySize[station.size] ?? 1;
+  const count = shipsPerStationBySize[station.size] ?? 1;
   const ships: Ship[] = [];
   // Local copy so the helper can detect collisions across its own loop without
   // mutating the caller-provided set.
@@ -143,7 +146,7 @@ export function shipToSnapshot(ship: Ship, inFlight: boolean): ShipSnapshot {
   };
 }
 
-/** Reconstruct a ship from a snapshot. Caller resolves `station` from `snapshot.stationId` (see applySnapshot in src/ui-savegame-manager.ts).
+/** Reconstruct a ship from a snapshot. Caller resolves `station` from `snapshot.stationId` (see restoreSavedGame in src/ui-savegame-manager.ts).
  *  `snapshot.inFlight` is intentionally ignored — the truth is rebuilt by
  *  `tradeManager.restoreFromSnapshot` from each trade ship's `flight` field. */
 export function shipFromSnapshot(snapshot: ShipSnapshot, station: Station): Ship {

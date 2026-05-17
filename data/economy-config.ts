@@ -1,21 +1,37 @@
-/** Current config sizes station storage to hold 1h of production. */
 export const economyConfig = {
-  simulationIntervalSeconds: 0.5, // between sim ticks: production, consumption, UI
-  targetFillTimeSeconds: 3600, // to fill output from empty (1 hour)
+  // time between sim ticks: production, consumption, UI
+  // helps with performance since this doesn't need to be calculated every tick
+  simulationIntervalSeconds: 0.5,
+  // time to fill station ware output from empty with production
+  targetFillTimeSeconds: 3600, // 1 hour
 
-  // Trade — ships orbit idle, then periodically run a trade route.
-  tradeWaitMinSeconds: 2, // a ship waits in orbit between trades
+  // Ships orbit idle, then periodically run a trade route.
+  // a ship waits in orbit between trades
+  tradeWaitMinSeconds: 2,
   tradeWaitMaxSeconds: 8,
-  initialStaggerDurationDefaultSeconds: 30, // ships begin first trade within this window (maps can override)
-  groundedDelaySeconds: 2, // spent grounded (loading/unloading)
-  optimalChance: 0.75, // probability of picking optimal ware/destination vs random
-  minimumCargoFillThreshold: 0.5, // ship only accepts trade that fills ≥ this fraction of cargo
-  cargoFillDecayPerSecond: 0.5 / 120, // threshold decays to 0 over 2 minutes
+  // ships begin first trade within this window (maps can override)
+  // stagger helps with performance and more evenly distributes trade activity
+  defaultInitialStaggerDurationSeconds: 30,
+  // ship time spent grounded (loading/unloading)
+  groundedDelaySeconds: 2,
+  // probability of picking the highest-scoring ware/destination trade route vs
+  // a random trade route (to have universe trades feel more natural)
+  optimalPickChance: 0.75, // 75%
+  // ship only accepts trade that fills this fraction of cargo
+  // this avoids ships trading low quantities at start of trade search
+  minimumCargoFillThreshold: 0.5,
+  // over time, ship is willing to accept lower cargo fill thresholds
+  // this controls how fast ship reduces minimum threshold
+  cargoFillDecayPerSecond: 0.5 / 120, // 2 minutes
+  // how often the overview trade view recomputes "which routes have been active recently" — between refreshes, the same list is reused.
   tradeRouteCacheRefreshSeconds: 30,
   // 3h = 1h safety margin over the longest exposed "traders in last X" window (2h); caps growth in long sessions.
+  // used in overview: trade view to see route history
   tradeRouteHistoryRetentionSeconds: 3 * 60 * 60,
 
   // UI throttling — cuts expensive setText/innerHTML calls. Values are tick multiples.
-  focusedAttentionIntervalTicks: 1, // selected item + HUD panel: every tick (0.5s)
-  backgroundAttentionIntervalTicks: 10, // unselected labels: every 10 ticks (5s)
+  // selected in-game object (station & ship inventory rings) + HUD panel: every tick (0.5s)
+  focusedAttentionIntervalTicks: 1,
+  // unselected in-game objects: every 10 ticks (5s)
+  backgroundAttentionIntervalTicks: 10,
 };

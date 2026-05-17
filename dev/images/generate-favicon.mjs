@@ -4,7 +4,7 @@
  * Outputs:
  *   - public/favicon.ico  (16×16 + 32×32, referenced by index.html / tools.html)
  *
- * The SVG itself is the hand-authored source of truth (a direct port of the
+ * The SVG itself is the hand-written source of truth (a direct port of the
  * sector icon built by buildSectorIcon() in src/render-hud-icon.ts). It's both
  * the live-served modern favicon and the input to this script — edit the SVG
  * to change the design, then re-run this script to regenerate the raster.
@@ -56,10 +56,10 @@ function encodeIco(images) {
     // Width/height byte: 0 means 256 in the ICO spec. We only emit 16 and 32, so the ternary is defensive — never triggers.
     header.writeUInt8(width >= 256 ? 0 : width, base + 0);
     header.writeUInt8(height >= 256 ? 0 : height, base + 1);
-    header.writeUInt8(0, base + 2);            // palette size (0 = no palette)
-    header.writeUInt8(0, base + 3);            // reserved
-    header.writeUInt16LE(1, base + 4);         // color planes
-    header.writeUInt16LE(32, base + 6);        // bits per pixel
+    header.writeUInt8(0, base + 2); // palette size (0 = no palette)
+    header.writeUInt8(0, base + 3); // reserved
+    header.writeUInt16LE(1, base + 4); // color planes
+    header.writeUInt16LE(32, base + 6); // bits per pixel
     header.writeUInt32LE(data.length, base + 8);
     header.writeUInt32LE(payloadOffset, base + 12);
     payloadOffset += data.length;
@@ -68,10 +68,7 @@ function encodeIco(images) {
   return Buffer.concat([header, ...images.map((img) => img.data)]);
 }
 
-const [png16, png32] = await Promise.all([
-  renderPng(svgBuffer, 16),
-  renderPng(svgBuffer, 32),
-]);
+const [png16, png32] = await Promise.all([renderPng(svgBuffer, 16), renderPng(svgBuffer, 32)]);
 
 const ico = encodeIco([
   { width: 16, height: 16, data: png16 },

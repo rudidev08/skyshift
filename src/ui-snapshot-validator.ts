@@ -1,11 +1,8 @@
-// Narrows arbitrary JSON to a GameSnapshot. Lives apart from savegame-manager.ts
+// Narrows arbitrary JSON to a GameSnapshot. Lives apart from ui-savegame-manager.ts
 // so the shape walker and runSnapshotRoundTripTest stay independent of the
 // scene and localStorage plumbing.
 
-import {
-  SAVE_VERSION,
-  type GameSnapshot,
-} from "./sim-save-types";
+import { SAVE_VERSION, type GameSnapshot } from "./sim-save-types";
 import { STATION_SIZES, STATION_STATES } from "../data/station-types";
 import { HISTORY_STATION_STATES } from "./sim-station-history";
 import * as saveError from "../data/strings-save";
@@ -19,8 +16,9 @@ export type ValidationResult =
 
 export function validateSnapshot(json: string): ValidationResult {
   let parsed: unknown;
-  try { parsed = JSON.parse(json); }
-  catch (error) {
+  try {
+    parsed = JSON.parse(json);
+  } catch (error) {
     return {
       ok: false,
       reason: "corrupt",
@@ -62,7 +60,8 @@ function formatParseErrorDetail(error: unknown, json: string): string {
 
 type SnapshotShapeResult = { ok: true; value: GameSnapshot } | { ok: false; path: string };
 
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
 const isArray = Array.isArray;
 const fail = (path: string): SnapshotShapeResult => ({ ok: false, path });
 
@@ -70,33 +69,32 @@ const fail = (path: string): SnapshotShapeResult => ({ ok: false, path });
  *  bad field, or narrow input to GameSnapshot on success. Paths use
  *  dotted/bracket form (stationHistory[2].station.state) so they're greppable
  *  against the schema in sim-save-types.ts. */
-function checkSnapshotShape(snapshotCandidate: unknown): SnapshotShapeResult {
-  if (!isObject(snapshotCandidate)) return fail("(root)");
-  const snapshotObject = snapshotCandidate;
+function checkSnapshotShape(snapshot: unknown): SnapshotShapeResult {
+  if (!isObject(snapshot)) return fail("(root)");
 
-  if (typeof snapshotObject.version !== "number") return fail("version");
-  if (typeof snapshotObject.preset !== "string") return fail("preset");
-  if (!isArray(snapshotObject.stations)) return fail("stations");
-  if (!isArray(snapshotObject.ships)) return fail("ships");
-  if (!isArray(snapshotObject.tradeShips)) return fail("tradeShips");
-  if (!isObject(snapshotObject.tradeModule)) return fail("tradeModule");
-  if (!isArray(snapshotObject.nationManager)) return fail("nationManager");
-  const nationManagerError = checkNationManagerEntries(snapshotObject.nationManager);
+  if (typeof snapshot.version !== "number") return fail("version");
+  if (typeof snapshot.presetId !== "string") return fail("presetId");
+  if (!isArray(snapshot.stations)) return fail("stations");
+  if (!isArray(snapshot.ships)) return fail("ships");
+  if (!isArray(snapshot.tradeShips)) return fail("tradeShips");
+  if (!isObject(snapshot.tradeManager)) return fail("tradeManager");
+  if (!isArray(snapshot.nationManager)) return fail("nationManager");
+  const nationManagerError = checkNationManagerEntries(snapshot.nationManager);
   if (nationManagerError) return fail(nationManagerError);
 
-  const stationsError = checkStationEntries(snapshotObject.stations);
+  const stationsError = checkStationEntries(snapshot.stations);
   if (stationsError) return fail(stationsError);
 
-  const emigrationError = checkEmigrationManager(snapshotObject.emigrationManager);
+  const emigrationError = checkEmigrationManager(snapshot.emigrationManager);
   if (emigrationError) return fail(emigrationError);
 
-  if (!isArray(snapshotObject.stationHistory)) return fail("stationHistory");
-  const stationHistoryError = checkStationHistoryEntries(snapshotObject.stationHistory);
+  if (!isArray(snapshot.stationHistory)) return fail("stationHistory");
+  const stationHistoryError = checkStationHistoryEntries(snapshot.stationHistory);
   if (stationHistoryError) return fail(stationHistoryError);
 
-  // Explicit unknown-cast: snapshotCandidate is narrowed to Record<string, unknown>
+  // Explicit unknown-cast: snapshot is narrowed to Record<string, unknown>
   // via isObject, but TS can't infer the full GameSnapshot from field-by-field narrows.
-  return { ok: true, value: snapshotCandidate as unknown as GameSnapshot };
+  return { ok: true, value: snapshot as unknown as GameSnapshot };
 }
 
 function checkNationManagerEntries(entries: unknown[]): string | null {
@@ -137,7 +135,7 @@ function checkStationEntries(entries: unknown[]): string | null {
   return null;
 }
 
-/** Building stations carry an authored `build` block and are contractually
+/** Building stations carry a required `build` block and are contractually
  *  restricted to provisions/hulls in their inventory — stationFromSnapshot
  *  derives slot.max from `waresRequired`, so a missing/non-numeric value
  *  would crash apply or silently zero a slot, and other ware ids would
@@ -148,7 +146,8 @@ function checkBuildingStation(station: Record<string, unknown>, stationIndex: nu
   }
   const required = station.build.waresRequired;
   if (!isObject(required)) return `stations[${stationIndex}].build.waresRequired`;
-  if (typeof required.provisions !== "number") return `stations[${stationIndex}].build.waresRequired.provisions`;
+  if (typeof required.provisions !== "number")
+    return `stations[${stationIndex}].build.waresRequired.provisions`;
   if (typeof required.hulls !== "number") return `stations[${stationIndex}].build.waresRequired.hulls`;
   const inventory = station.inventory as unknown[];
   for (let j = 0; j < inventory.length; j++) {
@@ -168,13 +167,19 @@ function checkEmigrationManager(value: unknown): string | null {
     const activeEventError = checkActiveEmigrationEvent(emigrationManager.activeEvent);
     if (activeEventError) return activeEventError;
   }
-  if (emigrationManager.activeGenerationalShipId !== null && typeof emigrationManager.activeGenerationalShipId !== "string") return "emigrationManager.activeGenerationalShipId";
+  if (
+    emigrationManager.activeGenerationalShipId !== null &&
+    typeof emigrationManager.activeGenerationalShipId !== "string"
+  )
+    return "emigrationManager.activeGenerationalShipId";
   if (typeof emigrationManager.mode !== "string") return "emigrationManager.mode";
   if (typeof emigrationManager.intensity !== "string") return "emigrationManager.intensity";
   if (!isArray(emigrationManager.usedDestinations)) return "emigrationManager.usedDestinations";
-  if (typeof emigrationManager.simTime !== "number") return "emigrationManager.simTime";
-  if (typeof emigrationManager.nextGenerationalShipCounter !== "number") return "emigrationManager.nextGenerationalShipCounter";
-  if (typeof emigrationManager.nextEmigrantShipCounter !== "number") return "emigrationManager.nextEmigrantShipCounter";
+  if (typeof emigrationManager.clockSeconds !== "number") return "emigrationManager.clockSeconds";
+  if (typeof emigrationManager.nextGenerationalShipCounter !== "number")
+    return "emigrationManager.nextGenerationalShipCounter";
+  if (typeof emigrationManager.nextEmigrantShipCounter !== "number")
+    return "emigrationManager.nextEmigrantShipCounter";
   if (typeof emigrationManager.nextEventCounter !== "number") return "emigrationManager.nextEventCounter";
   return null;
 }
@@ -184,12 +189,14 @@ function checkActiveEmigrationEvent(value: unknown): string | null {
   const activeEvent = value;
   if (typeof activeEvent.id !== "string") return "emigrationManager.activeEvent.id";
   if (!isArray(activeEvent.nationIds)) return "emigrationManager.activeEvent.nationIds";
-  if (typeof activeEvent.generationalShipId !== "string") return "emigrationManager.activeEvent.generationalShipId";
+  if (typeof activeEvent.generationalShipId !== "string")
+    return "emigrationManager.activeEvent.generationalShipId";
   if (!isArray(activeEvent.stationIds)) return "emigrationManager.activeEvent.stationIds";
   if (typeof activeEvent.shipsArrived !== "number") return "emigrationManager.activeEvent.shipsArrived";
-  if (typeof activeEvent.totalExpectedShips !== "number") return "emigrationManager.activeEvent.totalExpectedShips";
+  if (typeof activeEvent.totalExpectedShips !== "number")
+    return "emigrationManager.activeEvent.totalExpectedShips";
   if (typeof activeEvent.destinationName !== "string") return "emigrationManager.activeEvent.destinationName";
-  if (typeof activeEvent.eventStartAt !== "number") return "emigrationManager.activeEvent.eventStartAt";
+  if (typeof activeEvent.startAt !== "number") return "emigrationManager.activeEvent.startAt";
   return null;
 }
 
@@ -225,7 +232,8 @@ function checkHistoryCreated(
   if (typeof station.id !== "string") return `stationHistory[${entryIndex}].station.id`;
   if (typeof station.nationId !== "string") return `stationHistory[${entryIndex}].station.nationId`;
   if (typeof station.typeId !== "string") return `stationHistory[${entryIndex}].station.typeId`;
-  if (typeof station.state !== "string" || !validStates.has(station.state)) return `stationHistory[${entryIndex}].station.state`;
+  if (typeof station.state !== "string" || !validStates.has(station.state))
+    return `stationHistory[${entryIndex}].station.state`;
   if (!isObject(station.position)) return `stationHistory[${entryIndex}].station.position`;
   if (typeof station.position.x !== "number") return `stationHistory[${entryIndex}].station.position.x`;
   if (typeof station.position.y !== "number") return `stationHistory[${entryIndex}].station.position.y`;
@@ -238,14 +246,12 @@ function checkHistoryStateChanged(
   validStates: ReadonlySet<string>,
 ): string | null {
   if (typeof entry.stationId !== "string") return `stationHistory[${entryIndex}].stationId`;
-  if (typeof entry.newState !== "string" || !validStates.has(entry.newState)) return `stationHistory[${entryIndex}].newState`;
+  if (typeof entry.newState !== "string" || !validStates.has(entry.newState))
+    return `stationHistory[${entryIndex}].newState`;
   return null;
 }
 
-function checkHistoryRemoved(
-  entry: Record<string, unknown>,
-  entryIndex: number,
-): string | null {
+function checkHistoryRemoved(entry: Record<string, unknown>, entryIndex: number): string | null {
   if (typeof entry.stationId !== "string") return `stationHistory[${entryIndex}].stationId`;
   return null;
 }
@@ -259,7 +265,7 @@ export function runSnapshotRoundTripTest(snapshot: GameSnapshot): boolean {
   if (!result.ok) {
     console.warn(
       `[snapshot-validator] round-trip failed: ${result.reason} — ${result.message}` +
-      (result.detail ? `\n${result.detail}` : ""),
+        (result.detail ? `\n${result.detail}` : ""),
     );
     return false;
   }
@@ -267,19 +273,19 @@ export function runSnapshotRoundTripTest(snapshot: GameSnapshot): boolean {
   // to catch value drift (e.g. a serialized field missing from the walker).
   const reserialized = JSON.stringify(result.snapshot);
   if (reserialized !== json) {
+    const minLength = Math.min(json.length, reserialized.length);
+    let firstDivergingCharIndex = minLength;
+    for (let i = 0; i < minLength; i++) {
+      if (json[i] !== reserialized[i]) {
+        firstDivergingCharIndex = i;
+        break;
+      }
+    }
     console.warn(
       `[snapshot-validator] round-trip lost or reordered data; ` +
-      `first divergence at char ${firstDivergence(json, reserialized)}`,
+        `first divergence at char ${firstDivergingCharIndex}`,
     );
     return false;
   }
   return true;
-}
-
-function firstDivergence(expectedJson: string, actualJson: string): number {
-  const min = Math.min(expectedJson.length, actualJson.length);
-  for (let i = 0; i < min; i++) {
-    if (expectedJson[i] !== actualJson[i]) return i;
-  }
-  return min;
 }

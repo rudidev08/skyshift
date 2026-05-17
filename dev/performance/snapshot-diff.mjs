@@ -70,7 +70,13 @@ for (const className of allClasses) {
   const countDelta = laterEntry.count - baselineEntry.count;
   const sizeDelta = laterEntry.totalSelfSize - baselineEntry.totalSelfSize;
   if (countDelta === 0 && sizeDelta === 0) continue;
-  diffs.push({ className, laterCount: laterEntry.count, countDelta, laterSize: laterEntry.totalSelfSize, sizeDelta });
+  diffs.push({
+    className,
+    laterCount: laterEntry.count,
+    countDelta,
+    laterSize: laterEntry.totalSelfSize,
+    sizeDelta,
+  });
 }
 
 diffs.sort((a, b) => b.sizeDelta - a.sizeDelta);
@@ -86,20 +92,30 @@ function formatDelta(value, formatter = (x) => x.toString()) {
 }
 
 console.log(`\n=== Top ${topN} classes by self-size growth ===`);
-console.log("class".padEnd(45) + "count".padStart(10) + "Δcount".padStart(10) + "self_size".padStart(12) + "Δsize".padStart(14));
+console.log(
+  "class".padEnd(45) +
+    "count".padStart(10) +
+    "Δcount".padStart(10) +
+    "self_size".padStart(12) +
+    "Δsize".padStart(14),
+);
 console.log("-".repeat(91));
 for (const diff of diffs.slice(0, topN)) {
   const className = diff.className.length > 44 ? diff.className.slice(0, 41) + "..." : diff.className;
   console.log(
     className.padEnd(45) +
-    String(diff.laterCount).padStart(10) +
-    formatDelta(diff.countDelta).padStart(10) +
-    formatSize(diff.laterSize).padStart(12) +
-    formatDelta(diff.sizeDelta, formatSize).padStart(14),
+      String(diff.laterCount).padStart(10) +
+      formatDelta(diff.countDelta).padStart(10) +
+      formatSize(diff.laterSize).padStart(12) +
+      formatDelta(diff.sizeDelta, formatSize).padStart(14),
   );
 }
 
 const totalCountDelta = diffs.reduce((sum, diff) => sum + diff.countDelta, 0);
 const totalSizeDelta = diffs.reduce((sum, diff) => sum + diff.sizeDelta, 0);
-console.log(`\nTotal across all classes (only those that changed): ${formatDelta(totalCountDelta)} objects, ${formatDelta(totalSizeDelta, formatSize)} self-size`);
-console.log(`\nNote: self_size is per-object header bytes only. For full retained-size (children + closures), load both snapshots in Chrome DevTools → Memory → "Load profile", then switch dropdown to "Comparison".`);
+console.log(
+  `\nTotal across all classes (only those that changed): ${formatDelta(totalCountDelta)} objects, ${formatDelta(totalSizeDelta, formatSize)} self-size`,
+);
+console.log(
+  `\nNote: self_size is per-object header bytes only. For full retained-size (children + closures), load both snapshots in Chrome DevTools → Memory → "Load profile", then switch dropdown to "Comparison".`,
+);

@@ -2,7 +2,7 @@
 //
 // These tests construct mock stations + ships outside any sim and use a
 // dedicated mock TradeManager. The manager's deposit observer fires the
-// route-stats recording, so the assertion can read tradeManager.getOrRefreshTradedRoutes(...).
+// route-stats recording, so the assertion can read tradeManager.getTradedRoutes(...).
 
 import { economyConfig } from "../../data/economy-config.ts";
 import { test, assertEqual, assertTrue } from "./test-utils.ts";
@@ -12,37 +12,44 @@ import { type TradeShip } from "../sim-trade-types.ts";
 import { processDepositAction } from "../sim-trade-queue.ts";
 import type { Ship } from "../sim-ships.ts";
 import type { Station } from "../sim-station-types.ts";
-import { makeMockStationPlacement } from "./trade-test-fixtures.ts";
+import { makePlacedStation } from "./factories.ts";
 
 interface RouteStatsObserverFixture {
   manager: TradeManager;
-  ship: TradeShip;
+  tradeShip: TradeShip;
   producer: Station;
-  home: Station;
+  homeStation: Station;
   orbitingShip: Ship;
 }
 
 /** Producer + home stations, an orbiting ship, a TradeManager wired to read both, and a TradeShip ready to deposit 500 water at home. */
 function makeRouteStatsObserverFixture(idPrefix: string): RouteStatsObserverFixture {
-  const producer = createStation(makeMockStationPlacement({
-    id: `${idPrefix}-SRC`,
-    stationTypeId: "water-processing",
-    size: "M",
-    x: -100,
-  }));
-  const home = createStation(makeMockStationPlacement({
-    id: `${idPrefix}-HOME`,
-    stationTypeId: "farm",
-    size: "M",
-    x: 100,
-  }));
-  const homeWaterSlot = getInventorySlot(home, "water")!;
+  const producer = createStation(
+    makePlacedStation({
+      id: `${idPrefix}-SRC`,
+      stationTypeId: "water-processing",
+      size: "M",
+      x: -100,
+    }),
+  );
+  const homeStation = createStation(
+    makePlacedStation({
+      id: `${idPrefix}-HOME`,
+      stationTypeId: "farm",
+      size: "M",
+      x: 100,
+    }),
+  );
+  const homeWaterSlot = getInventorySlot(homeStation, "water")!;
   homeWaterSlot.current = 0;
 
-  const stationsById = new Map<string, Station>([[producer.id, producer], [home.id, home]]);
+  const stationsById = new Map<string, Station>([
+    [producer.id, producer],
+    [homeStation.id, homeStation],
+  ]);
   const shipsById = new Map<string, Ship>();
   const orbitingShip: Ship = {
-    station: home,
+    station: homeStation,
     shipTypeId: "trader",
     id: `${idPrefix}-SHIP`,
     shipName: `${idPrefix} Ship`,
@@ -54,43 +61,65 @@ function makeRouteStatsObserverFixture(idPrefix: string): RouteStatsObserverFixt
     shipManager: { getShip: (id: string) => shipsById.get(id) },
   });
 
-  const ship: TradeShip = {
+  const tradeShip: TradeShip = {
     reservations: [],
     cargoAmountByWareId: new Map([[homeWaterSlot.ware.id, 500]]),
     actionQueue: [],
     flight: null,
     targetStationId: producer.id,
     tradeDirection: "buy",
-    lastHeading: null,
-    idleStartTime: 0,
-    homeStationId: home.id,
+    lastFlightHeadingRadians: null,
+    idleSinceTradeTime: 0,
+    homeStationId: homeStation.id,
     orbitingShipId: orbitingShip.id,
   };
-  return { manager, ship, producer, home, orbitingShip };
+  return { manager, tradeShip, producer, homeStation, orbitingShip };
 }
 
 /** Refill the ship from cargo and re-fire a 500-water deposit at home. */
-function depositFullWaterLoadAtHome(fixture: RouteStatsObserverFixture): void {
-  const homeWaterSlot = getInventorySlot(fixture.home, "water")!;
+function depositWaterAtHome(fixture: RouteStatsObserverFixture): void {
+  const homeWaterSlot = getInventorySlot(fixture.homeStation, "water")!;
   homeWaterSlot.current = 0;
-  fixture.ship.cargoAmountByWareId = new Map([[homeWaterSlot.ware.id, 500]]);
-  processDepositAction(fixture.ship, {
-    type: "cargo-deposit",
-    station: fixture.home,
-    wareId: "water",
-    amount: 500,
-  }, fixture.manager);
+  fixture.tradeShip.cargoAmountByWareId = new Map([[homeWaterSlot.ware.id, 500]]);
+  processDepositAction(
+    fixture.tradeShip,
+    {
+      type: "cargo-deposit",
+      station: fixture.homeStation,
+      wareId: "water",
+      amount: 500,
+    },
+    fixture.manager,
+  );
+}
+
+/** Fan a 500-water incoming transfer at the home station through the
+ *  manager's observers — the same path a real ferry delivery hits. */
+function fireIncomingWaterTransferAtHome(
+  fixture: RouteStatsObserverFixture,
+  ship: TradeShip,
+): void {
+  for (const observer of fixture.manager.tradeTransferObservers) {
+    observer({
+      amount: 500,
+      ship,
+      station: fixture.homeStation,
+      cargoDirection: "incoming",
+      wareId: "water",
+    });
+  }
 }
 
 test("deposit route stats record the pickup station as the source for buy deliveries", () => {
   const fixture = makeRouteStatsObserverFixture("WATER");
 
-  depositFullWaterLoadAtHome(fixture);
+  depositWaterAtHome(fixture);
 
-  const tradedRoutes = fixture.manager.getOrRefreshTradedRoutes(0, Infinity);
+  const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
   assertEqual(tradedRoutes.length, 1, "delivery should create exactly one traded route");
   assertTrue(
-    tradedRoutes[0].fromStationId === fixture.producer.id && tradedRoutes[0].toStationId === fixture.home.id,
+    tradedRoutes[0].fromStationId === fixture.producer.id &&
+      tradedRoutes[0].toStationId === fixture.homeStation.id,
     "delivery should record producer -> home instead of home -> home",
   );
   // fillFraction is amount / cargoCapacity. Trader capacity is 2500, deposit
@@ -109,12 +138,12 @@ test("delivery event records its time as the manager's current tradeTime, not ze
   // window that includes [now-150 .. now] and confirming the delivery is in.
   const fixture = makeRouteStatsObserverFixture("TIME");
   fixture.manager.advanceTradeTime(200);
-  depositFullWaterLoadAtHome(fixture);
+  depositWaterAtHome(fixture);
 
   // Window covers tradeTime ∈ [50, 200]. With time: tradeTime=200 the delivery
   // is included; with time: 0 the cutoff (50) excludes it.
-  const inWindow = fixture.manager.tradeRouteStats.getRouteStatsInWindow(200, 150);
-  assertEqual(inWindow.length, 1, "delivery falls inside the [now-150, now] window");
+  const deliveriesInWindow = fixture.manager.tradeRouteStats.getRouteStatsInWindow(200, 150);
+  assertEqual(deliveriesInWindow.length, 1, "delivery falls inside the [now-150, now] window");
 
   fixture.manager.dispose();
 });
@@ -122,19 +151,22 @@ test("delivery event records its time as the manager's current tradeTime, not ze
 test("traded-route cache refreshes after 30 game seconds instead of wall-clock polling", () => {
   const fixture = makeRouteStatsObserverFixture("CACHE");
 
-  depositFullWaterLoadAtHome(fixture);
-  const first = fixture.manager.getOrRefreshTradedRoutes(0, Infinity);
+  depositWaterAtHome(fixture);
+  const first = fixture.manager.getTradedRoutes(0, Infinity);
 
-  depositFullWaterLoadAtHome(fixture);
-  const second = fixture.manager.getOrRefreshTradedRoutes(0, Infinity);
+  depositWaterAtHome(fixture);
+  const second = fixture.manager.getTradedRoutes(0, Infinity);
   assertTrue(second === first, "cache should stay warm before the game-time refresh boundary");
 
   // Just before the refresh boundary still returns the cached reference —
   // pins the `<` (not `<=`) check so a +1 off-by-one mutation is caught.
-  const justBefore = fixture.manager.getOrRefreshTradedRoutes(economyConfig.tradeRouteCacheRefreshSeconds - 1, Infinity);
+  const justBefore = fixture.manager.getTradedRoutes(
+    economyConfig.tradeRouteCacheRefreshSeconds - 1,
+    Infinity,
+  );
   assertTrue(justBefore === first, "cache should stay warm just before the boundary");
 
-  const refreshed = fixture.manager.getOrRefreshTradedRoutes(economyConfig.tradeRouteCacheRefreshSeconds, Infinity);
+  const refreshed = fixture.manager.getTradedRoutes(economyConfig.tradeRouteCacheRefreshSeconds, Infinity);
   assertTrue(refreshed !== first, "cache should refresh at the configured game-time window");
   assertEqual(refreshed[0].totalDeliveries, 2, "refreshed stats should include the later delivery");
 
@@ -143,7 +175,7 @@ test("traded-route cache refreshes after 30 game seconds instead of wall-clock p
 
 test("recordRouteDeliveryFromTransfer ignores transfers whose ship is no longer registered", () => {
   // Pin the `if (!orbitingShip) return;` guard in recordRouteDeliveryFromTransfer.
-  // Dropping the guard would let getShipTemplate(undefined.shipTypeId) throw on
+  // Dropping the guard would let getShipTypeTemplate(undefined.shipTypeId) throw on
   // a transfer fired during the gap between deregister and queue drain — a
   // race the production decommission flow exercises. Verify by firing a
   // synthetic transfer event whose ship id is absent from the resolver and
@@ -151,24 +183,93 @@ test("recordRouteDeliveryFromTransfer ignores transfers whose ship is no longer 
   const fixture = makeRouteStatsObserverFixture("ORPHAN");
   // Fire a transfer for a TradeShip the manager's shipResolver can't find.
   const orphanTradeShip: TradeShip = {
-    ...fixture.ship,
+    ...fixture.tradeShip,
     orbitingShipId: "no-such-ship-in-resolver",
   };
-  for (const observer of fixture.manager.tradeTransferObservers) {
-    observer({
-      amount: 500,
-      ship: orphanTradeShip,
-      station: fixture.home,
-      cargoDirection: "incoming",
-      wareId: "water",
-    });
-  }
+  fireIncomingWaterTransferAtHome(fixture, orphanTradeShip);
 
-  // Without the guard, getShipTemplate(undefined.shipTypeId) would have thrown
+  // Without the guard, getShipTypeTemplate(undefined.shipTypeId) would have thrown
   // before this assertion runs. With the guard, the orphan transfer is skipped
   // silently and no route stats are recorded.
-  const tradedRoutes = fixture.manager.getOrRefreshTradedRoutes(0, Infinity);
+  const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
   assertEqual(tradedRoutes.length, 0, "orphan transfer is ignored by route stats");
+
+  fixture.manager.dispose();
+});
+
+test("recordRouteDeliveryFromTransfer skips transfers with no targetStationId (idle ship at home)", () => {
+  // Pin the `if (!fromStationId || !toStationId || fromStationId === toStationId) return;`
+  // guard in recordRouteDeliveryFromTransfer. Without it, an incoming transfer
+  // at home from a ship with targetStationId === null would record a route
+  // keyed on "null::homeId" — a phantom route the overview window would surface.
+  const fixture = makeRouteStatsObserverFixture("NO-TARGET");
+  // Force a ship with no targetStationId — mirrors a freshly-enrolled or idle ship.
+  fixture.tradeShip.targetStationId = null;
+  // Fire an incoming transfer at home; with targetStationId null and toStation=home,
+  // fromStationId resolves to null and the guard must short-circuit.
+  fireIncomingWaterTransferAtHome(fixture, fixture.tradeShip);
+  const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
+  assertEqual(tradedRoutes.length, 0, "transfer with null fromStationId records no route");
+
+  fixture.manager.dispose();
+});
+
+test("recordRouteDeliveryFromTransfer skips transfers where fromStationId === toStationId (home-to-home)", () => {
+  // Pin the third clause of the guard — even when both ids resolve to strings,
+  // a deposit where from === to is structurally meaningless and must not record.
+  // Reaches the clause via a ship whose targetStationId is also the home id
+  // (e.g. a misconfigured trip that round-trips to home), with the deposit at home.
+  const fixture = makeRouteStatsObserverFixture("SELF-LOOP");
+  fixture.tradeShip.targetStationId = fixture.homeStation.id;
+  fireIncomingWaterTransferAtHome(fixture, fixture.tradeShip);
+  const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
+  assertEqual(tradedRoutes.length, 0, "transfer where from === to records no route");
+
+  fixture.manager.dispose();
+});
+
+test("recordRouteDeliveryFromTransfer skips deliveries whose consumer station is emigrating", () => {
+  // Fire the transfer observer directly (like the ORPHAN / NO-TARGET /
+  // SELF-LOOP tests). depositWaterAtHome → processDepositAction has its own
+  // emigrating short-circuit that would mask this guard, so go straight to the
+  // observer. Pin: consumer (toStation) state === "emigrating" → not recorded.
+  const fixture = makeRouteStatsObserverFixture("EMIG-CONSUMER");
+  fixture.homeStation.state = "emigrating";
+
+  fireIncomingWaterTransferAtHome(fixture, fixture.tradeShip);
+
+  const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
+  assertEqual(tradedRoutes.length, 0, "delivery to an emigrating consumer is not recorded");
+
+  fixture.manager.dispose();
+});
+
+test("recordRouteDeliveryFromTransfer skips deliveries whose producer station is emigrating", () => {
+  // Symmetric case: the producer (pickup) station is emigrating. The ship was
+  // dispatched before the flip and completes its run after it.
+  const fixture = makeRouteStatsObserverFixture("EMIG-PRODUCER");
+  fixture.producer.state = "emigrating";
+
+  depositWaterAtHome(fixture);
+
+  const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
+  assertEqual(tradedRoutes.length, 0, "delivery from an emigrating producer is not recorded");
+
+  fixture.manager.dispose();
+});
+
+test("recordRouteDeliveryFromTransfer skips deliveries whose producer station was already removed", () => {
+  // During emigration wind-down a producer can be removed while a ship is mid-
+  // flight delivering from it. Resolving fromStationId then yields undefined.
+  // Pin: unresolvable producer → skip (otherwise a phantom route from the
+  // removed station to home would record).
+  const fixture = makeRouteStatsObserverFixture("EMIG-REMOVED");
+  fixture.tradeShip.targetStationId = "REMOVED-PRODUCER-ID";
+
+  depositWaterAtHome(fixture);
+
+  const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
+  assertEqual(tradedRoutes.length, 0, "delivery from an unresolvable producer is not recorded");
 
   fixture.manager.dispose();
 });
@@ -177,22 +278,59 @@ test("two TradeManagers record route stats independently — observer captures i
   // Regression pin: the constructor's tradeTransferObserver closes over `this`
   // and reads `this.shipResolver(...)`. Two coexistent managers each see only
   // their own stations + ships, so a deposit on manager A must not appear in
-  // manager B's getOrRefreshTradedRoutes() and vice versa.
+  // manager B's getTradedRoutes() and vice versa.
   const managerAFixture = makeRouteStatsObserverFixture("ISO-A");
   const managerBFixture = makeRouteStatsObserverFixture("ISO-B");
 
-  // Fire one deposit on each manager, in interleaved order.
-  processDepositAction(managerAFixture.ship, { type: "cargo-deposit", station: managerAFixture.home, wareId: "water", amount: 500 }, managerAFixture.manager);
-  processDepositAction(managerBFixture.ship, { type: "cargo-deposit", station: managerBFixture.home, wareId: "water", amount: 500 }, managerBFixture.manager);
+  // Fire one deposit on each manager.
+  processDepositAction(
+    managerAFixture.tradeShip,
+    { type: "cargo-deposit", station: managerAFixture.homeStation, wareId: "water", amount: 500 },
+    managerAFixture.manager,
+  );
+  processDepositAction(
+    managerBFixture.tradeShip,
+    { type: "cargo-deposit", station: managerBFixture.homeStation, wareId: "water", amount: 500 },
+    managerBFixture.manager,
+  );
 
-  const aRoutes = managerAFixture.manager.getOrRefreshTradedRoutes(0, Infinity);
-  const bRoutes = managerBFixture.manager.getOrRefreshTradedRoutes(0, Infinity);
+  const aRoutes = managerAFixture.manager.getTradedRoutes(0, Infinity);
+  const bRoutes = managerBFixture.manager.getTradedRoutes(0, Infinity);
 
   assertEqual(aRoutes.length, 1, "manager A sees exactly one route");
   assertEqual(bRoutes.length, 1, "manager B sees exactly one route");
-  assertTrue(aRoutes[0].fromStationId === managerAFixture.producer.id && aRoutes[0].toStationId === managerAFixture.home.id, "A's route is producer-A → home-A");
-  assertTrue(bRoutes[0].fromStationId === managerBFixture.producer.id && bRoutes[0].toStationId === managerBFixture.home.id, "B's route is producer-B → home-B");
+  assertTrue(
+    aRoutes[0].fromStationId === managerAFixture.producer.id &&
+      aRoutes[0].toStationId === managerAFixture.homeStation.id,
+    "A's route is producer-A → home-A",
+  );
+  assertTrue(
+    bRoutes[0].fromStationId === managerBFixture.producer.id &&
+      bRoutes[0].toStationId === managerBFixture.homeStation.id,
+    "B's route is producer-B → home-B",
+  );
 
   managerAFixture.manager.dispose();
   managerBFixture.manager.dispose();
+});
+
+test("clearTradeRouteHistory wipes recorded routes and the per-window cache", () => {
+  // The overview polls getTradedRoutes(now, window) every 500ms; that result
+  // is cached in routesCacheByWindow with a game-time TTL. Clearing only the
+  // event store would still return the stale cached window. Pin both: query a
+  // window first (populates the cache), clear, re-query at the same `now`.
+  const fixture = makeRouteStatsObserverFixture("CLEAR");
+
+  depositWaterAtHome(fixture);
+  assertEqual(fixture.manager.getTradedRoutes(0, Infinity).length, 1, "one route before clear");
+
+  fixture.manager.clearTradeRouteHistory();
+
+  assertEqual(
+    fixture.manager.getTradedRoutes(0, Infinity).length,
+    0,
+    "no routes after clear (event store + window cache both wiped)",
+  );
+
+  fixture.manager.dispose();
 });

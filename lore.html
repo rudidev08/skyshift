@@ -1,22 +1,22 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="color-scheme" content="dark" />
-  <meta name="theme-color" content="#050709" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Skyshift" />
-  <title>Skyshift Lore</title>
-  <link rel="icon" href="/favicon.ico" sizes="32x32" />
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="stylesheet" href="/ui.css" />
-  <style>
-    /* =========================================================
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#050709" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Skyshift" />
+    <title>Skyshift Lore</title>
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/ui.css" />
+    <style>
+      /* =========================================================
        Lore — page shell + per-tab ornamentation.
        All colors/typography inherit from ui.css tokens. This page
        is a reference document, not a HUD, so it leans into
@@ -24,1220 +24,1950 @@
        numbered sections, dashed dividers.
        ========================================================= */
 
-    body {
-      padding-bottom: 80px;
-      background-image:
-        radial-gradient(ellipse at 20% 20%, color-mix(in srgb, var(--active) 4%, transparent) 0%, transparent 55%),
-        radial-gradient(ellipse at 80% 80%, color-mix(in srgb, #5ed4c7 4%, transparent) 0%, transparent 55%);
-    }
+      body {
+        padding-bottom: 80px;
+        background-image:
+          radial-gradient(
+            ellipse at 20% 20%,
+            color-mix(in srgb, var(--active) 4%, transparent) 0%,
+            transparent 55%
+          ),
+          radial-gradient(ellipse at 80% 80%, color-mix(in srgb, #5ed4c7 4%, transparent) 0%, transparent 55%);
+      }
 
-    ::-webkit-scrollbar { width: 5px; height: 5px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 10px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--line-3); }
+      ::-webkit-scrollbar {
+        width: 5px;
+        height: 5px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--line-2);
+        border-radius: 10px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--line-3);
+      }
 
-    /* --- Header ---------------------------------------------- */
-    /* Standard .page-masthead (see ui.css) sits at the top of the
+      /* --- Header ---------------------------------------------- */
+      /* Standard .page-masthead (see ui.css) sits at the top of the
        page. We wrap it in .lore-top to match the 1320px content
        column of .lore-content below. */
-    .lore-top {
-      max-width: 1320px;
-      margin: 0 auto;
-      padding: 0 32px;
-    }
+      .lore-top {
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: 0 32px;
+      }
 
-    /* Sticky tab strip — glass + diagonal pattern signature runs
+      /* Sticky tab strip — glass + diagonal pattern signature runs
        across the full viewport width so the scrolled content doesn't
        peek through the sides when the strip anchors. The .lore-nav
        inside is constrained to the 1320px content column. */
-    .lore-nav-strip {
-      position: sticky;
-      top: 0;
-      z-index: 60;
-      margin-bottom: 24px;
-      background:
-        repeating-linear-gradient(43deg, color-mix(in srgb, var(--active) 4%, transparent) 0 1px, transparent 1px 5px),
-        var(--glass-bg);
-      -webkit-backdrop-filter: var(--glass-blur);
-      backdrop-filter: var(--glass-blur);
-      box-shadow: var(--glass-edge);
-      border-bottom: 1px dashed var(--line-2);
-    }
-    .lore-nav {
-      display: flex;
-      max-width: 1320px;
-      margin: 0 auto;
-      padding: 10px 32px;
-    }
-    .lore-nav .hud-btn {
-      flex: 1;
-      justify-content: center;
-      gap: 8px;
-      padding: 0 10px;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      height: 40px;
-    }
-    .lore-nav .hud-btn .nav-num {
-      color: var(--paper-mute);
-      font-weight: 700;
-    }
-    .lore-nav .hud-btn.is-on .nav-num { color: var(--active); }
+      .lore-nav-strip {
+        position: sticky;
+        top: 0;
+        z-index: 60;
+        margin-bottom: 24px;
+        background:
+          repeating-linear-gradient(
+            43deg,
+            color-mix(in srgb, var(--active) 4%, transparent) 0 1px,
+            transparent 1px 5px
+          ),
+          var(--glass-bg);
+        -webkit-backdrop-filter: var(--glass-blur);
+        backdrop-filter: var(--glass-blur);
+        box-shadow: var(--glass-edge);
+        border-bottom: 1px dashed var(--line-2);
+      }
+      .lore-nav {
+        display: flex;
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: 10px 32px;
+      }
+      .lore-nav .hud-btn {
+        flex: 1;
+        justify-content: center;
+        gap: 8px;
+        padding: 0 10px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        height: 40px;
+      }
+      .lore-nav .hud-btn .nav-num {
+        color: var(--paper-mute);
+        font-weight: 700;
+      }
+      .lore-nav .hud-btn.is-on .nav-num {
+        color: var(--active);
+      }
 
-    /* --- Content shell --------------------------------------- */
-    .lore-content {
-      max-width: 1320px;
-      margin: 0 auto;
-      padding: 0 32px 80px;
-    }
-    .section { display: none; }
-    .section.active { display: block; }
+      /* --- Content shell --------------------------------------- */
+      .lore-content {
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: 0 32px 80px;
+      }
+      .section {
+        display: none;
+      }
+      .section.active {
+        display: block;
+      }
 
-    /* Link accent used throughout: underlined dashed, inherits text color */
-    .lore-link {
-      color: inherit;
-      text-decoration: none;
-      cursor: pointer;
-      border-bottom: 1px dashed color-mix(in srgb, var(--paper-dim) 40%, transparent);
-      transition: border-color 0.15s, color 0.15s;
-    }
-    .lore-link:hover {
-      border-bottom-color: var(--active);
-      color: var(--paper);
-    }
+      /* Link accent used throughout: underlined dashed, inherits text color */
+      .lore-link {
+        color: inherit;
+        text-decoration: none;
+        cursor: pointer;
+        border-bottom: 1px dashed color-mix(in srgb, var(--paper-dim) 40%, transparent);
+        transition:
+          border-color 0.15s,
+          color 0.15s;
+      }
+      .lore-link:hover {
+        border-bottom-color: var(--active);
+        color: var(--paper);
+      }
 
-    /* --- Nations tab ----------------------------------------- */
-    .nations-stack { display: flex; flex-direction: column; gap: 22px; }
-    .nations-stack .nation-card {
-      padding: 18px 22px 20px;
-    }
-    .nations-stack .nation-card + .nation-card { margin-top: 0; }
-    .nations-stack .nation-card .id-name { font-size: 22px; padding-left: 0; }
-    .nations-stack .nation-card .icon-code {
-      min-width: 88px;
-      min-height: 72px;
-    }
-    .nations-stack .nation-card .id-header:has(.icon-code)::after { right: 96px; }
-    .nations-stack .nation-card .id-header { padding-bottom: 14px; margin-bottom: 14px; }
-    /* nation-foot inverts default emphasis: the "Builds stations" label reads
+      /* --- Nations tab ----------------------------------------- */
+      .nations-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+      }
+      .nations-stack .nation-card {
+        padding: 18px 22px 20px;
+      }
+      .nations-stack .nation-card + .nation-card {
+        margin-top: 0;
+      }
+      .nations-stack .nation-card .id-name {
+        font-size: 22px;
+        padding-left: 0;
+      }
+      .nations-stack .nation-card .icon-code {
+        min-width: 88px;
+        min-height: 72px;
+      }
+      .nations-stack .nation-card .id-header:has(.icon-code)::after {
+        right: 96px;
+      }
+      .nations-stack .nation-card .id-header {
+        padding-bottom: 14px;
+        margin-bottom: 14px;
+      }
+      /* nation-foot inverts default emphasis: the "Builds stations" label reads
        like the nation-field labels (mute), and the station type names read
        like the nation-field values (dim) so the actual data is more prominent
        than the label. */
-    .nations-stack .nation-foot .label { color: var(--paper-mute); }
-    .nations-stack .nation-foot .items { color: var(--paper-dim); }
-    .nation-body {
-      display: grid;
-      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-      gap: 18px 32px;
-      padding-top: 12px;
-      border-top: 1px dashed color-mix(in srgb, var(--nation-accent, var(--line)) 35%, var(--line));
-      margin-top: 14px;
-    }
-    .nation-body > .nation-body-column {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .nation-field {
-      display: grid;
-      grid-template-columns: fit-content(130px) 1fr;
-      gap: 0 14px;
-      align-items: baseline;
-    }
-    .nation-field-label {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--paper-mute);
-      white-space: nowrap;
-    }
-    .nation-field-value {
-      font-size: 13px;
-      color: var(--paper-dim);
-      line-height: 1.55;
-    }
-    .nation-field-value.is-strong { color: var(--paper); }
-    .nation-field-value.is-mono   { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; }
-    .nation-tagline {
-      grid-column: 1 / -1;
-      font-size: 13px;
-      line-height: 1.6;
-      color: var(--paper-dim);
-      padding-top: 4px;
-    }
-    .nation-ware-pills {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-    }
-    .nation-ware-pills .pill-gold,
-    .nation-ware-pills .pill-cyan {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      padding: 2px 7px;
-    }
-    .nation-names-block {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .nation-names-list {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--paper-dim);
-      line-height: 1.6;
-      letter-spacing: 0.02em;
-    }
-
-    /* --- Ships tab ------------------------------------------- */
-    .ships-grid { display: flex; flex-direction: column; gap: 14px; }
-    .ship-card { padding: 18px 22px 0; }
-    .ship-card .id-header { padding-bottom: 14px; margin-bottom: 14px; }
-    .ship-card .id-name { font-size: 20px; padding-left: 0; }
-    .ship-card .icon-code { min-width: 88px; min-height: 72px; }
-    .ship-card .id-header:has(.icon-code)::after { right: 96px; }
-    .ship-lore {
-      font-size: 13px;
-      line-height: 1.6;
-      color: var(--paper-dim);
-      padding: 0 0 14px;
-    }
-    .ship-stat-grid {
-      display: grid;
-      grid-template-columns: auto 200px auto;
-      justify-content: start;
-      gap: 10px 14px;
-      align-items: center;
-      margin-bottom: 14px;
-    }
-    .ship-stat-grid .cargo-label { align-self: center; }
-    .ship-stat-grid .cargo-track { height: 6px; }
-    .ship-stat-grid .cargo-stat {
-      /* Override the ui.css .cargo-stat default (grid-column: 2) — in this
-         3-column stat row the value belongs in column 3, not on top of the
-         track. */
-      grid-column: auto;
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--paper);
-      text-align: left;
-      font-variant-numeric: tabular-nums;
-    }
-    .ship-wares-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      align-items: center;
-      padding: 10px 0 14px;
-      border-top: 1px dashed var(--line);
-    }
-    .ship-wares-label {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--paper-mute);
-      margin-right: 4px;
-    }
-    .ship-ware-pill {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      padding: 3px 8px;
-      border-radius: 2px;
-      background: color-mix(in srgb, var(--active) 10%, transparent);
-      color: var(--paper);
-      cursor: pointer;
-      border-bottom: none;
-    }
-    .ship-ware-pill:hover {
-      background: color-mix(in srgb, var(--active) 22%, transparent);
-      color: var(--paper);
-    }
-    /* The ship footer is the MRZ action bar, but re-cast to surface nations. */
-    .ship-card .id-type-mrz {
-      margin: 0 -22px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 14px;
-      flex-wrap: wrap;
-      text-align: center;
-    }
-    .ship-card .id-type-mrz .mrz-sep { opacity: 0.45; }
-    .ship-card .id-type-mrz .mrz-nation {
-      color: var(--nation-tint, var(--active));
-      cursor: pointer;
-      border-bottom: 1px dashed currentColor;
-      padding-bottom: 1px;
-    }
-
-    /* --- Wares tab ------------------------------------------- */
-    .wares-chain-card {
-      position: relative;
-      isolation: isolate;
-      background:
-        repeating-linear-gradient(43deg, color-mix(in srgb, var(--active) 3%, transparent) 0 1px, transparent 1px 5px),
-        linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
-      border: 1px solid var(--line-2);
-      border-radius: 6px;
-      padding: 18px 22px 22px;
-      box-shadow:
-        0 20px 60px rgba(0, 0, 0, 0.4),
-        inset 0 1px 0 rgba(255, 255, 255, 0.04);
-      overflow: hidden;
-      margin-bottom: 28px;
-    }
-    .wares-chain-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      padding-bottom: 12px;
-      margin-bottom: 14px;
-      border-bottom: 1px dashed var(--line-2);
-    }
-    .wares-chain-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--paper);
-      letter-spacing: 0.01em;
-    }
-    .wares-chain-sub {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--paper-mute);
-    }
-    .wares-svg-wrap {
-      width: 100%;
-      overflow-x: auto;
-    }
-    .wares-svg-wrap svg {
-      display: block;
-      width: 100%;
-      height: auto;
-      min-width: 720px;
-    }
-
-    /* SVG palette mapped from tokens — keeps the chain in-system. */
-    :root {
-      --chain-raw:      #5e89b3;
-      --chain-refined:  var(--accent);
-      --chain-product:  var(--active);
-      --chain-sink:     #c96b5e;
-      --chain-label:    var(--paper-mute);
-      --chain-axis:     var(--paper-mute);
-      --chain-text:     var(--paper);
-      --chain-text-dim: var(--paper-dim);
-      --chain-bg:       var(--ink-0);
-    }
-    .node-group { cursor: pointer; }
-    .node-group .node-rect { transition: filter 0.2s, stroke-opacity 0.2s, fill-opacity 0.2s; }
-    .node-group:hover .node-rect {
-      filter: drop-shadow(0 0 8px var(--node-color));
-      stroke-opacity: 0.9;
-      fill-opacity: 0.22;
-    }
-    .connection-line { transition: opacity 0.25s; }
-    .diagram-dimmed .connection-line { opacity: 0.08; }
-    .diagram-dimmed .connection-line.connection-highlighted { opacity: 1; stroke-width: 2.5px; }
-    .diagram-dimmed .node-group { opacity: 0.18; }
-    .diagram-dimmed .node-group.node-highlighted { opacity: 1; }
-
-    /* Ware detail cards (dossier tiles for each ware) */
-    .ware-cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 14px;
-    }
-    .ware-detail-card.id-card {
-      padding: 16px 18px 14px;
-    }
-    .ware-detail-card .id-name { font-size: 16px; padding-left: 0; }
-    .ware-detail-card .id-header {
-      padding-bottom: 10px;
-      margin-bottom: 10px;
-    }
-    .ware-detail-card .id-type {
-      color: var(--ware-tint, var(--paper-mute));
-    }
-    .ware-detail-card .icon-code { min-width: 64px; min-height: 52px; }
-    .ware-detail-card .id-header:has(.icon-code)::after { right: 72px; }
-    .wd-desc {
-      font-size: 12px;
-      line-height: 1.55;
-      color: var(--paper-dim);
-      margin-bottom: 10px;
-      position: relative;
-      z-index: 2;
-    }
-    .wd-rows {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      line-height: 1.55;
-      color: var(--paper-dim);
-      letter-spacing: 0.02em;
-      padding-top: 8px;
-      border-top: 1px dashed var(--line);
-      position: relative;
-      z-index: 2;
-    }
-    .wd-row {
-      display: grid;
-      grid-template-columns: fit-content(70px) 1fr;
-      gap: 10px;
-      align-items: baseline;
-    }
-    .wd-row-label {
-      color: var(--paper-mute);
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-    }
-    .wd-row-value { color: var(--paper); }
-    .wd-row-value .ware-pill-inline {
-      color: var(--paper);
-      border-bottom: 1px dashed color-mix(in srgb, var(--paper-dim) 40%, transparent);
-      cursor: pointer;
-    }
-    .wd-nation-pill {
-      display: inline-block;
-      padding: 1px 6px;
-      margin-right: 3px;
-      border-radius: 2px;
-      font-family: var(--font-mono);
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--paper);
-      background: color-mix(in srgb, var(--nation-pill-tint, var(--paper-mute)) 18%, transparent);
-      cursor: pointer;
-      border-bottom: none;
-    }
-
-    /* --- Stations tab ---------------------------------------- */
-    .stations-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-      gap: 16px;
-    }
-    .station-card.id-card {
-      padding: 16px 18px 14px;
-    }
-    .station-card .id-name { font-size: 18px; padding-left: 0; }
-    .station-card .id-header { padding-bottom: 12px; margin-bottom: 12px; }
-    .station-card .icon-code { min-width: 76px; min-height: 60px; }
-    .station-card .id-header:has(.icon-code)::after { right: 84px; }
-    .station-card .station-desc {
-      font-size: 13px;
-      line-height: 1.45;
-      color: var(--paper-dim);
-      margin-top: 4px;
-    }
-    .station-flow {
-      display: grid;
-      grid-template-columns: fit-content(80px) 1fr;
-      gap: 6px 14px;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      line-height: 1.55;
-      color: var(--paper-dim);
-      letter-spacing: 0.02em;
-      position: relative;
-      z-index: 2;
-    }
-    .station-flow-label {
-      color: var(--paper-mute);
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-    }
-    .station-flow-value { color: var(--paper); }
-    .station-flow-value.is-sink { color: var(--accent); }
-
-    /* --- Sectors tab ----------------------------------------- */
-    .sector-board {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(420px, 500px);
-      gap: 28px;
-      align-items: start;
-    }
-    @media (max-width: 980px) {
-      .sector-board { grid-template-columns: 1fr; }
-    }
-    .sector-grid-card {
-      position: relative;
-      isolation: isolate;
-      background: linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
-      border: 1px solid var(--line-2);
-      border-radius: 6px;
-      padding: 18px 22px 22px;
-      box-shadow:
-        0 20px 60px rgba(0, 0, 0, 0.4),
-        inset 0 1px 0 rgba(255, 255, 255, 0.04);
-      overflow: hidden;
-    }
-    .sector-grid-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      padding-bottom: 10px;
-      margin-bottom: 14px;
-      border-bottom: 1px dashed var(--line-2);
-    }
-    .sector-grid-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--paper);
-    }
-    .sector-grid-sub {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--paper-mute);
-    }
-    .sector-legend {
-      display: flex;
-      gap: 14px;
-      flex-wrap: wrap;
-      padding: 8px 0 12px;
-      font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .sector-legend-item {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      color: var(--paper-dim);
-    }
-    .sector-legend-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      box-shadow: 0 0 4px currentColor;
-    }
-    .sector-legend-dot.is-empty {
-      box-shadow: none;
-      background: none;
-      border: 1.5px solid var(--paper-mute);
-    }
-    /* Dotted rule separating the nation/zone legend from the sector grid. */
-    .sector-legend-rule {
-      border: none;
-      border-top: 1px dashed var(--line-2);
-      margin: 14px 0 18px;
-    }
-    .sector-grid-wrap {
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      padding-bottom: 4px;
-    }
-    .sector-grid {
-      display: grid;
-      gap: 5px;
-      min-width: 600px;
-    }
-    .sector-coord {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      font-variant-numeric: tabular-nums;
-      color: var(--paper-faint);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      user-select: none;
-      padding: 2px 4px;
-      letter-spacing: 0.04em;
-    }
-    .sector-cell {
-      position: relative;
-      background: var(--ink-0);
-      border: 1px dashed var(--line-2);
-      border-radius: 3px;
-      padding: 6px 5px 5px;
-      text-align: center;
-      min-height: 60px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
-      overflow: hidden;
-    }
-    .sector-cell::after {
-      /* Hatched wash when cell is tinted — echoes id-card texture so
-         selected/tinted cells read as document fragments. */
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: var(--cell-hatch, none);
-      pointer-events: none;
-    }
-    .sector-cell:hover {
-      border-color: var(--line-3);
-      border-style: solid;
-    }
-    .sector-cell.is-empty {
-      opacity: 0.55;
-    }
-    .sector-cell.is-hazardous {
-      background: repeating-linear-gradient(
-        43deg,
-        var(--ink-0) 0 6px,
-        color-mix(in srgb, #c96b5e 14%, var(--ink-0)) 6px 7px
-      );
-    }
-    .sector-cell.is-selected {
-      border-style: solid;
-      border-width: 1px;
-      border-color: var(--active);
-      box-shadow:
-        0 0 0 1px var(--active),
-        0 0 18px color-mix(in srgb, var(--active) 25%, transparent);
-    }
-    .sector-cell.is-selected[data-primary-color] {
-      border-color: var(--cell-primary, var(--active));
-      box-shadow:
-        0 0 0 1px var(--cell-primary, var(--active)),
-        0 0 18px color-mix(in srgb, var(--cell-primary, var(--active)) 30%, transparent);
-    }
-    .sector-cell-name {
-      position: relative;
-      z-index: 1;
-      font-size: 10px;
-      font-weight: 600;
-      line-height: 1.2;
-      color: var(--paper-dim);
-      margin-bottom: 4px;
-      letter-spacing: 0.01em;
-    }
-    .sector-cell.is-selected .sector-cell-name { color: var(--paper); }
-    .sector-cell-dots {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      gap: 3px;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-    .sector-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      box-shadow: 0 0 3px currentColor;
-    }
-    .sector-dot-empty {
-      background: none;
-      box-shadow: none;
-      border: 1.5px solid var(--paper-mute);
-    }
-    .sector-cell-env {
-      position: relative;
-      z-index: 1;
-      font-family: var(--font-mono);
-      font-size: 8px;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: var(--paper-mute);
-      margin-top: 4px;
-      line-height: 1;
-    }
-    .sector-cell.is-selected .sector-cell-env { color: var(--paper-dim); }
-
-    /* Sector description panel — full id-card dossier */
-    .sector-desc-card.id-card { padding: 16px 20px 16px; min-height: 180px; }
-    .sector-desc-card .id-name { font-size: 22px; padding-left: 0; }
-    .sector-desc-card .icon-code { min-width: 80px; min-height: 64px; }
-    .sector-desc-card .id-header:has(.icon-code)::after { right: 88px; }
-    .sector-desc-body {
-      position: relative;
-      z-index: 2;
-      font-size: 13px;
-      line-height: 1.6;
-      color: var(--paper-dim);
-      padding-bottom: 12px;
-    }
-    .sector-desc-placeholder {
-      position: relative;
-      z-index: 2;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      letter-spacing: 0.08em;
-      color: var(--paper-mute);
-      padding: 8px 0 12px;
-    }
-    .sector-desc-section-label {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--paper-mute);
-      margin-top: 4px;
-      margin-bottom: 6px;
-      padding-top: 10px;
-      border-top: 1px dashed var(--line);
-      position: relative;
-      z-index: 2;
-    }
-    .sector-desc-station-list {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      line-height: 1.45;
-      color: var(--paper-dim);
-      position: relative;
-      z-index: 2;
-    }
-    .sector-desc-station-row {
-      display: grid;
-      grid-template-columns: 36px 1fr auto;
-      gap: 10px;
-      align-items: baseline;
-      letter-spacing: 0.02em;
-    }
-    .sector-desc-station-nation {
-      font-weight: 700;
-      color: var(--nation-pill-tint, var(--active));
-      letter-spacing: 0.1em;
-    }
-    .sector-desc-station-name { color: var(--paper); }
-    .sector-desc-station-meta { color: var(--paper-mute); text-align: right; }
-    .sector-desc-zone-row {
-      display: grid;
-      grid-template-columns: 36px 1fr;
-      gap: 10px;
-      align-items: baseline;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--paper-mute);
-      letter-spacing: 0.02em;
-    }
-    .sector-desc-zone-row::before {
-      content: "○";
-      color: var(--paper-faint);
-      text-align: center;
-    }
-
-    /* --- Responsive ------------------------------------------ */
-    @media (max-width: 780px) {
-      .lore-content {
-        padding: 0 max(16px, var(--safe-right)) 60px max(16px, var(--safe-left));
+      .nations-stack .nation-foot .label {
+        color: var(--paper-mute);
       }
-      .lore-top {
-        padding: 0 max(16px, var(--safe-right)) 0 max(16px, var(--safe-left));
+      .nations-stack .nation-foot .items {
+        color: var(--paper-dim);
       }
-      .lore-nav {
-        padding: 10px max(16px, var(--safe-right)) 10px max(16px, var(--safe-left));
+      .nation-body {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+        gap: 18px 32px;
+        padding-top: 12px;
+        border-top: 1px dashed color-mix(in srgb, var(--nation-accent, var(--line)) 35%, var(--line));
+        margin-top: 14px;
       }
-      .nation-body { grid-template-columns: 1fr; }
-      .ship-card .icon-code { min-width: 70px; min-height: 60px; }
-
-      /* Tab bar stacks number above text so all 5 tabs fit on a phone. */
-      .lore-nav .hud-btn {
+      .nation-body > .nation-body-column {
+        display: flex;
         flex-direction: column;
-        gap: 2px;
-        padding: 6px 2px;
-        height: 52px;
-        font-size: 9px;
-        letter-spacing: 0.12em;
+        gap: 10px;
       }
-      .lore-nav .hud-btn .nav-num {
-        font-size: 14px;
+      .nation-field {
+        display: grid;
+        grid-template-columns: fit-content(130px) 1fr;
+        gap: 0 14px;
+        align-items: baseline;
+      }
+      .nation-field-label {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--paper-mute);
+        white-space: nowrap;
+      }
+      .nation-field-value {
+        font-size: 13px;
+        color: var(--paper-dim);
+        line-height: 1.55;
+      }
+      .nation-field-value.is-strong {
+        color: var(--paper);
+      }
+      .nation-field-value.is-mono {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.04em;
+      }
+      .nation-tagline {
+        grid-column: 1 / -1;
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--paper-dim);
+        padding-top: 4px;
+      }
+      .nation-ware-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .nation-ware-pills .pill-gold,
+      .nation-ware-pills .pill-cyan {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 2px 7px;
+      }
+      .nation-names-block {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .nation-names-list {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--paper-dim);
+        line-height: 1.6;
         letter-spacing: 0.02em;
       }
 
-      /* Fixed 200px track overflows narrow phone cards — let it flex. */
-      .ship-stat-grid { grid-template-columns: auto minmax(0, 1fr) auto; }
+      /* --- Ships tab ------------------------------------------- */
+      .ships-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .ship-card {
+        padding: 18px 22px 0;
+      }
+      .ship-card .id-header {
+        padding-bottom: 14px;
+        margin-bottom: 14px;
+      }
+      .ship-card .id-name {
+        font-size: 20px;
+        padding-left: 0;
+      }
+      .ship-card .icon-code {
+        min-width: 88px;
+        min-height: 72px;
+      }
+      .ship-card .id-header:has(.icon-code)::after {
+        right: 96px;
+      }
+      .ship-lore {
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--paper-dim);
+        padding: 0 0 14px;
+      }
+      .ship-stat-grid {
+        display: grid;
+        grid-template-columns: auto 200px auto;
+        justify-content: start;
+        gap: 10px 14px;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+      .ship-stat-grid .cargo-label {
+        align-self: center;
+      }
+      .ship-stat-grid .cargo-track {
+        height: 6px;
+      }
+      .ship-stat-grid .cargo-stat {
+        /* Override the ui.css .cargo-stat default (grid-column: 2) — in this
+         3-column stat row the value belongs in column 3, not on top of the
+         track. */
+        grid-column: auto;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--paper);
+        text-align: left;
+        font-variant-numeric: tabular-nums;
+      }
+      .ship-wares-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        padding: 10px 0 14px;
+        border-top: 1px dashed var(--line);
+      }
+      .ship-wares-label {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--paper-mute);
+        margin-right: 4px;
+      }
+      .ship-ware-pill {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 3px 8px;
+        border-radius: 2px;
+        background: color-mix(in srgb, var(--active) 10%, transparent);
+        color: var(--paper);
+        cursor: pointer;
+        border-bottom: none;
+      }
+      .ship-ware-pill:hover {
+        background: color-mix(in srgb, var(--active) 22%, transparent);
+        color: var(--paper);
+      }
+      /* The ship footer is the MRZ action bar, but re-cast to surface nations. */
+      .ship-card .id-type-mrz {
+        margin: 0 -22px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        text-align: center;
+      }
+      .ship-card .id-type-mrz .mrz-sep {
+        opacity: 0.45;
+      }
+      .ship-card .id-type-mrz .mrz-nation {
+        color: var(--nation-tint, var(--active));
+        cursor: pointer;
+        border-bottom: 1px dashed currentColor;
+        padding-bottom: 1px;
+      }
 
-      /* Grid minimums that exceed small-phone widths force single-column. */
-      .ware-cards { grid-template-columns: 1fr; }
-      .stations-grid { grid-template-columns: 1fr; }
-    }
+      /* --- Wares tab ------------------------------------------- */
+      .wares-chain-card {
+        position: relative;
+        isolation: isolate;
+        background:
+          repeating-linear-gradient(
+            43deg,
+            color-mix(in srgb, var(--active) 3%, transparent) 0 1px,
+            transparent 1px 5px
+          ),
+          linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
+        border: 1px solid var(--line-2);
+        border-radius: 6px;
+        padding: 18px 22px 22px;
+        box-shadow:
+          0 20px 60px rgba(0, 0, 0, 0.4),
+          inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        overflow: hidden;
+        margin-bottom: 28px;
+      }
+      .wares-chain-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding-bottom: 12px;
+        margin-bottom: 14px;
+        border-bottom: 1px dashed var(--line-2);
+      }
+      .wares-chain-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--paper);
+        letter-spacing: 0.01em;
+      }
+      .wares-chain-sub {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--paper-mute);
+      }
+      .wares-svg-wrap {
+        width: 100%;
+        overflow-x: auto;
+      }
+      .wares-svg-wrap svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        min-width: 720px;
+      }
 
-    /* Smaller iPhones (SE, 12/13 mini) need tighter page + card padding
+      /* SVG palette mapped from tokens — keeps the chain in-system. */
+      :root {
+        --chain-raw: #5e89b3;
+        --chain-refined: var(--accent);
+        --chain-product: var(--active);
+        --chain-sink: #c96b5e;
+        --chain-label: var(--paper-mute);
+        --chain-axis: var(--paper-mute);
+        --chain-text: var(--paper);
+        --chain-text-dim: var(--paper-dim);
+        --chain-bg: var(--ink-0);
+      }
+      .node-group {
+        cursor: pointer;
+      }
+      .node-group .node-rect {
+        transition:
+          filter 0.2s,
+          stroke-opacity 0.2s,
+          fill-opacity 0.2s;
+      }
+      .node-group:hover .node-rect {
+        filter: drop-shadow(0 0 8px var(--node-color));
+        stroke-opacity: 0.9;
+        fill-opacity: 0.22;
+      }
+      .connection-line {
+        transition: opacity 0.25s;
+      }
+      .diagram-dimmed .connection-line {
+        opacity: 0.08;
+      }
+      .diagram-dimmed .connection-line.connection-highlighted {
+        opacity: 1;
+        stroke-width: 2.5px;
+      }
+      .diagram-dimmed .node-group {
+        opacity: 0.18;
+      }
+      .diagram-dimmed .node-group.node-highlighted {
+        opacity: 1;
+      }
+
+      /* Ware detail cards (dossier tiles for each ware) */
+      .ware-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 14px;
+      }
+      .ware-detail-card.id-card {
+        padding: 16px 18px 14px;
+      }
+      .ware-detail-card .id-name {
+        font-size: 16px;
+        padding-left: 0;
+      }
+      .ware-detail-card .id-header {
+        padding-bottom: 10px;
+        margin-bottom: 10px;
+      }
+      .ware-detail-card .id-type {
+        color: var(--ware-tint, var(--paper-mute));
+      }
+      .ware-detail-card .icon-code {
+        min-width: 64px;
+        min-height: 52px;
+      }
+      .ware-detail-card .id-header:has(.icon-code)::after {
+        right: 72px;
+      }
+      .wd-desc {
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--paper-dim);
+        margin-bottom: 10px;
+        position: relative;
+        z-index: 2;
+      }
+      .wd-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.55;
+        color: var(--paper-dim);
+        letter-spacing: 0.02em;
+        padding-top: 8px;
+        border-top: 1px dashed var(--line);
+        position: relative;
+        z-index: 2;
+      }
+      .wd-row {
+        display: grid;
+        grid-template-columns: fit-content(70px) 1fr;
+        gap: 10px;
+        align-items: baseline;
+      }
+      .wd-row-label {
+        color: var(--paper-mute);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      .wd-row-value {
+        color: var(--paper);
+      }
+      .wd-row-value .ware-pill-inline {
+        color: var(--paper);
+        border-bottom: 1px dashed color-mix(in srgb, var(--paper-dim) 40%, transparent);
+        cursor: pointer;
+      }
+      .wd-nation-pill {
+        display: inline-block;
+        padding: 1px 6px;
+        margin-right: 3px;
+        border-radius: 2px;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--paper);
+        background: color-mix(in srgb, var(--nation-pill-tint, var(--paper-mute)) 18%, transparent);
+        cursor: pointer;
+        border-bottom: none;
+      }
+
+      /* --- Stations tab ---------------------------------------- */
+      .stations-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+        gap: 16px;
+      }
+      .station-card.id-card {
+        padding: 16px 18px 14px;
+      }
+      .station-card .id-name {
+        font-size: 18px;
+        padding-left: 0;
+      }
+      .station-card .id-header {
+        padding-bottom: 12px;
+        margin-bottom: 12px;
+      }
+      .station-card .icon-code {
+        min-width: 76px;
+        min-height: 60px;
+      }
+      .station-card .id-header:has(.icon-code)::after {
+        right: 84px;
+      }
+      .station-card .station-desc {
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--paper-dim);
+        margin-top: 4px;
+      }
+      .station-flow {
+        display: grid;
+        grid-template-columns: fit-content(80px) 1fr;
+        gap: 6px 14px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.55;
+        color: var(--paper-dim);
+        letter-spacing: 0.02em;
+        position: relative;
+        z-index: 2;
+      }
+      .station-flow-label {
+        color: var(--paper-mute);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      .station-flow-value {
+        color: var(--paper);
+      }
+      .station-flow-value.is-sink {
+        color: var(--accent);
+      }
+
+      /* --- Sectors tab ----------------------------------------- */
+      .sector-board {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(420px, 500px);
+        gap: 28px;
+        align-items: start;
+      }
+      @media (max-width: 1279px) {
+        .sector-board {
+          grid-template-columns: 1fr;
+        }
+      }
+      .sector-grid-card {
+        position: relative;
+        isolation: isolate;
+        background: linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
+        border: 1px solid var(--line-2);
+        border-radius: 6px;
+        padding: 18px 22px 22px;
+        box-shadow:
+          0 20px 60px rgba(0, 0, 0, 0.4),
+          inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        overflow: hidden;
+      }
+      .sector-grid-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 10px;
+        margin-bottom: 14px;
+      }
+      .sector-legend {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        padding: 8px 0 12px;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .sector-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--paper-dim);
+      }
+      .sector-legend-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        box-shadow: 0 0 4px currentColor;
+      }
+      .sector-legend-dot.is-empty {
+        box-shadow: none;
+        background: none;
+        border: 1.5px solid var(--paper-mute);
+      }
+      /* Dotted rule separating the nation/zone legend from the sector grid. */
+      .sector-legend-rule {
+        border: none;
+        border-top: 1px dashed var(--line-2);
+        margin: 14px 0 18px;
+      }
+
+      /* Sector map — Heat-Calendar register grid: strict equal-column ruled
+       cells, station dots at approximate real positions, dotted links drawn
+       between stations the game's ambient-traffic rule connects. */
+      .sector-grid-wrap {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        grid-template-rows: auto 1fr auto;
+        gap: 5px 7px;
+      }
+      .sector-axis-x {
+        display: grid;
+        font-family: var(--font-mono);
+        font-size: clamp(8px, 1vw, 11px);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.06em;
+        color: var(--paper-dim);
+      }
+      .sector-axis-x span {
+        text-align: center;
+      }
+      .sector-axis-y {
+        display: grid;
+        font-family: var(--font-mono);
+        font-size: clamp(8px, 1vw, 11px);
+        font-variant-numeric: tabular-nums;
+        color: var(--paper-dim);
+      }
+      .sector-axis-y span {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding-right: 5px;
+      }
+      .sector-axis-y.is-right span {
+        justify-content: flex-start;
+        padding-right: 0;
+        padding-left: 5px;
+      }
+      .sector-grid {
+        position: relative;
+        display: grid;
+        gap: 0;
+        border-top: 1px solid var(--line-2);
+        border-left: 1px solid var(--line-2);
+        background: var(--ink-1);
+      }
+      .sector-cell {
+        position: relative;
+        aspect-ratio: 1 / 1;
+        border-right: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        overflow: hidden;
+        cursor: pointer;
+        background: var(--ink-0);
+        transition:
+          box-shadow 0.18s,
+          filter 0.18s;
+      }
+      .sector-cell.is-col-last {
+        border-right: 1px solid var(--line-2);
+      }
+      .sector-cell.is-row-last {
+        border-bottom: 1px solid var(--line-2);
+      }
+      .sector-cell.is-empty {
+        cursor: default;
+      }
+      .sector-cell:not(.is-empty):hover {
+        filter: brightness(1.35);
+      }
+      .sector-cell.is-selected {
+        z-index: 3;
+        box-shadow:
+          inset 0 0 0 1px var(--cell-primary, var(--active)),
+          0 0 14px color-mix(in srgb, var(--cell-primary, var(--active)) 28%, transparent);
+      }
+      .sector-cell-name {
+        position: absolute;
+        top: 3px;
+        left: 0;
+        right: 0;
+        z-index: 2;
+        padding: 0 4px;
+        font-size: clamp(7px, 0.92vw, 10px);
+        font-weight: 600;
+        line-height: 1.15;
+        color: var(--paper-dim);
+        text-align: center;
+        letter-spacing: 0.01em;
+        text-shadow:
+          0 1px 2px var(--ink-0),
+          0 0 3px var(--ink-0);
+        pointer-events: none;
+      }
+      .sector-cell.is-selected .sector-cell-name {
+        color: var(--paper);
+      }
+      .sector-cell.is-empty .sector-cell-name {
+        color: var(--paper-faint);
+        font-weight: 400;
+      }
+      .sector-cell-env {
+        position: absolute;
+        bottom: 3px;
+        left: 0;
+        right: 0;
+        z-index: 2;
+        padding: 0 4px;
+        font-family: var(--font-mono);
+        font-size: clamp(5.5px, 0.78vw, 8px);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        text-align: center;
+        white-space: nowrap;
+        color: var(--paper-mute);
+        text-shadow: 0 1px 2px var(--ink-0);
+        pointer-events: none;
+      }
+      .sector-cell.is-selected .sector-cell-env {
+        color: var(--paper-dim);
+      }
+      .sector-links {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 1;
+        overflow: hidden;
+      }
+      .sector-link {
+        fill: none;
+        stroke: color-mix(in srgb, var(--paper-faint) 75%, transparent);
+        stroke-width: 1;
+        stroke-dasharray: 2 2.5;
+        vector-effect: non-scaling-stroke;
+      }
+      .sector-station {
+        stroke: color-mix(in srgb, var(--ink-0) 55%, transparent);
+        stroke-width: 1;
+        vector-effect: non-scaling-stroke;
+      }
+      .sector-zone {
+        fill: none;
+        stroke: var(--paper-mute);
+        stroke-width: 1;
+        vector-effect: non-scaling-stroke;
+      }
+      @media (max-width: 480px) {
+        .sector-cell-env {
+          letter-spacing: 0.05em;
+        }
+      }
+
+      /* Sector description panel — full id-card dossier */
+      .sector-desc-card.id-card {
+        padding: 16px 20px 16px;
+        min-height: 180px;
+      }
+      .sector-desc-card .id-name {
+        font-size: 22px;
+        padding-left: 0;
+      }
+      .sector-desc-card .icon-code {
+        min-width: 80px;
+        min-height: 64px;
+      }
+      .sector-desc-card .id-header:has(.icon-code)::after {
+        right: 88px;
+      }
+      .sector-desc-body {
+        position: relative;
+        z-index: 2;
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--paper-dim);
+        padding-bottom: 12px;
+      }
+      .sector-desc-placeholder {
+        position: relative;
+        z-index: 2;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        color: var(--paper-mute);
+        padding: 8px 0 12px;
+      }
+      .sector-desc-section-label {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--paper-mute);
+        margin-top: 4px;
+        margin-bottom: 6px;
+        padding-top: 10px;
+        border-top: 1px dashed var(--line);
+        position: relative;
+        z-index: 2;
+      }
+      .sector-desc-station-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--paper-dim);
+        position: relative;
+        z-index: 2;
+      }
+      .sector-desc-station-row {
+        display: grid;
+        grid-template-columns: 36px 1fr auto;
+        gap: 10px;
+        align-items: baseline;
+        letter-spacing: 0.02em;
+      }
+      .sector-desc-station-nation {
+        font-weight: 700;
+        color: var(--nation-pill-tint, var(--active));
+        letter-spacing: 0.1em;
+      }
+      .sector-desc-station-name {
+        color: var(--paper);
+      }
+      .sector-desc-station-meta {
+        color: var(--paper-mute);
+        text-align: right;
+      }
+      .sector-desc-zone-row {
+        display: grid;
+        grid-template-columns: 36px 1fr;
+        gap: 10px;
+        align-items: baseline;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--paper-mute);
+        letter-spacing: 0.02em;
+      }
+      .sector-desc-zone-row::before {
+        content: "○";
+        color: var(--paper-faint);
+        text-align: center;
+      }
+
+      /* --- Responsive ------------------------------------------ */
+      @media (max-width: 780px) {
+        .lore-content {
+          padding: 0 max(16px, var(--safe-right)) 60px max(16px, var(--safe-left));
+        }
+        .lore-top {
+          padding: 0 max(16px, var(--safe-right)) 0 max(16px, var(--safe-left));
+        }
+        .lore-nav {
+          padding: 10px max(16px, var(--safe-right)) 10px max(16px, var(--safe-left));
+        }
+        .nation-body {
+          grid-template-columns: 1fr;
+        }
+        .ship-card .icon-code {
+          min-width: 70px;
+          min-height: 60px;
+        }
+
+        /* Tab bar stacks number above text so all 5 tabs fit on a phone. */
+        .lore-nav .hud-btn {
+          flex-direction: column;
+          gap: 2px;
+          padding: 6px 2px;
+          height: 52px;
+          font-size: 9px;
+          letter-spacing: 0.12em;
+        }
+        .lore-nav .hud-btn .nav-num {
+          font-size: 14px;
+          letter-spacing: 0.02em;
+        }
+
+        /* Fixed 200px track overflows narrow phone cards — let it flex. */
+        .ship-stat-grid {
+          grid-template-columns: auto minmax(0, 1fr) auto;
+        }
+
+        /* Grid minimums that exceed small-phone widths force single-column. */
+        .ware-cards {
+          grid-template-columns: 1fr;
+        }
+        .stations-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* Smaller iPhones (SE, 12/13 mini) need tighter page + card padding
        and a smaller masthead to stay inside 320–375px. */
-    @media (max-width: 420px) {
-      .lore-content {
-        padding: 0 max(12px, var(--safe-right)) 60px max(12px, var(--safe-left));
+      @media (max-width: 420px) {
+        .lore-content {
+          padding: 0 max(12px, var(--safe-right)) 60px max(12px, var(--safe-left));
+        }
+        .lore-top {
+          padding: 0 max(12px, var(--safe-right)) 0 max(12px, var(--safe-left));
+        }
+        .lore-nav {
+          padding: 10px max(12px, var(--safe-right)) 10px max(12px, var(--safe-left));
+        }
+
+        .nations-stack .nation-card {
+          padding: 16px 16px 18px;
+        }
+        .nations-stack .nation-card .id-name {
+          font-size: 19px;
+        }
+        .nations-stack .nation-card .icon-code {
+          min-width: 72px;
+          min-height: 60px;
+        }
+        .nations-stack .nation-card .id-header:has(.icon-code)::after {
+          right: 80px;
+        }
+
+        .ship-card {
+          padding: 16px 16px 0;
+        }
+        .ship-card .id-name {
+          font-size: 18px;
+        }
+        .ship-card .id-type-mrz {
+          margin: 0 -16px;
+        }
+
+        .station-card.id-card,
+        .ware-detail-card.id-card {
+          padding: 14px 16px 12px;
+        }
+
+        .wares-chain-card,
+        .sector-grid-card {
+          padding: 16px 16px 18px;
+        }
       }
-      .lore-top {
-        padding: 0 max(12px, var(--safe-right)) 0 max(12px, var(--safe-left));
-      }
-      .lore-nav {
-        padding: 10px max(12px, var(--safe-right)) 10px max(12px, var(--safe-left));
-      }
 
-      .nations-stack .nation-card { padding: 16px 16px 18px; }
-      .nations-stack .nation-card .id-name { font-size: 19px; }
-      .nations-stack .nation-card .icon-code { min-width: 72px; min-height: 60px; }
-      .nations-stack .nation-card .id-header:has(.icon-code)::after { right: 80px; }
-
-      .ship-card { padding: 16px 16px 0; }
-      .ship-card .id-name { font-size: 18px; }
-      .ship-card .id-type-mrz { margin: 0 -16px; }
-
-      .station-card.id-card,
-      .ware-detail-card.id-card { padding: 14px 16px 12px; }
-
-      .wares-chain-card,
-      .sector-grid-card { padding: 16px 16px 18px; }
-    }
-  </style>
-</head>
-<body>
-
-<div class="lore-top">
-  <header class="page-masthead">
-    <div class="page-masthead-topbar">
-      <a class="page-masthead-back" href="/">«<span class="num">00</span>Index</a>
-      <span class="page-masthead-label">BUREAU OF CARTOGRAPHY</span>
-    </div>
-    <h1 class="page-masthead-title"><span class="page-masthead-brand">Skyshift</span> Lore</h1>
-    <p class="page-masthead-sub">An atlas of the settled universe.</p>
-  </header>
-</div>
-
-<div class="lore-nav-strip">
-  <nav class="lore-nav hud-segment hud-segment--row">
-    <button class="hud-btn is-on" data-tab="nations">
-      <span class="nav-num">01</span><span>Nations</span>
-    </button>
-    <button class="hud-btn" data-tab="ships">
-      <span class="nav-num">02</span><span>Ships</span>
-    </button>
-    <button class="hud-btn" data-tab="wares">
-      <span class="nav-num">03</span><span>Wares</span>
-    </button>
-    <button class="hud-btn" data-tab="stations">
-      <span class="nav-num">04</span><span>Stations</span>
-    </button>
-    <button class="hud-btn" data-tab="sectors">
-      <span class="nav-num">05</span><span>Sectors</span>
-    </button>
-  </nav>
-</div>
-
-<main class="lore-content">
-
-  <!-- ═══════ NATIONS ═══════ -->
-  <section class="section active" id="sec-nations">
-    <div class="showcase-section" style="margin: 0 0 40px;">
-      <h2>
-        <span><span class="num">01</span> &nbsp;Nations</span>
-        <span class="mono caps">/ signatory powers</span>
-      </h2>
-      <div class="nations-stack"></div>
-    </div>
-  </section>
-
-  <!-- ═══════ SHIPS ═══════ -->
-  <section class="section" id="sec-ships">
-    <div class="showcase-section" style="margin: 0 0 40px;">
-      <h2>
-        <span><span class="num">02</span> &nbsp;Ships</span>
-        <span class="mono caps">/ registered hulls</span>
-      </h2>
-      <div class="ships-grid" id="ships-grid"></div>
-    </div>
-  </section>
-
-  <!-- ═══════ WARES ═══════ -->
-  <section class="section" id="sec-wares">
-    <div class="showcase-section" style="margin: 0 0 40px;">
-      <h2>
-        <span><span class="num">03</span> &nbsp;Production Chain</span>
-        <span class="mono caps">/ flow from raw to sink</span>
-      </h2>
-      <div class="wares-chain-card">
-        <div class="wares-chain-head">
-          <div class="wares-chain-title">Supply-chain diagram</div>
-          <div class="wares-chain-sub">hover a node to isolate</div>
+    </style>
+  </head>
+  <body>
+    <div class="lore-top">
+      <header class="page-masthead">
+        <div class="page-masthead-topbar">
+          <a class="page-masthead-back" href="/">«<span class="num">00</span>Index</a>
+          <span class="page-masthead-label">BUREAU OF CARTOGRAPHY</span>
         </div>
-        <div class="wares-svg-wrap">
-          <svg id="chain-svg" viewBox="0 0 960 560" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <pattern id="hatch-bg" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(43)">
-                <line x1="0" y1="0" x2="0" y2="6" stroke="currentColor" stroke-width="0.5" opacity="0.08"/>
-              </pattern>
-            </defs>
-            <rect width="960" height="560" fill="var(--chain-bg)"/>
-            <rect width="960" height="560" fill="url(#hatch-bg)" color="var(--paper)"/>
+        <h1 class="page-masthead-title"><span class="page-masthead-brand">Skyshift</span> Lore</h1>
+        <p class="page-masthead-sub">An atlas of the settled universe.</p>
+      </header>
+    </div>
 
-            <!-- Tier labels -->
-            <text x="28" y="88"  fill="var(--chain-label)" font-size="10" font-weight="500" letter-spacing="3" font-family="var(--font-mono)" text-transform="uppercase">RESOURCES</text>
-            <text x="28" y="212" fill="var(--chain-label)" font-size="10" font-weight="500" letter-spacing="3" font-family="var(--font-mono)">REFINED</text>
-            <text x="28" y="342" fill="var(--chain-label)" font-size="10" font-weight="500" letter-spacing="3" font-family="var(--font-mono)">PRODUCTS</text>
-            <text x="28" y="462" fill="var(--chain-label)" font-size="10" font-weight="500" letter-spacing="3" font-family="var(--font-mono)">SINKS</text>
+    <div class="lore-nav-strip">
+      <nav class="lore-nav hud-segment hud-segment--row">
+        <button class="hud-btn is-on" data-tab="nations">
+          <span class="nav-num">01</span><span>Nations</span>
+        </button>
+        <button class="hud-btn" data-tab="ships"><span class="nav-num">02</span><span>Ships</span></button>
+        <button class="hud-btn" data-tab="wares"><span class="nav-num">03</span><span>Wares</span></button>
+        <button class="hud-btn" data-tab="stations">
+          <span class="nav-num">04</span><span>Stations</span>
+        </button>
+        <button class="hud-btn" data-tab="sectors">
+          <span class="nav-num">05</span><span>Sectors</span>
+        </button>
+      </nav>
+    </div>
 
-            <!-- ── Connection lines ── -->
-            <g id="connections">
-              <path class="connection-line" data-from="ice" data-to="water"
-                    d="M200,115 L200,165" stroke="var(--chain-refined)" stroke-width="1.6" fill="none" opacity="0.55"/>
-              <path class="connection-line" data-from="mineral" data-to="metal"
-                    d="M460,115 L460,165" stroke="var(--chain-refined)" stroke-width="1.6" fill="none" opacity="0.55"/>
-              <path class="connection-line" data-from="signal" data-to="hyperdata"
-                    d="M720,115 L720,165" stroke="var(--chain-refined)" stroke-width="1.6" fill="none" opacity="0.55"/>
-              <path class="connection-line" data-from="water" data-to="food"
-                    d="M200,245 C200,270 300,270 300,295" stroke="var(--chain-product)" stroke-width="1.6" fill="none" opacity="0.55"/>
-              <path class="connection-line" data-from="mineral" data-to="medicine"
-                    d="M535,82 L565,82 L565,335 L555,335" stroke="var(--chain-product)" stroke-width="1.6" fill="none" opacity="0.55"/>
-              <path class="connection-line" data-from="food" data-to="medicine"
-                    d="M375,335 L405,335" stroke="var(--chain-product)" stroke-width="1.6" fill="none" opacity="0.55"/>
-              <path class="connection-line" data-from="metal" data-to="tech"
-                    d="M460,245 C460,270 700,270 700,295" stroke="var(--chain-product)" stroke-width="1.6" fill="none" opacity="0.55"/>
-              <path class="connection-line" data-from="hyperdata" data-to="tech"
-                    d="M720,245 C720,270 700,270 700,295" stroke="var(--chain-product)" stroke-width="1.6" fill="none" opacity="0.55"/>
-              <path class="connection-line" data-from="food" data-to="provisions"
-                    d="M300,375 C300,400 390,400 390,425" stroke="var(--chain-sink)" stroke-width="1.6" fill="none" opacity="0.55"/>
-              <path class="connection-line" data-from="medicine" data-to="provisions"
-                    d="M480,375 C480,400 390,400 390,425" stroke="var(--chain-sink)" stroke-width="1.6" fill="none" opacity="0.55"/>
-              <path class="connection-line" data-from="tech" data-to="hulls"
-                    d="M700,375 C700,400 600,400 600,425" stroke="var(--chain-sink)" stroke-width="1.6" fill="none" opacity="0.55"/>
-            </g>
-
-            <!-- ── Nodes ── -->
-            <g id="nodes">
-              <!-- ROW 1: RAW (y=50, h=65) -->
-              <g class="node-group" data-node="ice" style="--node-color: var(--chain-raw);">
-                <rect class="node-rect" x="125" y="50" width="150" height="65" rx="3"
-                      fill="var(--chain-raw)" fill-opacity="0.1" stroke="var(--chain-raw)" stroke-width="1" stroke-opacity="0.5"/>
-                <text x="200" y="72" text-anchor="middle" fill="var(--chain-text)" font-size="14" font-weight="600" font-family="var(--font-display)">Ice</text>
-                <text x="200" y="89" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">Produces 8</text>
-                <circle cx="195" cy="104" r="3.5" fill="#B36100"/><circle cx="205" cy="104" r="3.5" fill="#E8C840"/>
-              </g>
-              <g class="node-group" data-node="mineral" style="--node-color: var(--chain-raw);">
-                <rect class="node-rect" x="385" y="50" width="150" height="65" rx="3"
-                      fill="var(--chain-raw)" fill-opacity="0.1" stroke="var(--chain-raw)" stroke-width="1" stroke-opacity="0.5"/>
-                <text x="460" y="72" text-anchor="middle" fill="var(--chain-text)" font-size="14" font-weight="600" font-family="var(--font-display)">Mineral</text>
-                <text x="460" y="89" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">Produces 8</text>
-                <circle cx="455" cy="104" r="3.5" fill="#B36100"/><circle cx="465" cy="104" r="3.5" fill="#E8C840"/>
-              </g>
-              <g class="node-group" data-node="signal" style="--node-color: var(--chain-raw);">
-                <rect class="node-rect" x="645" y="50" width="150" height="65" rx="3"
-                      fill="var(--chain-raw)" fill-opacity="0.1" stroke="var(--chain-raw)" stroke-width="1" stroke-opacity="0.5"/>
-                <text x="720" y="72" text-anchor="middle" fill="var(--chain-text)" font-size="14" font-weight="600" font-family="var(--font-display)">Signal</text>
-                <text x="720" y="89" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">Produces 2</text>
-                <circle cx="715" cy="104" r="3.5" fill="#00F9FF"/><circle cx="725" cy="104" r="3.5" fill="#E8C840"/>
-              </g>
-
-              <!-- ROW 2: REFINED (y=165, h=80) -->
-              <g class="node-group" data-node="water" style="--node-color: var(--chain-refined);">
-                <rect class="node-rect" x="125" y="165" width="150" height="80" rx="3"
-                      fill="var(--chain-refined)" fill-opacity="0.1" stroke="var(--chain-refined)" stroke-width="1" stroke-opacity="0.5"/>
-                <text x="200" y="188" text-anchor="middle" fill="var(--chain-text)" font-size="14" font-weight="600" font-family="var(--font-display)">Water</text>
-                <text x="200" y="213" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">8 Ice → 4 Water</text>
-                <circle cx="190" cy="236" r="3.5" fill="#0069B3"/><circle cx="200" cy="236" r="3.5" fill="#4CAF50"/><circle cx="210" cy="236" r="3.5" fill="#B36100"/>
-              </g>
-              <g class="node-group" data-node="metal" style="--node-color: var(--chain-refined);">
-                <rect class="node-rect" x="385" y="165" width="150" height="80" rx="3"
-                      fill="var(--chain-refined)" fill-opacity="0.1" stroke="var(--chain-refined)" stroke-width="1" stroke-opacity="0.5"/>
-                <text x="460" y="188" text-anchor="middle" fill="var(--chain-text)" font-size="14" font-weight="600" font-family="var(--font-display)">Metal</text>
-                <text x="460" y="213" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">8 Mineral → 4 Metal</text>
-                <circle cx="460" cy="236" r="3.5" fill="#B36100"/>
-              </g>
-              <g class="node-group" data-node="hyperdata" style="--node-color: var(--chain-refined);">
-                <rect class="node-rect" x="645" y="165" width="150" height="80" rx="3"
-                      fill="var(--chain-refined)" fill-opacity="0.1" stroke="var(--chain-refined)" stroke-width="1" stroke-opacity="0.5"/>
-                <text x="720" y="188" text-anchor="middle" fill="var(--chain-text)" font-size="14" font-weight="600" font-family="var(--font-display)">Hyperdata</text>
-                <text x="720" y="213" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">2 Signal → 2 Hyperdata</text>
-                <circle cx="720" cy="236" r="3.5" fill="#00F9FF"/>
-              </g>
-
-              <!-- ROW 3: PRODUCTS (y=295, h=80) -->
-              <g class="node-group" data-node="food" style="--node-color: var(--chain-product);">
-                <rect class="node-rect" x="225" y="295" width="150" height="80" rx="3"
-                      fill="var(--chain-product)" fill-opacity="0.1" stroke="var(--chain-product)" stroke-width="1" stroke-opacity="0.5"/>
-                <text x="300" y="318" text-anchor="middle" fill="var(--chain-text)" font-size="14" font-weight="600" font-family="var(--font-display)">Food</text>
-                <text x="300" y="343" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">4 Water → 2 Food</text>
-                <circle cx="290" cy="366" r="3.5" fill="#0069B3"/><circle cx="300" cy="366" r="3.5" fill="#4CAF50"/><circle cx="310" cy="366" r="3.5" fill="#E8C840"/>
-              </g>
-              <g class="node-group" data-node="medicine" style="--node-color: var(--chain-product);">
-                <rect class="node-rect" x="405" y="295" width="150" height="80" rx="3"
-                      fill="var(--chain-product)" fill-opacity="0.1" stroke="var(--chain-product)" stroke-width="1" stroke-opacity="0.5"/>
-                <text x="480" y="318" text-anchor="middle" fill="var(--chain-text)" font-size="14" font-weight="600" font-family="var(--font-display)">Medicine</text>
-                <text x="480" y="335" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">4 Mineral + 1 Food</text>
-                <text x="480" y="351" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">→ 2 Medicine</text>
-                <circle cx="480" cy="366" r="3.5" fill="#4CAF50"/>
-              </g>
-              <g class="node-group" data-node="tech" style="--node-color: var(--chain-product);">
-                <rect class="node-rect" x="625" y="295" width="150" height="80" rx="3"
-                      fill="var(--chain-product)" fill-opacity="0.1" stroke="var(--chain-product)" stroke-width="1" stroke-opacity="0.5"/>
-                <text x="700" y="318" text-anchor="middle" fill="var(--chain-text)" font-size="14" font-weight="600" font-family="var(--font-display)">Tech</text>
-                <text x="700" y="335" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">4 Metal + 1 Hyperdata</text>
-                <text x="700" y="351" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">→ 2 Tech</text>
-                <circle cx="700" cy="366" r="3.5" fill="#0069B3"/>
-              </g>
-
-              <!-- ROW 4: SINKS (y=425, h=80) -->
-              <g class="node-group" data-node="provisions" style="--node-color: var(--chain-sink);">
-                <rect class="node-rect" x="315" y="425" width="150" height="80" rx="3"
-                      fill="var(--chain-sink)" fill-opacity="0.1" stroke="var(--chain-sink)" stroke-width="1" stroke-opacity="0.5"/>
-                <text x="390" y="448" text-anchor="middle" fill="var(--chain-text)" font-size="14" font-weight="600" font-family="var(--font-display)">Provisions</text>
-                <text x="390" y="465" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">Consumes</text>
-                <text x="390" y="481" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">1 Food + 1 Medicine</text>
-                <circle cx="378" cy="496" r="3.5" fill="#0069B3"/><circle cx="388" cy="496" r="3.5" fill="#4CAF50"/><circle cx="398" cy="496" r="3.5" fill="#B36100"/><circle cx="408" cy="496" r="3.5" fill="#E8C840"/>
-              </g>
-              <g class="node-group" data-node="hulls" style="--node-color: var(--chain-sink);">
-                <rect class="node-rect" x="525" y="425" width="150" height="80" rx="3"
-                      fill="var(--chain-sink)" fill-opacity="0.1" stroke="var(--chain-sink)" stroke-width="1" stroke-opacity="0.5"/>
-                <text x="600" y="448" text-anchor="middle" fill="var(--chain-text)" font-size="14" font-weight="600" font-family="var(--font-display)">Hulls</text>
-                <text x="600" y="465" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">Consumes</text>
-                <text x="600" y="481" text-anchor="middle" fill="var(--chain-text-dim)" font-size="11" font-family="var(--font-mono)">4 Tech</text>
-                <circle cx="600" cy="496" r="3.5" fill="#0069B3"/>
-              </g>
-            </g>
-
-            <!-- Legend -->
-            <g id="legend" font-family="var(--font-mono)" font-size="11" font-weight="500">
-              <circle cx="265" cy="535" r="4.5" fill="#0069B3"/><text x="275" y="539" fill="var(--chain-text-dim)" letter-spacing="1">HUB</text>
-              <circle cx="325" cy="535" r="4.5" fill="#4CAF50"/><text x="335" y="539" fill="var(--chain-text-dim)" letter-spacing="1">BIO</text>
-              <circle cx="381" cy="535" r="4.5" fill="#B36100"/><text x="391" y="539" fill="var(--chain-text-dim)" letter-spacing="1">ORE</text>
-              <circle cx="437" cy="535" r="4.5" fill="#00F9FF"/><text x="447" y="539" fill="var(--chain-text-dim)" letter-spacing="1">SKY</text>
-              <circle cx="491" cy="535" r="4.5" fill="#E8C840"/><text x="501" y="539" fill="var(--chain-text-dim)" letter-spacing="1">FAR</text>
-              <text x="545" y="539" fill="var(--paper-mute)" font-size="10" letter-spacing="1.5">— producing nation</text>
-            </g>
-          </svg>
+    <main class="lore-content">
+      <!-- ═══════ NATIONS ═══════ -->
+      <section class="section active" id="sec-nations">
+        <div class="showcase-section" style="margin: 0 0 40px">
+          <h2>
+            <span><span class="num">01</span> &nbsp;Nations</span>
+            <span class="mono caps">// signatory powers</span>
+          </h2>
+          <div class="nations-stack"></div>
         </div>
-      </div>
+      </section>
 
-      <h3 class="showcase-subhead">Ware ledger</h3>
-      <div class="ware-cards" id="ware-cards"></div>
-    </div>
-  </section>
+      <!-- ═══════ SHIPS ═══════ -->
+      <section class="section" id="sec-ships">
+        <div class="showcase-section" style="margin: 0 0 40px">
+          <h2>
+            <span><span class="num">02</span> &nbsp;Ships</span>
+            <span class="mono caps">// registered hulls</span>
+          </h2>
+          <div class="ships-grid" id="ships-grid"></div>
+        </div>
+      </section>
 
-  <!-- ═══════ STATIONS ═══════ -->
-  <section class="section" id="sec-stations">
-    <div class="showcase-section" style="margin: 0 0 40px;">
-      <h2>
-        <span><span class="num">04</span> &nbsp;Stations</span>
-        <span class="mono caps">/ registered types</span>
-      </h2>
-      <div class="stations-grid" id="stations-grid"></div>
-    </div>
-  </section>
+      <!-- ═══════ WARES ═══════ -->
+      <section class="section" id="sec-wares">
+        <div class="showcase-section" style="margin: 0 0 40px">
+          <h2>
+            <span><span class="num">03</span> &nbsp;Production Chain</span>
+            <span class="mono caps">// flow from raw to sink</span>
+          </h2>
+          <div class="wares-chain-card">
+            <div class="wares-chain-head">
+              <div class="wares-chain-title">Supply-chain diagram</div>
+              <div class="wares-chain-sub">hover a node to isolate</div>
+            </div>
+            <div class="wares-svg-wrap">
+              <svg id="chain-svg" viewBox="0 0 960 560" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <pattern
+                    id="hatch-bg"
+                    patternUnits="userSpaceOnUse"
+                    width="6"
+                    height="6"
+                    patternTransform="rotate(43)"
+                  >
+                    <line
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="6"
+                      stroke="currentColor"
+                      stroke-width="0.5"
+                      opacity="0.08"
+                    />
+                  </pattern>
+                </defs>
+                <rect width="960" height="560" fill="var(--chain-bg)" />
+                <rect width="960" height="560" fill="url(#hatch-bg)" color="var(--paper)" />
 
-  <!-- ═══════ SECTORS ═══════ -->
-  <section class="section" id="sec-sectors">
-    <div class="showcase-section" style="margin: 0 0 40px;">
-      <h2>
-        <span><span class="num">05</span> &nbsp;Settled Universe</span>
-        <span class="mono caps">/ sector ledger</span>
-      </h2>
+                <!-- Tier labels -->
+                <text
+                  x="28"
+                  y="88"
+                  fill="var(--chain-label)"
+                  font-size="10"
+                  font-weight="500"
+                  letter-spacing="3"
+                  font-family="var(--font-mono)"
+                  text-transform="uppercase"
+                >
+                  RESOURCES
+                </text>
+                <text
+                  x="28"
+                  y="212"
+                  fill="var(--chain-label)"
+                  font-size="10"
+                  font-weight="500"
+                  letter-spacing="3"
+                  font-family="var(--font-mono)"
+                >
+                  REFINED
+                </text>
+                <text
+                  x="28"
+                  y="342"
+                  fill="var(--chain-label)"
+                  font-size="10"
+                  font-weight="500"
+                  letter-spacing="3"
+                  font-family="var(--font-mono)"
+                >
+                  PRODUCTS
+                </text>
+                <text
+                  x="28"
+                  y="462"
+                  fill="var(--chain-label)"
+                  font-size="10"
+                  font-weight="500"
+                  letter-spacing="3"
+                  font-family="var(--font-mono)"
+                >
+                  SINKS
+                </text>
 
-      <div class="sector-board">
-        <div class="sector-grid-card">
-          <div class="sector-grid-head">
-            <div class="sector-grid-title">Charted sectors of settled cluster</div>
-            <div class="sector-grid-sub" id="sector-bounds"></div>
+                <!-- ── Connection lines ── -->
+                <g id="connections">
+                  <path
+                    class="connection-line"
+                    data-from="ice"
+                    data-to="water"
+                    d="M200,115 L200,165"
+                    stroke="var(--chain-refined)"
+                    stroke-width="1.6"
+                    fill="none"
+                    opacity="0.55"
+                  />
+                  <path
+                    class="connection-line"
+                    data-from="mineral"
+                    data-to="metal"
+                    d="M460,115 L460,165"
+                    stroke="var(--chain-refined)"
+                    stroke-width="1.6"
+                    fill="none"
+                    opacity="0.55"
+                  />
+                  <path
+                    class="connection-line"
+                    data-from="signal"
+                    data-to="hyperdata"
+                    d="M720,115 L720,165"
+                    stroke="var(--chain-refined)"
+                    stroke-width="1.6"
+                    fill="none"
+                    opacity="0.55"
+                  />
+                  <path
+                    class="connection-line"
+                    data-from="water"
+                    data-to="food"
+                    d="M200,245 C200,270 300,270 300,295"
+                    stroke="var(--chain-product)"
+                    stroke-width="1.6"
+                    fill="none"
+                    opacity="0.55"
+                  />
+                  <path
+                    class="connection-line"
+                    data-from="mineral"
+                    data-to="medicine"
+                    d="M535,82 L565,82 L565,335 L555,335"
+                    stroke="var(--chain-product)"
+                    stroke-width="1.6"
+                    fill="none"
+                    opacity="0.55"
+                  />
+                  <path
+                    class="connection-line"
+                    data-from="food"
+                    data-to="medicine"
+                    d="M375,335 L405,335"
+                    stroke="var(--chain-product)"
+                    stroke-width="1.6"
+                    fill="none"
+                    opacity="0.55"
+                  />
+                  <path
+                    class="connection-line"
+                    data-from="metal"
+                    data-to="tech"
+                    d="M460,245 C460,270 700,270 700,295"
+                    stroke="var(--chain-product)"
+                    stroke-width="1.6"
+                    fill="none"
+                    opacity="0.55"
+                  />
+                  <path
+                    class="connection-line"
+                    data-from="hyperdata"
+                    data-to="tech"
+                    d="M720,245 C720,270 700,270 700,295"
+                    stroke="var(--chain-product)"
+                    stroke-width="1.6"
+                    fill="none"
+                    opacity="0.55"
+                  />
+                  <path
+                    class="connection-line"
+                    data-from="food"
+                    data-to="provisions"
+                    d="M300,375 C300,400 390,400 390,425"
+                    stroke="var(--chain-sink)"
+                    stroke-width="1.6"
+                    fill="none"
+                    opacity="0.55"
+                  />
+                  <path
+                    class="connection-line"
+                    data-from="medicine"
+                    data-to="provisions"
+                    d="M480,375 C480,400 390,400 390,425"
+                    stroke="var(--chain-sink)"
+                    stroke-width="1.6"
+                    fill="none"
+                    opacity="0.55"
+                  />
+                  <path
+                    class="connection-line"
+                    data-from="tech"
+                    data-to="hulls"
+                    d="M700,375 C700,400 600,400 600,425"
+                    stroke="var(--chain-sink)"
+                    stroke-width="1.6"
+                    fill="none"
+                    opacity="0.55"
+                  />
+                </g>
+
+                <!-- ── Nodes ── -->
+                <g id="nodes">
+                  <!-- ROW 1: RAW (y=50, h=65) -->
+                  <g class="node-group" data-node="ice" style="--node-color: var(--chain-raw)">
+                    <rect
+                      class="node-rect"
+                      x="125"
+                      y="50"
+                      width="150"
+                      height="65"
+                      rx="3"
+                      fill="var(--chain-raw)"
+                      fill-opacity="0.1"
+                      stroke="var(--chain-raw)"
+                      stroke-width="1"
+                      stroke-opacity="0.5"
+                    />
+                    <text
+                      x="200"
+                      y="72"
+                      text-anchor="middle"
+                      fill="var(--chain-text)"
+                      font-size="14"
+                      font-weight="600"
+                      font-family="var(--font-display)"
+                    >
+                      Ice
+                    </text>
+                    <text
+                      x="200"
+                      y="89"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      Produces 8
+                    </text>
+                    <circle cx="195" cy="104" r="3.5" fill="#B36100" />
+                    <circle cx="205" cy="104" r="3.5" fill="#E8C840" />
+                  </g>
+                  <g class="node-group" data-node="mineral" style="--node-color: var(--chain-raw)">
+                    <rect
+                      class="node-rect"
+                      x="385"
+                      y="50"
+                      width="150"
+                      height="65"
+                      rx="3"
+                      fill="var(--chain-raw)"
+                      fill-opacity="0.1"
+                      stroke="var(--chain-raw)"
+                      stroke-width="1"
+                      stroke-opacity="0.5"
+                    />
+                    <text
+                      x="460"
+                      y="72"
+                      text-anchor="middle"
+                      fill="var(--chain-text)"
+                      font-size="14"
+                      font-weight="600"
+                      font-family="var(--font-display)"
+                    >
+                      Mineral
+                    </text>
+                    <text
+                      x="460"
+                      y="89"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      Produces 8
+                    </text>
+                    <circle cx="455" cy="104" r="3.5" fill="#B36100" />
+                    <circle cx="465" cy="104" r="3.5" fill="#E8C840" />
+                  </g>
+                  <g class="node-group" data-node="signal" style="--node-color: var(--chain-raw)">
+                    <rect
+                      class="node-rect"
+                      x="645"
+                      y="50"
+                      width="150"
+                      height="65"
+                      rx="3"
+                      fill="var(--chain-raw)"
+                      fill-opacity="0.1"
+                      stroke="var(--chain-raw)"
+                      stroke-width="1"
+                      stroke-opacity="0.5"
+                    />
+                    <text
+                      x="720"
+                      y="72"
+                      text-anchor="middle"
+                      fill="var(--chain-text)"
+                      font-size="14"
+                      font-weight="600"
+                      font-family="var(--font-display)"
+                    >
+                      Signal
+                    </text>
+                    <text
+                      x="720"
+                      y="89"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      Produces 2
+                    </text>
+                    <circle cx="715" cy="104" r="3.5" fill="#00F9FF" />
+                    <circle cx="725" cy="104" r="3.5" fill="#E8C840" />
+                  </g>
+
+                  <!-- ROW 2: REFINED (y=165, h=80) -->
+                  <g class="node-group" data-node="water" style="--node-color: var(--chain-refined)">
+                    <rect
+                      class="node-rect"
+                      x="125"
+                      y="165"
+                      width="150"
+                      height="80"
+                      rx="3"
+                      fill="var(--chain-refined)"
+                      fill-opacity="0.1"
+                      stroke="var(--chain-refined)"
+                      stroke-width="1"
+                      stroke-opacity="0.5"
+                    />
+                    <text
+                      x="200"
+                      y="188"
+                      text-anchor="middle"
+                      fill="var(--chain-text)"
+                      font-size="14"
+                      font-weight="600"
+                      font-family="var(--font-display)"
+                    >
+                      Water
+                    </text>
+                    <text
+                      x="200"
+                      y="213"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      8 Ice → 4 Water
+                    </text>
+                    <circle cx="190" cy="236" r="3.5" fill="#0069B3" />
+                    <circle cx="200" cy="236" r="3.5" fill="#4CAF50" />
+                    <circle cx="210" cy="236" r="3.5" fill="#B36100" />
+                  </g>
+                  <g class="node-group" data-node="metal" style="--node-color: var(--chain-refined)">
+                    <rect
+                      class="node-rect"
+                      x="385"
+                      y="165"
+                      width="150"
+                      height="80"
+                      rx="3"
+                      fill="var(--chain-refined)"
+                      fill-opacity="0.1"
+                      stroke="var(--chain-refined)"
+                      stroke-width="1"
+                      stroke-opacity="0.5"
+                    />
+                    <text
+                      x="460"
+                      y="188"
+                      text-anchor="middle"
+                      fill="var(--chain-text)"
+                      font-size="14"
+                      font-weight="600"
+                      font-family="var(--font-display)"
+                    >
+                      Metal
+                    </text>
+                    <text
+                      x="460"
+                      y="213"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      8 Mineral → 4 Metal
+                    </text>
+                    <circle cx="460" cy="236" r="3.5" fill="#B36100" />
+                  </g>
+                  <g class="node-group" data-node="hyperdata" style="--node-color: var(--chain-refined)">
+                    <rect
+                      class="node-rect"
+                      x="645"
+                      y="165"
+                      width="150"
+                      height="80"
+                      rx="3"
+                      fill="var(--chain-refined)"
+                      fill-opacity="0.1"
+                      stroke="var(--chain-refined)"
+                      stroke-width="1"
+                      stroke-opacity="0.5"
+                    />
+                    <text
+                      x="720"
+                      y="188"
+                      text-anchor="middle"
+                      fill="var(--chain-text)"
+                      font-size="14"
+                      font-weight="600"
+                      font-family="var(--font-display)"
+                    >
+                      Hyperdata
+                    </text>
+                    <text
+                      x="720"
+                      y="213"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      2 Signal → 2 Hyperdata
+                    </text>
+                    <circle cx="720" cy="236" r="3.5" fill="#00F9FF" />
+                  </g>
+
+                  <!-- ROW 3: PRODUCTS (y=295, h=80) -->
+                  <g class="node-group" data-node="food" style="--node-color: var(--chain-product)">
+                    <rect
+                      class="node-rect"
+                      x="225"
+                      y="295"
+                      width="150"
+                      height="80"
+                      rx="3"
+                      fill="var(--chain-product)"
+                      fill-opacity="0.1"
+                      stroke="var(--chain-product)"
+                      stroke-width="1"
+                      stroke-opacity="0.5"
+                    />
+                    <text
+                      x="300"
+                      y="318"
+                      text-anchor="middle"
+                      fill="var(--chain-text)"
+                      font-size="14"
+                      font-weight="600"
+                      font-family="var(--font-display)"
+                    >
+                      Food
+                    </text>
+                    <text
+                      x="300"
+                      y="343"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      4 Water → 2 Food
+                    </text>
+                    <circle cx="290" cy="366" r="3.5" fill="#0069B3" />
+                    <circle cx="300" cy="366" r="3.5" fill="#4CAF50" />
+                    <circle cx="310" cy="366" r="3.5" fill="#E8C840" />
+                  </g>
+                  <g class="node-group" data-node="medicine" style="--node-color: var(--chain-product)">
+                    <rect
+                      class="node-rect"
+                      x="405"
+                      y="295"
+                      width="150"
+                      height="80"
+                      rx="3"
+                      fill="var(--chain-product)"
+                      fill-opacity="0.1"
+                      stroke="var(--chain-product)"
+                      stroke-width="1"
+                      stroke-opacity="0.5"
+                    />
+                    <text
+                      x="480"
+                      y="318"
+                      text-anchor="middle"
+                      fill="var(--chain-text)"
+                      font-size="14"
+                      font-weight="600"
+                      font-family="var(--font-display)"
+                    >
+                      Medicine
+                    </text>
+                    <text
+                      x="480"
+                      y="335"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      4 Mineral + 1 Food
+                    </text>
+                    <text
+                      x="480"
+                      y="351"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      → 2 Medicine
+                    </text>
+                    <circle cx="480" cy="366" r="3.5" fill="#4CAF50" />
+                  </g>
+                  <g class="node-group" data-node="tech" style="--node-color: var(--chain-product)">
+                    <rect
+                      class="node-rect"
+                      x="625"
+                      y="295"
+                      width="150"
+                      height="80"
+                      rx="3"
+                      fill="var(--chain-product)"
+                      fill-opacity="0.1"
+                      stroke="var(--chain-product)"
+                      stroke-width="1"
+                      stroke-opacity="0.5"
+                    />
+                    <text
+                      x="700"
+                      y="318"
+                      text-anchor="middle"
+                      fill="var(--chain-text)"
+                      font-size="14"
+                      font-weight="600"
+                      font-family="var(--font-display)"
+                    >
+                      Tech
+                    </text>
+                    <text
+                      x="700"
+                      y="335"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      4 Metal + 1 Hyperdata
+                    </text>
+                    <text
+                      x="700"
+                      y="351"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      → 2 Tech
+                    </text>
+                    <circle cx="700" cy="366" r="3.5" fill="#0069B3" />
+                  </g>
+
+                  <!-- ROW 4: SINKS (y=425, h=80) -->
+                  <g class="node-group" data-node="provisions" style="--node-color: var(--chain-sink)">
+                    <rect
+                      class="node-rect"
+                      x="315"
+                      y="425"
+                      width="150"
+                      height="80"
+                      rx="3"
+                      fill="var(--chain-sink)"
+                      fill-opacity="0.1"
+                      stroke="var(--chain-sink)"
+                      stroke-width="1"
+                      stroke-opacity="0.5"
+                    />
+                    <text
+                      x="390"
+                      y="448"
+                      text-anchor="middle"
+                      fill="var(--chain-text)"
+                      font-size="14"
+                      font-weight="600"
+                      font-family="var(--font-display)"
+                    >
+                      Provisions
+                    </text>
+                    <text
+                      x="390"
+                      y="465"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      Consumes
+                    </text>
+                    <text
+                      x="390"
+                      y="481"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      1 Food + 1 Medicine
+                    </text>
+                    <circle cx="378" cy="496" r="3.5" fill="#0069B3" />
+                    <circle cx="388" cy="496" r="3.5" fill="#4CAF50" />
+                    <circle cx="398" cy="496" r="3.5" fill="#B36100" />
+                    <circle cx="408" cy="496" r="3.5" fill="#E8C840" />
+                  </g>
+                  <g class="node-group" data-node="hulls" style="--node-color: var(--chain-sink)">
+                    <rect
+                      class="node-rect"
+                      x="525"
+                      y="425"
+                      width="150"
+                      height="80"
+                      rx="3"
+                      fill="var(--chain-sink)"
+                      fill-opacity="0.1"
+                      stroke="var(--chain-sink)"
+                      stroke-width="1"
+                      stroke-opacity="0.5"
+                    />
+                    <text
+                      x="600"
+                      y="448"
+                      text-anchor="middle"
+                      fill="var(--chain-text)"
+                      font-size="14"
+                      font-weight="600"
+                      font-family="var(--font-display)"
+                    >
+                      Hulls
+                    </text>
+                    <text
+                      x="600"
+                      y="465"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      Consumes
+                    </text>
+                    <text
+                      x="600"
+                      y="481"
+                      text-anchor="middle"
+                      fill="var(--chain-text-dim)"
+                      font-size="11"
+                      font-family="var(--font-mono)"
+                    >
+                      4 Tech
+                    </text>
+                    <circle cx="600" cy="496" r="3.5" fill="#0069B3" />
+                  </g>
+                </g>
+
+                <!-- Legend -->
+                <g id="legend" font-family="var(--font-mono)" font-size="11" font-weight="500">
+                  <circle cx="265" cy="535" r="4.5" fill="#0069B3" />
+                  <text x="275" y="539" fill="var(--chain-text-dim)" letter-spacing="1">HUB</text>
+                  <circle cx="325" cy="535" r="4.5" fill="#4CAF50" />
+                  <text x="335" y="539" fill="var(--chain-text-dim)" letter-spacing="1">BIO</text>
+                  <circle cx="381" cy="535" r="4.5" fill="#B36100" />
+                  <text x="391" y="539" fill="var(--chain-text-dim)" letter-spacing="1">ORE</text>
+                  <circle cx="437" cy="535" r="4.5" fill="#00F9FF" />
+                  <text x="447" y="539" fill="var(--chain-text-dim)" letter-spacing="1">SKY</text>
+                  <circle cx="491" cy="535" r="4.5" fill="#E8C840" />
+                  <text x="501" y="539" fill="var(--chain-text-dim)" letter-spacing="1">FAR</text>
+                  <text x="545" y="539" fill="var(--paper-mute)" font-size="10" letter-spacing="1.5">
+                    — producing nation
+                  </text>
+                </g>
+              </svg>
+            </div>
           </div>
-          <div class="sector-legend" id="sector-legend"></div>
-          <hr class="sector-legend-rule" />
-          <div class="sector-grid-wrap"><div class="sector-grid" id="sector-grid"></div></div>
+
+          <h3 class="showcase-subhead">Ware ledger</h3>
+          <div class="ware-cards" id="ware-cards"></div>
+        </div>
+      </section>
+
+      <!-- ═══════ STATIONS ═══════ -->
+      <section class="section" id="sec-stations">
+        <div class="showcase-section" style="margin: 0 0 40px">
+          <h2>
+            <span><span class="num">04</span> &nbsp;Stations</span>
+            <span class="mono caps">// registered types</span>
+          </h2>
+          <div class="stations-grid" id="stations-grid"></div>
+        </div>
+      </section>
+
+      <!-- ═══════ SECTORS ═══════ -->
+      <section class="section" id="sec-sectors">
+        <div class="showcase-section" style="margin: 0 0 40px">
+          <h2>
+            <span><span class="num">05</span> &nbsp;<span id="sector-section-title">Settled</span> Universe</span>
+            <span class="mono caps">// sector ledger</span>
+          </h2>
+
+          <div class="sector-board">
+            <div class="sector-grid-card">
+              <div class="sector-grid-head">
+                <div class="hud-segment hud-segment--row" id="sector-map-switch"></div>
+              </div>
+              <div class="sector-legend" id="sector-legend"></div>
+              <hr class="sector-legend-rule" />
+              <div class="sector-grid-wrap">
+                <!-- 3×3 frame: coordinate rails top/left/right/bottom; the four
+                     empty corner divs are spacers so the grid auto-flows into
+                     the centre cell. -->
+                <div class="sector-axis-corner"></div>
+                <div class="sector-axis-x" id="sector-axis-x-top"></div>
+                <div class="sector-axis-corner"></div>
+                <div class="sector-axis-y" id="sector-axis-y-left"></div>
+                <div class="sector-grid" id="sector-grid"></div>
+                <div class="sector-axis-y is-right" id="sector-axis-y-right"></div>
+                <div class="sector-axis-corner"></div>
+                <div class="sector-axis-x" id="sector-axis-x-bottom"></div>
+                <div class="sector-axis-corner"></div>
+              </div>
+            </div>
+
+            <div class="sector-desc-card id-card" id="sector-desc">
+              <div class="sector-desc-placeholder">— select a sector to open its dossier —</div>
+            </div>
+          </div>
         </div>
 
-        <div class="sector-desc-card id-card" id="sector-desc">
-          <div class="sector-desc-placeholder">— select a sector to open its dossier —</div>
-        </div>
-      </div>
-    </div>
-  </section>
+      </section>
+    </main>
 
-</main>
+    <script type="module">
+      import { Compass } from "lucide-static";
+      import { allNations } from "/data/nations.ts";
+      import { allShips } from "/data/ships.ts";
+      import { allWares } from "/data/wares.ts";
+      import { allStationTypes as canonicalStationTypes, longNameBySize } from "/data/stations.ts";
+      import { sectors as canonicalSectors } from "/data/map-sectors.ts";
+      import { zones as universeZones } from "/data/map-zones.ts";
+      import { settledPreset } from "/data/map-preset-settled.ts";
+      import { presets } from "/data/map-presets.ts";
 
-<script type="module">
-import { Compass } from "lucide-static";
-import { allNations } from "/data/nations.ts";
-import { allShips } from "/data/ships.ts";
-import { allWares } from "/data/wares.ts";
-import { stationTypes as canonicalStationTypes, longNameBySize } from "/data/stations.ts";
-import { sectors as canonicalSectors } from "/data/map-sectors.ts";
-import { zones as universeZones } from "/data/map-zones.ts";
-import { settledPreset } from "/data/map-preset-settled.ts";
+      // Each preset's stations take their zone's coordinates; unoccupied zones
+      // are unclaimed slots. derivePresetMap() (below) builds this per preset
+      // for the Sectors-map switcher; the rest of the page uses the Settled
+      // reference layout.
+      const zoneById = new Map(universeZones.map((z) => [z.id, z]));
+      const nationById = new Map(allNations.map((n) => [n.id, n]));
+      import { SECTOR_SIZE } from "/data/map.ts";
+      import { ambientTrafficConfig } from "/data/station-ambient-traffic-visuals.ts";
+      import { sectorEnvironmentById } from "/data/map-sector-environments.ts";
+      import { getShipHudIcon, getStationHudIcon } from "/src/render-hud-icon.ts";
+      import { morseBarGradient } from "/src/render-morse-bar.ts";
 
-// Show the Settled preset as the "reference layout" — the canonical
-// filled-in state players see when the game ships. Reconstructs the flat
-// {station, x, y, size}[] shape this page grew up on from the new universe +
-// preset split: preset stations get their zone's coordinates, remaining
-// zones stay as unclaimed slots.
-const zoneById = new Map(universeZones.map((z) => [z.id, z]));
-const nationById = new Map(allNations.map((n) => [n.id, n]));
-const occupiedZoneIds = new Set(settledPreset.stations.map((station) => station.zoneId));
-const mapStations = settledPreset.stations.map((station) => {
-  const zone = zoneById.get(station.zoneId);
-  return {
-    ...station,
-    x: zone?.x ?? 0,
-    y: zone?.y ?? 0,
-    size: zone?.size ?? "M",
-    nation: nationById.get(station.nationId),
-  };
-});
-const stationZones = universeZones.filter((z) => !occupiedZoneIds.has(z.id));
-import { SECTOR_SIZE } from "/data/map.ts";
-import { ENVIRONMENT_ALLOWED_TYPES } from "/data/map-environments.ts";
-import { getShipHudIcon, getStationHudIcon } from "/src/render-hud-icon.ts";
-import { morseBarGradient } from "/src/render-morse-bar.ts";
+      // Compass-as-data-URI used for WAY's nation seal (WAY has no station glyph —
+      // generational ships are nomadic carriers, so a compass reads as the navigational
+      // identity better than a station icon would).
+      function compassSealUri(color) {
+        const tinted = Compass.replace(/stroke="currentColor"/g, `stroke="${color}"`).replace(
+          /stroke-width="2"/g,
+          'stroke-width="1.5"',
+        );
+        return `data:image/svg+xml,${encodeURIComponent(tinted)}`;
+      }
 
-// Compass-as-data-URI used for WAY's nation seal (WAY has no station glyph —
-// generational ships are nomadic carriers, so a compass reads as the navigational
-// identity better than a station icon would).
-function compassSealUri(color) {
-  const tinted = Compass
-    .replace(/stroke="currentColor"/g, `stroke="${color}"`)
-    .replace(/stroke-width="2"/g, 'stroke-width="1.5"');
-  return `data:image/svg+xml,${encodeURIComponent(tinted)}`;
-}
+      const nationByCode = Object.fromEntries(allNations.map((n) => [n.codeName, n]));
+      const wareById = Object.fromEntries(allWares.map((w) => [w.id, w]));
+      const stationTypeById = Object.fromEntries(canonicalStationTypes.map((s) => [s.id, s]));
 
-const nationByCode = Object.fromEntries(allNations.map(n => [n.codeName, n]));
-const wareById = Object.fromEntries(allWares.map(w => [w.id, w]));
-const stationTypeById = Object.fromEntries(canonicalStationTypes.map(s => [s.id, s]));
+      // Compute minimum grid coords so we can map world-space station coords back
+      // to the declared grid coords (sectors' gridX can be negative).
+      let minGridX = Infinity,
+        minGridY = Infinity;
+      for (const s of canonicalSectors) {
+        if (s.gridX < minGridX) minGridX = s.gridX;
+        if (s.gridY < minGridY) minGridY = s.gridY;
+      }
 
-// Environment labels for sector cells / description
-const ENVIRONMENT_LABEL = {
-  "core":         "Core",
-  "mineral-rich": "Mineral-rich",
-  "bio-nebula":   "Bio-nebula",
-  "deep-space":   "Deep space",
-  "frontier":     "Frontier",
-  "trade-lanes":  "Trade lanes",
-  "hazardous":    "Hazardous",
-};
+      function sectorKey(worldX, worldY) {
+        const gridX = Math.floor(worldX / SECTOR_SIZE) + minGridX;
+        const gridY = Math.floor(worldY / SECTOR_SIZE) + minGridY;
+        return `${gridX},${gridY}`;
+      }
 
-// ── Derive: station names / type membership / sector placements ──
-const stationNamesByNation = {};
-const nationsByStationType = {};
-const stationsBySector = {};
-const sectorDotMap = {};
+      // Build the Sectors-map dataset for one preset. Returns only what the
+      // map render needs; the switcher calls it per preset (map-only).
+      function derivePresetMap(preset) {
+        const occupiedZoneIds = new Set(preset.presetStations.map((station) => station.zoneId));
+        const mapStations = preset.presetStations.map((station) => {
+          const zone = zoneById.get(station.zoneId);
+          return {
+            ...station,
+            x: zone?.x ?? 0,
+            y: zone?.y ?? 0,
+            size: zone?.size ?? "M",
+            nation: nationById.get(station.nationId),
+          };
+        });
+        const stationZones = universeZones.filter((z) => !occupiedZoneIds.has(z.id));
+        const stationNamesByNation = {};
+        const stationsBySector = {};
+        const sectorDotMap = {};
+        for (const station of mapStations) {
+          const code = station.nation.codeName;
+          if (!stationNamesByNation[code]) stationNamesByNation[code] = [];
+          if (station.name) stationNamesByNation[code].push(station.name);
+          const key = sectorKey(station.x, station.y);
+          if (!sectorDotMap[key]) sectorDotMap[key] = {};
+          sectorDotMap[key][code] = (sectorDotMap[key][code] || 0) + 1;
+          if (!stationsBySector[key]) stationsBySector[key] = [];
+          stationsBySector[key].push(station);
+        }
+        return { mapStations, stationZones, sectorDotMap, stationsBySector, stationNamesByNation };
+      }
 
-// Compute minimum grid coords so we can map world-space station coords back
-// to authored grid coords (sectors author gridX can be negative).
-let minGridX = Infinity, minGridY = Infinity;
-for (const s of canonicalSectors) {
-  if (s.gridX < minGridX) minGridX = s.gridX;
-  if (s.gridY < minGridY) minGridY = s.gridY;
-}
+      // The Settled preset drives the page-wide structures (the Wares tab uses
+      // nationsByStationType); the Sectors map re-derives per preset.
+      const settledMap = derivePresetMap(settledPreset);
+      const nationsByStationType = {};
+      for (const station of settledMap.mapStations) {
+        if (!nationsByStationType[station.stationTypeId])
+          nationsByStationType[station.stationTypeId] = new Set();
+        nationsByStationType[station.stationTypeId].add(station.nation.codeName);
+      }
 
-function sectorKey(worldX, worldY) {
-  const gridX = Math.floor(worldX / SECTOR_SIZE) + minGridX;
-  const gridY = Math.floor(worldY / SECTOR_SIZE) + minGridY;
-  return `${gridX},${gridY}`;
-}
+      // Which nations produce each ware (via station types they operate)
+      const nationsByWare = {};
+      for (const st of canonicalStationTypes) {
+        const nationsForType = nationsByStationType[st.id] || new Set();
+        for (const wareId of st.produces) {
+          if (!nationsByWare[wareId]) nationsByWare[wareId] = new Set();
+          for (const code of nationsForType) nationsByWare[wareId].add(code);
+        }
+      }
 
-for (const station of mapStations) {
-  const code = station.nation.codeName;
-  if (!stationNamesByNation[code]) stationNamesByNation[code] = [];
-  if (station.name) stationNamesByNation[code].push(station.name);
-  if (!nationsByStationType[station.stationTypeId]) nationsByStationType[station.stationTypeId] = new Set();
-  nationsByStationType[station.stationTypeId].add(code);
-  const key = sectorKey(station.x, station.y);
-  if (!sectorDotMap[key]) sectorDotMap[key] = {};
-  sectorDotMap[key][code] = (sectorDotMap[key][code] || 0) + 1;
-  if (!stationsBySector[key]) stationsBySector[key] = [];
-  stationsBySector[key].push(station);
-}
+      // Reverse of nation.shipTypeId
+      const nationsByShipType = {};
+      for (const nation of allNations) {
+        const shipTypeId = nation.shipTypeId;
+        if (!shipTypeId) continue;
+        if (!nationsByShipType[shipTypeId]) nationsByShipType[shipTypeId] = [];
+        nationsByShipType[shipTypeId].push(nation);
+      }
 
-// Which nations produce each ware (via station types they operate)
-const nationsByWare = {};
-for (const st of canonicalStationTypes) {
-  const nationsForType = nationsByStationType[st.id] || new Set();
-  for (const wareId of st.produces) {
-    if (!nationsByWare[wareId]) nationsByWare[wareId] = new Set();
-    for (const code of nationsForType) nationsByWare[wareId].add(code);
-  }
-}
+      // Wares produced per nation (derived from nationsByWare)
+      const waresByNation = {};
+      for (const [wareId, nationSet] of Object.entries(nationsByWare)) {
+        for (const code of nationSet) {
+          if (!waresByNation[code]) waresByNation[code] = [];
+          waresByNation[code].push(wareById[wareId]?.name || wareId);
+        }
+      }
 
-// Reverse of nation.shipTypeId
-const nationsByShipType = {};
-for (const nation of allNations) {
-  const shipTypeId = nation.shipTypeId;
-  if (!shipTypeId) continue;
-  if (!nationsByShipType[shipTypeId]) nationsByShipType[shipTypeId] = [];
-  nationsByShipType[shipTypeId].push(nation);
-}
+      // Which nations build each station type (from nation.buildableStationTypeIds)
+      const nationsByBuildBlueprint = {};
+      for (const nation of allNations) {
+        for (const blueprintId of nation.buildableStationTypeIds) {
+          if (!nationsByBuildBlueprint[blueprintId]) nationsByBuildBlueprint[blueprintId] = [];
+          nationsByBuildBlueprint[blueprintId].push(nation);
+        }
+      }
 
-// Wares produced per nation (derived from nationsByWare)
-const waresByNation = {};
-for (const [wareId, nationSet] of Object.entries(nationsByWare)) {
-  for (const code of nationSet) {
-    if (!waresByNation[code]) waresByNation[code] = [];
-    waresByNation[code].push(wareById[wareId]?.name || wareId);
-  }
-}
+      // ── Tab switching ──
+      const allNavButtons = document.querySelectorAll(".lore-nav .hud-btn");
+      const allSections = document.querySelectorAll(".section");
+      window.goTab = function (tab) {
+        allNavButtons.forEach((b) => b.classList.remove("is-on"));
+        allSections.forEach((s) => s.classList.remove("active"));
+        document.querySelector(`.lore-nav .hud-btn[data-tab="${tab}"]`).classList.add("is-on");
+        document.getElementById("sec-" + tab).classList.add("active");
+        window.scrollTo(0, 0);
+      };
+      for (const btn of allNavButtons) {
+        btn.addEventListener("click", () => goTab(btn.dataset.tab));
+      }
 
-// Which nations build each station type (from nation.buildableStationTypeIds)
-const nationsByBuildBlueprint = {};
-for (const nation of allNations) {
-  for (const blueprintId of nation.buildableStationTypeIds) {
-    if (!nationsByBuildBlueprint[blueprintId]) nationsByBuildBlueprint[blueprintId] = [];
-    nationsByBuildBlueprint[blueprintId].push(nation);
-  }
-}
+      function wareLink(name) {
+        return `<a class="lore-link ware-pill-inline" onclick="goTab('wares')">${name}</a>`;
+      }
+      function nationLink(code, asPill = false) {
+        const n = nationByCode[code];
+        if (!n) return code;
+        if (asPill) {
+          return `<span class="wd-nation-pill" style="--nation-pill-tint:${n.color}" onclick="goTab('nations')" title="${n.shortName}">${code}</span>`;
+        }
+        return `<a class="lore-link" onclick="goTab('nations')" style="color:${n.color}">${code}</a>`;
+      }
 
-// ── Tab switching ──
-const allNavButtons = document.querySelectorAll(".lore-nav .hud-btn");
-const allSections = document.querySelectorAll(".section");
-window.goTab = function(tab) {
-  allNavButtons.forEach(b => b.classList.remove("is-on"));
-  allSections.forEach(s => s.classList.remove("active"));
-  document.querySelector(`.lore-nav .hud-btn[data-tab="${tab}"]`).classList.add("is-on");
-  document.getElementById("sec-" + tab).classList.add("active");
-  window.scrollTo(0, 0);
-};
-for (const btn of allNavButtons) {
-  btn.addEventListener("click", () => goTab(btn.dataset.tab));
-}
+      // ═══════ NATIONS ═══════
+      (() => {
+        const nationsEl = document.querySelector(".nations-stack");
 
-function wareLink(name) {
-  return `<a class="lore-link ware-pill-inline" onclick="goTab('wares')">${name}</a>`;
-}
-function nationLink(code, asPill = false) {
-  const n = nationByCode[code];
-  if (!n) return code;
-  if (asPill) {
-    return `<span class="wd-nation-pill" style="--nation-pill-tint:${n.color}" onclick="goTab('nations')" title="${n.shortName}">${code}</span>`;
-  }
-  return `<a class="lore-link" onclick="goTab('nations')" style="color:${n.color}">${code}</a>`;
-}
+        nationsEl.innerHTML = allNations
+          .map((n) => {
+            const shipType = allShips.find((s) => s.id === n.shipTypeId);
+            const stationNamesList = (n.stationNames || []).join(" · ");
+            const producedWares = waresByNation[n.codeName] || [];
+            const buildBlueprints = n.buildableStationTypeIds
+              .map((id) => stationTypeById[id]?.name ?? id)
+              .join(" · ");
+            const shipTypeLink = shipType
+              ? `<a class="lore-link" onclick="goTab('ships')">${shipType.name}</a>`
+              : "—";
 
-// ═══════ NATIONS ═══════
-(() => {
-  const nationsEl = document.querySelector(".nations-stack");
+            const waresPills = producedWares.length
+              ? producedWares
+                  .map((w) => `<span class="pill-gold ship-ware-pill" onclick="goTab('wares')">${w}</span>`)
+                  .join("")
+              : `<span class="nation-field-value is-mono">none</span>`;
 
-  nationsEl.innerHTML = allNations.map(n => {
-    const shipType = allShips.find(s => s.id === n.shipTypeId);
-    const stationNamesList = (n.stationNames || []).join(" · ");
-    const producedWares = waresByNation[n.codeName] || [];
-    const buildBlueprints = n.buildableStationTypeIds
-      .map(id => stationTypeById[id]?.name ?? id)
-      .join(" · ");
-    const shipTypeLink = shipType
-      ? `<a class="lore-link" onclick="goTab('ships')">${shipType.name}</a>`
-      : "—";
+            const statusBand = !n.buildsStations
+              ? `<div class="id-type-mrz id-status-band" style="margin: 14px -22px -20px;">Non-aligned · Transit carrier</div>`
+              : "";
 
-    const waresPills = producedWares.length
-      ? producedWares.map(w => `<span class="pill-gold ship-ware-pill" onclick="goTab('wares')">${w}</span>`).join("")
-      : `<span class="nation-field-value is-mono">none</span>`;
-
-    const statusBand = !n.buildsStations
-      ? `<div class="id-type-mrz id-status-band" style="margin: 14px -22px -20px;">Non-aligned · Transit carrier</div>`
-      : "";
-
-    return `
+            return `
       <article class="nation-card" style="--nation-accent:${n.color}" data-nation="${n.codeName}">
         <div class="id-header">
           <div class="id-title">
@@ -1287,53 +2017,59 @@ function nationLink(code, asPill = false) {
         </div>
         ${statusBand}
       </article>`;
-  }).join("");
+          })
+          .join("");
 
-  // ── Seals + morse stripes for every nation card ──
-  for (const card of nationsEl.querySelectorAll(".nation-card")) {
-    const code = card.dataset.nation;
-    const nation = nationByCode[code];
-    if (!nation) continue;
-    const sealEl = card.querySelector(".id-seal");
-    if (sealEl) {
-      const uri = nation.codeName === "WAY"
-        ? compassSealUri(nation.color)
-        : getStationHudIcon(nation.primaryBuildableStationTypeId, { subtle: true });
-      if (uri) sealEl.style.backgroundImage = `url("${uri}")`;
-    }
-    card.style.setProperty(
-      "--morse-bar",
-      morseBarGradient(nation.name, { color: nation.color, letterCount: 7 }),
-    );
-  }
-})();
+        // ── Seals + morse stripes for every nation card ──
+        for (const card of nationsEl.querySelectorAll(".nation-card")) {
+          const code = card.dataset.nation;
+          const nation = nationByCode[code];
+          if (!nation) continue;
+          const sealEl = card.querySelector(".id-seal");
+          if (sealEl) {
+            const uri =
+              nation.codeName === "WAY"
+                ? compassSealUri(nation.color)
+                : getStationHudIcon(nation.primaryBuildableStationTypeId, { subtle: true });
+            if (uri) sealEl.style.backgroundImage = `url("${uri}")`;
+          }
+          card.style.setProperty(
+            "--morse-bar",
+            morseBarGradient(nation.name, { color: nation.color, letterCount: 7 }),
+          );
+        }
+      })();
 
-// ═══════ SHIPS ═══════
-(() => {
-  const maxSpeed = Math.max(...allShips.map(s => s.speed));
-  const maxCargo = Math.max(...allShips.map(s => s.cargoCapacity));
-  const shipsEl = document.getElementById("ships-grid");
+      // ═══════ SHIPS ═══════
+      (() => {
+        const maxSpeed = Math.max(...allShips.map((s) => s.speed));
+        const maxCargo = Math.max(...allShips.map((s) => s.cargoCapacity));
+        const shipsEl = document.getElementById("ships-grid");
 
-  shipsEl.innerHTML = allShips.map(s => {
-    const shipNations = nationsByShipType[s.id] || [];
-    const primary = shipNations[0];
-    const primaryColor = primary?.color || "var(--paper-dim)";
-    const wareNames = s.allowedWares.map(id => wareById[id]?.name || id);
+        shipsEl.innerHTML = allShips
+          .map((s) => {
+            const shipNations = nationsByShipType[s.id] || [];
+            const primary = shipNations[0];
+            const primaryColor = primary?.color || "var(--paper-dim)";
+            const wareNames = s.allowedWares.map((id) => wareById[id]?.name || id);
 
-    const nationsMrz = shipNations.length
-      ? shipNations.map(n =>
-          `<span class="mrz-nation" style="--nation-tint:${n.color}" onclick="goTab('nations')">${n.codeName}</span>`
-        ).join(`<span class="mrz-sep">·</span>`)
-      : `<span class="mrz-nation" style="color:var(--paper-mute)">UNASSIGNED</span>`;
+            const nationsMrz = shipNations.length
+              ? shipNations
+                  .map(
+                    (n) =>
+                      `<span class="mrz-nation" style="--nation-tint:${n.color}" onclick="goTab('nations')">${n.codeName}</span>`,
+                  )
+                  .join(`<span class="mrz-sep">·</span>`)
+              : `<span class="mrz-nation" style="color:var(--paper-mute)">UNASSIGNED</span>`;
 
-    // Serial code: SHP-T for Trader, SHP-S for Seedhaul, etc.
-    const serial = `SHP-${s.name.charAt(0).toUpperCase()}`;
+            // Serial code: SHP-T for Trader, SHP-S for Seedhaul, etc.
+            const serial = `SHP-${s.name.charAt(0).toUpperCase()}`;
 
-    const waresPills = wareNames
-      .map(w => `<span class="ship-ware-pill" onclick="goTab('wares')">${w}</span>`)
-      .join("");
+            const waresPills = wareNames
+              .map((w) => `<span class="ship-ware-pill" onclick="goTab('wares')">${w}</span>`)
+              .join("");
 
-    return `
+            return `
       <article class="ship-card id-card" data-ship="${s.id}" style="--nation-accent:${primaryColor}">
         <div class="id-header">
           <div class="id-title">
@@ -1348,10 +2084,10 @@ function nationLink(code, asPill = false) {
         <div class="ship-lore">${s.lore}</div>
         <div class="ship-stat-grid">
           <span class="cargo-label">Speed</span>
-          <span class="cargo-track"><span class="cargo-fill" style="width:${(s.speed/maxSpeed)*100}%; background:${primaryColor}"></span></span>
+          <span class="cargo-track"><span class="cargo-fill" style="width:${(s.speed / maxSpeed) * 100}%; background:${primaryColor}"></span></span>
           <span class="cargo-stat">${s.speed.toFixed(1)} u/s</span>
           <span class="cargo-label">Cargo</span>
-          <span class="cargo-track"><span class="cargo-fill" style="width:${(s.cargoCapacity/maxCargo)*100}%; background:${primaryColor}"></span></span>
+          <span class="cargo-track"><span class="cargo-fill" style="width:${(s.cargoCapacity / maxCargo) * 100}%; background:${primaryColor}"></span></span>
           <span class="cargo-stat">${s.cargoCapacity.toLocaleString()} t</span>
         </div>
         <div class="ship-wares-row">
@@ -1364,89 +2100,92 @@ function nationLink(code, asPill = false) {
           ${nationsMrz}
         </div>
       </article>`;
-  }).join("");
+          })
+          .join("");
 
-  // ── Seals + morse stripes for every ship card ──
-  for (const card of shipsEl.querySelectorAll(".ship-card")) {
-    const shipId = card.dataset.ship;
-    const ship = allShips.find(s => s.id === shipId);
-    if (!ship) continue;
-    const sealEl = card.querySelector(".id-seal");
-    if (sealEl) {
-      const uri = getShipHudIcon(ship, { subtle: true });
-      if (uri) sealEl.style.backgroundImage = `url("${uri}")`;
-    }
-    const accent = card.style.getPropertyValue("--nation-accent").trim() || "var(--paper-dim)";
-    card.style.setProperty("--morse-bar", morseBarGradient(ship.name, { color: accent, letterCount: 7 }));
-  }
-})();
+        // ── Seals + morse stripes for every ship card ──
+        for (const card of shipsEl.querySelectorAll(".ship-card")) {
+          const shipId = card.dataset.ship;
+          const ship = allShips.find((s) => s.id === shipId);
+          if (!ship) continue;
+          const sealEl = card.querySelector(".id-seal");
+          if (sealEl) {
+            const uri = getShipHudIcon(ship, { subtle: true });
+            if (uri) sealEl.style.backgroundImage = `url("${uri}")`;
+          }
+          const accent = card.style.getPropertyValue("--nation-accent").trim() || "var(--paper-dim)";
+          card.style.setProperty(
+            "--morse-bar",
+            morseBarGradient(ship.name, { color: accent, letterCount: 7 }),
+          );
+        }
+      })();
 
-// ═══════ WARES ═══════
-(() => {
-  // Hardcoded ware lore — wares.ts doesn't currently carry descriptions. Make
-  // sure every entry in allWares has a corresponding line.
-  const wareDescriptions = {
-    ice:        "Frozen volatiles harvested from planetary surfaces and asteroid fields.",
-    mineral:    "Unprocessed ore extracted from crust deposits and asteroid mining.",
-    signal:     "Raw deep-space emissions captured by orbital observatory arrays.",
-    water:      "Purified from raw ice. Feeds farms and sustains station populations.",
-    metal:     "Smelted from mineral ore. The backbone of all industrial construction.",
-    hyperdata:  "Decoded signal data. Powers advanced technology fabrication.",
-    food:       "Grown in hydroponic farms. Sustains station populations alongside medicine.",
-    medicine:   "Synthesized from minerals and food stocks. Essential for habitat life support.",
-    tech:       "Assembled from metal and hyperdata. Used in shipyard construction.",
-    provisions: "Food and medicine consumed by habitat populations.",
-    hulls:      "Ship frames assembled from advanced technology at shipyards.",
-  };
-  for (const w of allWares) {
-    if (!(w.id in wareDescriptions)) {
-      wareDescriptions[w.id] = `Ware in the production chain.`;
-    }
-  }
+      // ═══════ WARES ═══════
+      (() => {
+        // Hardcoded ware lore — wares.ts doesn't currently carry descriptions. Make
+        // sure every entry in allWares has a corresponding line.
+        const wareDescriptions = {
+          ice: "Frozen volatiles harvested from planetary surfaces and asteroid fields.",
+          mineral: "Unprocessed ore extracted from crust deposits and asteroid mining.",
+          signal: "Raw deep-space emissions captured by orbital observatory arrays.",
+          water: "Purified from raw ice. Feeds farms and sustains station populations.",
+          metal: "Smelted from mineral ore. The backbone of all industrial construction.",
+          hyperdata: "Decoded signal data. Powers advanced technology fabrication.",
+          food: "Grown in hydroponic farms. Sustains station populations alongside medicine.",
+          medicine: "Synthesized from minerals and food stocks. Essential for habitat life support.",
+          tech: "Assembled from metal and hyperdata. Used in shipyard construction.",
+          provisions: "Food and medicine consumed by habitat populations.",
+          hulls: "Ship frames assembled from advanced technology at shipyards.",
+        };
+        for (const w of allWares) {
+          if (!(w.id in wareDescriptions)) {
+            wareDescriptions[w.id] = `Ware in the production chain.`;
+          }
+        }
 
-  // Wares with no downstream consumers are terminals ("Consumed" — hulls,
-  // provisions flow to build cycles, not further production chains).
-  const terminalWareIds = new Set(
-    allWares
-      .filter(w => !allWares.some(other =>
-        other.productionInputs.some(c => c.wareId === w.id),
-      ))
-      .map(w => w.id),
-  );
-  // Tier color matches the SVG chain palette so cards and diagram read as one.
-  function wareTint(ware) {
-    if (ware.productionInputs.length === 0) return "var(--chain-raw)";
-    if (terminalWareIds.has(ware.id)) return "var(--chain-sink)";
-    if (ware.productionInputs.length === 1) return "var(--chain-refined)";
-    return "var(--chain-product)";
-  }
-  function wareTierLabel(ware) {
-    if (ware.productionInputs.length === 0) return "Resource";
-    if (terminalWareIds.has(ware.id)) return "Consumed";
-    return "Produced";
-  }
-  function firstStationProducing(wareId) {
-    return canonicalStationTypes.find(st => st.produces.includes(wareId));
-  }
+        // Wares with no downstream consumers are terminals ("Consumed" — hulls,
+        // provisions flow to build cycles, not further production chains).
+        const terminalWareIds = new Set(
+          allWares
+            .filter((w) => !allWares.some((other) => other.productionInputs.some((c) => c.wareId === w.id)))
+            .map((w) => w.id),
+        );
+        // Tier color matches the SVG chain palette so cards and diagram read as one.
+        function wareTint(ware) {
+          if (ware.productionInputs.length === 0) return "var(--chain-raw)";
+          if (terminalWareIds.has(ware.id)) return "var(--chain-sink)";
+          if (ware.productionInputs.length === 1) return "var(--chain-refined)";
+          return "var(--chain-product)";
+        }
+        function wareTierLabel(ware) {
+          if (ware.productionInputs.length === 0) return "Resource";
+          if (terminalWareIds.has(ware.id)) return "Consumed";
+          return "Produced";
+        }
+        function firstStationProducing(wareId) {
+          return canonicalStationTypes.find((st) => st.produces.includes(wareId));
+        }
 
-  const wareCardsEl = document.getElementById("ware-cards");
-  wareCardsEl.innerHTML = allWares.map(w => {
-    const isTerminal = terminalWareIds.has(w.id);
-    const inputs = w.productionInputs.map(c => wareById[c.wareId]?.name || c.wareId);
-    const wareNations = [...(nationsByWare[w.id] || [])];
-    const nationPills = wareNations.length
-      ? wareNations.map(code => nationLink(code, true)).join(" ")
-      : `<span class="wd-row-value" style="color:var(--paper-mute)">none</span>`;
-    const inputLine = inputs.length
-      ? `<div class="wd-row"><span class="wd-row-label">${isTerminal ? "Consumes" : "Inputs"}</span><span class="wd-row-value">${inputs.map(wareLink).join(" + ")}</span></div>`
-      : `<div class="wd-row"><span class="wd-row-label">Inputs</span><span class="wd-row-value" style="color:var(--paper-mute)">—</span></div>`;
-    const outputLine = `<div class="wd-row"><span class="wd-row-label">Output</span><span class="wd-row-value">${w.productionOutput}/cycle</span></div>`;
+        const wareCardsEl = document.getElementById("ware-cards");
+        wareCardsEl.innerHTML = allWares
+          .map((w) => {
+            const isTerminal = terminalWareIds.has(w.id);
+            const inputs = w.productionInputs.map((c) => wareById[c.wareId]?.name || c.wareId);
+            const wareNations = [...(nationsByWare[w.id] || [])];
+            const nationPills = wareNations.length
+              ? wareNations.map((code) => nationLink(code, true)).join(" ")
+              : `<span class="wd-row-value" style="color:var(--paper-mute)">none</span>`;
+            const inputLine = inputs.length
+              ? `<div class="wd-row"><span class="wd-row-label">${isTerminal ? "Consumes" : "Inputs"}</span><span class="wd-row-value">${inputs.map(wareLink).join(" + ")}</span></div>`
+              : `<div class="wd-row"><span class="wd-row-label">Inputs</span><span class="wd-row-value" style="color:var(--paper-mute)">—</span></div>`;
+            const outputLine = `<div class="wd-row"><span class="wd-row-label">Output</span><span class="wd-row-value">${w.productionOutput}/cycle</span></div>`;
 
-    const tint = wareTint(w);
-    const tier = wareTierLabel(w);
-    const producingStation = firstStationProducing(w.id);
+            const tint = wareTint(w);
+            const tier = wareTierLabel(w);
+            const producingStation = firstStationProducing(w.id);
 
-    return `
+            return `
       <article class="ware-detail-card id-card" data-ware="${w.id}" style="--ware-tint:${tint}">
         <div class="id-header">
           <div class="id-title">
@@ -1462,61 +2201,63 @@ function nationLink(code, asPill = false) {
           <div class="wd-row"><span class="wd-row-label">Nations</span><span class="wd-row-value">${nationPills}</span></div>
         </div>
       </article>`;
-  }).join("");
+          })
+          .join("");
 
-  // Seals + morse stripes for every ware card.
-  for (const card of wareCardsEl.querySelectorAll(".ware-detail-card")) {
-    const tint = card.style.getPropertyValue("--ware-tint").trim() || "var(--paper-dim)";
-    const name = card.querySelector(".id-name")?.textContent ?? "";
-    card.style.setProperty("--morse-bar", morseBarGradient(name, { color: tint }));
-    const sealEl = card.querySelector(".id-seal");
-    const stationId = sealEl?.dataset.stationSeal;
-    if (sealEl && stationId) {
-      const uri = getStationHudIcon(stationId, { subtle: true });
-      if (uri) sealEl.style.backgroundImage = `url("${uri}")`;
-    }
-  }
-})();
+        // Seals + morse stripes for every ware card.
+        for (const card of wareCardsEl.querySelectorAll(".ware-detail-card")) {
+          const tint = card.style.getPropertyValue("--ware-tint").trim() || "var(--paper-dim)";
+          const name = card.querySelector(".id-name")?.textContent ?? "";
+          card.style.setProperty("--morse-bar", morseBarGradient(name, { color: tint }));
+          const sealEl = card.querySelector(".id-seal");
+          const stationId = sealEl?.dataset.stationSeal;
+          if (sealEl && stationId) {
+            const uri = getStationHudIcon(stationId, { subtle: true });
+            if (uri) sealEl.style.backgroundImage = `url("${uri}")`;
+          }
+        }
+      })();
 
-// ═══════ STATIONS ═══════
-(() => {
-  const stationsEl = document.getElementById("stations-grid");
+      // ═══════ STATIONS ═══════
+      (() => {
+        const stationsEl = document.getElementById("stations-grid");
 
-  // "Built by" = nations whose stationBuildBlueprints list this station type.
-  // That includes WAY for the generational ship, even though WAY doesn't run the build-cycle
-  // (buildsStations: false) — the association is authorial.
-  function buildersFor(stationTypeId) {
-    return nationsByBuildBlueprint[stationTypeId] || [];
-  }
-  function primaryNationForStationType(stationTypeId) {
-    return buildersFor(stationTypeId)[0] ?? null;
-  }
+        // "Built by" = nations whose stationBuildBlueprints list this station type.
+        // That includes WAY for the generational ship, even though WAY doesn't run the build-cycle
+        // (buildsStations: false) — the association is lore-only.
+        function buildersFor(stationTypeId) {
+          return nationsByBuildBlueprint[stationTypeId] || [];
+        }
+        function primaryNationForStationType(stationTypeId) {
+          return buildersFor(stationTypeId)[0] ?? null;
+        }
 
-  stationsEl.innerHTML = canonicalStationTypes.map(s => {
-    const produceNames = s.produces.map(id => wareById[id]?.name || id);
-    const consumeIds = new Set();
-    for (const wareId of s.produces) {
-      const ware = wareById[wareId];
-      if (ware) for (const cost of ware.productionInputs) consumeIds.add(cost.wareId);
-    }
-    const consumeNames = [...consumeIds].map(id => wareById[id]?.name || id);
-    const builders = buildersFor(s.id);
-    const primaryNation = primaryNationForStationType(s.id);
-    const accentColor = primaryNation?.color || "var(--paper-dim)";
+        stationsEl.innerHTML = canonicalStationTypes
+          .map((s) => {
+            const produceNames = s.produces.map((id) => wareById[id]?.name || id);
+            const consumeIds = new Set();
+            for (const wareId of s.produces) {
+              const ware = wareById[wareId];
+              if (ware) for (const cost of ware.productionInputs) consumeIds.add(cost.wareId);
+            }
+            const consumeNames = [...consumeIds].map((id) => wareById[id]?.name || id);
+            const builders = buildersFor(s.id);
+            const primaryNation = primaryNationForStationType(s.id);
+            const accentColor = primaryNation?.color || "var(--paper-dim)";
 
-    const prodLinks = produceNames.length
-      ? produceNames.map(p => wareLink(p)).join(", ")
-      : `<span style="color:var(--paper-mute)">—</span>`;
-    const consLinks = consumeNames.length ? consumeNames.map(c => wareLink(c)).join(", ") : "—";
-    const builtByLinks = builders.length
-      ? builders.map(n => nationLink(n.codeName, true)).join(" ")
-      : `<span style="color:var(--paper-mute)">—</span>`;
+            const prodLinks = produceNames.length
+              ? produceNames.map((p) => wareLink(p)).join(", ")
+              : `<span style="color:var(--paper-mute)">—</span>`;
+            const consLinks = consumeNames.length ? consumeNames.map((c) => wareLink(c)).join(", ") : "—";
+            const builtByLinks = builders.length
+              ? builders.map((n) => nationLink(n.codeName, true)).join(" ")
+              : `<span style="color:var(--paper-mute)">—</span>`;
 
-    const serial = primaryNation
-      ? `${primaryNation.codeName}-${s.name.charAt(0).toUpperCase()}`
-      : `ST-${s.name.charAt(0).toUpperCase()}`;
+            const serial = primaryNation
+              ? `${primaryNation.codeName}-${s.name.charAt(0).toUpperCase()}`
+              : `ST-${s.name.charAt(0).toUpperCase()}`;
 
-    return `
+            return `
       <article class="station-card id-card" data-station-type="${s.id}" style="--nation-accent:${accentColor}">
         <div class="id-header">
           <div class="id-title">
@@ -1537,261 +2278,387 @@ function nationLink(code, asPill = false) {
           <span class="station-flow-value">${builtByLinks}</span>
         </div>
       </article>`;
-  }).join("");
+          })
+          .join("");
 
-  // ── Seals + morse stripes for every station card ──
-  for (const card of stationsEl.querySelectorAll(".station-card")) {
-    const typeId = card.dataset.stationType;
-    const sealEl = card.querySelector(".id-seal");
-    if (sealEl) {
-      const uri = getStationHudIcon(typeId, { subtle: true });
-      if (uri) sealEl.style.backgroundImage = `url("${uri}")`;
-    }
-    const accent = card.style.getPropertyValue("--nation-accent").trim() || "var(--paper-dim)";
-    const name = card.querySelector(".id-name")?.textContent ?? "";
-    card.style.setProperty("--morse-bar", morseBarGradient(name, { color: accent }));
-  }
-})();
+        // ── Seals + morse stripes for every station card ──
+        for (const card of stationsEl.querySelectorAll(".station-card")) {
+          const typeId = card.dataset.stationType;
+          const sealEl = card.querySelector(".id-seal");
+          if (sealEl) {
+            const uri = getStationHudIcon(typeId, { subtle: true });
+            if (uri) sealEl.style.backgroundImage = `url("${uri}")`;
+          }
+          const accent = card.style.getPropertyValue("--nation-accent").trim() || "var(--paper-dim)";
+          const name = card.querySelector(".id-name")?.textContent ?? "";
+          card.style.setProperty("--morse-bar", morseBarGradient(name, { color: accent }));
+        }
+      })();
 
-// ═══════ SECTORS ═══════
-(() => {
-  const sectorByGrid = {};
-  const sectorsArr = canonicalSectors.map(s => {
-    const key = `${s.gridX},${s.gridY}`;
-    const dotData = sectorDotMap[key] || {};
-    const dots = Object.entries(dotData).map(([n, c]) => ({ n, c }));
-    const sector = {
-      id: s.id,
-      name: s.name,
-      x: s.gridX,
-      y: s.gridY,
-      desc: s.lore,
-      environment: s.environment,
-      dots,
-    };
-    sectorByGrid[key] = sector;
-    return sector;
-  });
+      // ═══════ SECTORS ═══════
+      function renderSectorMap(presetMap) {
+        const { mapStations, stationZones, sectorDotMap, stationsBySector, stationNamesByNation } =
+          presetMap;
+        const gridEl = document.getElementById("sector-grid");
+        const descEl = document.getElementById("sector-desc");
+        // Clear the previous preset's render before rebuilding.
+        gridEl.replaceChildren();
+        for (const axisId of [
+          "sector-axis-x-top",
+          "sector-axis-x-bottom",
+          "sector-axis-y-left",
+          "sector-axis-y-right",
+        ]) {
+          document.getElementById(axisId).replaceChildren();
+        }
+        descEl.innerHTML = `<div class="sector-desc-placeholder">— select a sector to open its dossier —</div>`;
+        descEl.style.removeProperty("--nation-accent");
+        descEl.style.removeProperty("--morse-bar");
 
-  // Compute bounding box (dynamic) — this page must render whatever sectors exist.
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const s of sectorsArr) {
-    if (s.x < minX) minX = s.x;
-    if (s.x > maxX) maxX = s.x;
-    if (s.y < minY) minY = s.y;
-    if (s.y > maxY) maxY = s.y;
-  }
-  const colsCount = maxX - minX + 1;
+        const sectorByGrid = {};
+        const sectorsArr = canonicalSectors.map((s) => {
+          const key = `${s.gridX},${s.gridY}`;
+          const dotData = sectorDotMap[key] || {};
+          const dots = Object.entries(dotData).map(([n, c]) => ({ n, c }));
+          const sector = {
+            id: s.id,
+            name: s.name,
+            x: s.gridX,
+            y: s.gridY,
+            desc: s.lore,
+            environment: s.environment,
+            dots,
+          };
+          sectorByGrid[key] = sector;
+          return sector;
+        });
 
-  document.getElementById("sector-bounds").textContent =
-    `${sectorsArr.length} sectors · x ${minX}..${maxX} · y ${minY}..${maxY}`;
+        // Dynamic bounding box — render whatever sectors exist.
+        let minX = Infinity,
+          maxX = -Infinity,
+          minY = Infinity,
+          maxY = -Infinity;
+        for (const s of sectorsArr) {
+          if (s.x < minX) minX = s.x;
+          if (s.x > maxX) maxX = s.x;
+          if (s.y < minY) minY = s.y;
+          if (s.y > maxY) maxY = s.y;
+        }
+        const colsCount = maxX - minX + 1;
+        const rowsCount = maxY - minY + 1;
 
-  // Legend — lists every nation that owns at least one station anywhere
-  const legendEl = document.getElementById("sector-legend");
-  legendEl.innerHTML =
-    allNations
-      .filter(n => (stationNamesByNation[n.codeName] || []).length > 0)
-      .map(n =>
-        `<div class="sector-legend-item">
+        // Legend — nations owning ≥1 station, plus the unclaimed-zone marker.
+        // Hazardous sectors no longer carry special styling, so no chip.
+        const legendEl = document.getElementById("sector-legend");
+        legendEl.innerHTML =
+          allNations
+            .filter((n) => (stationNamesByNation[n.codeName] || []).length > 0)
+            .map(
+              (n) =>
+                `<div class="sector-legend-item">
            <span class="sector-legend-dot" style="background:${n.color}; color:${n.color}"></span>
            <span style="color:${n.color}">${n.codeName}</span> ${n.shortName}
-         </div>`
-      )
-      .join("") +
-    `<div class="sector-legend-item"><span class="sector-legend-dot is-empty"></span>Unclaimed zone</div>` +
-    `<div class="sector-legend-item"><span class="sector-legend-dot" style="background:var(--ink-2); border:1px solid var(--line-3); box-shadow:none"></span>Hazardous</div>`;
+         </div>`,
+            )
+            .join("") +
+          `<div class="sector-legend-item"><span class="sector-legend-dot is-empty"></span>Unclaimed zone</div>`;
 
-  // Build zones index (for sector description panel)
-  const zonesBySector = {};
-  for (const zone of stationZones) {
-    const key = sectorKey(zone.x, zone.y);
-    if (!zonesBySector[key]) zonesBySector[key] = [];
-    zonesBySector[key].push(zone);
-  }
-
-  const gridEl = document.getElementById("sector-grid");
-  // +2 for the left/right coord-label columns
-  gridEl.style.gridTemplateColumns = `auto repeat(${colsCount}, minmax(76px, 1fr)) auto`;
-  const descEl = document.getElementById("sector-desc");
-  let selectedCell = null;
-
-  function deselectCell(c) {
-    c.classList.remove("is-selected");
-  }
-
-  function renderDescPlaceholder() {
-    descEl.innerHTML = `<div class="sector-desc-placeholder">— select a sector to open its dossier —</div>`;
-    descEl.style.removeProperty("--morse-bar");
-    descEl.style.removeProperty("--nation-accent");
-  }
-
-  function appendCoord(text) {
-    const el = document.createElement("div");
-    el.className = "sector-coord";
-    el.textContent = text;
-    gridEl.appendChild(el);
-  }
-
-  // Top coord row
-  appendCoord("");
-  for (let x = minX; x <= maxX; x++) appendCoord(String(x));
-  appendCoord("");
-
-  for (let y = minY; y <= maxY; y++) {
-    appendCoord(String(y));
-
-    for (let x = minX; x <= maxX; x++) {
-      const key = `${x},${y}`;
-      const s = sectorByGrid[key];
-      const cell = document.createElement("div");
-      cell.className = "sector-cell";
-      cell.dataset.key = key;
-
-      if (!s) {
-        cell.classList.add("is-empty");
-        cell.innerHTML = `<div class="sector-cell-name" style="color:var(--paper-faint)">—</div>`;
-        gridEl.appendChild(cell);
-        continue;
-      }
-
-      // Environment-specific styling
-      if (s.environment === "hazardous") cell.classList.add("is-hazardous");
-
-      // Primary nation tint
-      const primary = s.dots.length > 0 ? s.dots.reduce((a,b) => a.c >= b.c ? a : b) : null;
-      if (primary) {
-        const pc = nationByCode[primary.n].color;
-        cell.dataset.primaryColor = pc;
-        cell.style.setProperty("--cell-primary", pc);
-        cell.style.borderColor = `color-mix(in srgb, ${pc} 45%, var(--line-2))`;
-        cell.style.setProperty(
-          "--cell-hatch",
-          `repeating-linear-gradient(43deg, color-mix(in srgb, ${pc} 12%, transparent) 0 1px, transparent 1px 6px)`,
-        );
-      }
-
-      const sectorZoneList = zonesBySector[key] || [];
-
-      let dotsHtml = "";
-      s.dots.forEach(d => {
-        for (let i = 0; i < d.c; i++) {
-          dotsHtml += `<span class="sector-dot" style="background:${nationByCode[d.n].color}; color:${nationByCode[d.n].color}"></span>`;
+        // Zones index for the dossier panel.
+        const zonesBySector = {};
+        for (const zone of stationZones) {
+          const key = sectorKey(zone.x, zone.y);
+          if (!zonesBySector[key]) zonesBySector[key] = [];
+          zonesBySector[key].push(zone);
         }
-      });
-      for (let i = 0; i < sectorZoneList.length; i++) {
-        dotsHtml += `<span class="sector-dot sector-dot-empty"></span>`;
-      }
 
-      const envLabel = ENVIRONMENT_LABEL[s.environment] ?? s.environment;
+        gridEl.style.gridTemplateColumns = `repeat(${colsCount}, 1fr)`;
+        let selectedCell = null;
 
-      cell.innerHTML = `
-        <div class="sector-cell-name">${s.name}</div>
-        <div class="sector-cell-dots">${dotsHtml}</div>
-        <div class="sector-cell-env">${envLabel}</div>
-      `;
+        // World position → fractional grid coords in cell units, with the
+        // grid's top-left cell at the origin (matches the link-overlay viewBox).
+        // The real fractional spot is squeezed into a central band so a dot
+        // never crosses the cell border or lands under the name (top) / type
+        // (bottom) label strips. The spread is mildly compressed — positions
+        // here are approximate by design. Strip sizes are the tuning knobs.
+        const DOT_RADIUS = 0.047;
+        const SIDE_MARGIN = 0.06; // clearance from the left/right cell borders
+        const NAME_STRIP = 0.3; // top band kept clear for the sector name
+        const TYPE_STRIP = 0.18; // bottom band kept clear for the type label
+        const bandX0 = SIDE_MARGIN + DOT_RADIUS;
+        const bandX1 = 1 - SIDE_MARGIN - DOT_RADIUS;
+        const bandY0 = NAME_STRIP + DOT_RADIUS;
+        const bandY1 = 1 - TYPE_STRIP - DOT_RADIUS;
+        function cellAt(worldX, worldY) {
+          const rawX = worldX / SECTOR_SIZE;
+          const rawY = worldY / SECTOR_SIZE;
+          const gridX = Math.floor(rawX) + minGridX;
+          const gridY = Math.floor(rawY) + minGridY;
+          const fracX = rawX - Math.floor(rawX);
+          const fracY = rawY - Math.floor(rawY);
+          return {
+            sx: gridX - minX + bandX0 + fracX * (bandX1 - bandX0),
+            sy: gridY - minY + bandY0 + fracY * (bandY1 - bandY0),
+          };
+        }
 
-      cell.addEventListener("click", () => {
-        if (selectedCell) deselectCell(selectedCell);
-        selectedCell = cell;
-        cell.classList.add("is-selected");
+        // Which station pairs get a link. Replicates the neighbour decision in
+        // src/phaser/ambient-traffic-render.ts (findClosestNeighborCandidates +
+        // upsertPairRoute): every station links to its N nearest within
+        // SECTOR_SIZE × distanceMultiplier, pairs deduped. Only the pairing is
+        // needed here, not the flying-dot animation, so dot counts are ignored.
+        // Re-implemented rather than imported because that module pulls in
+        // phaser and this page stays phaser-free.
+        function ambientStationPairs(stations) {
+          const maxDistanceSquared =
+            (SECTOR_SIZE * ambientTrafficConfig.distanceMultiplier) ** 2;
+          const closestCount = ambientTrafficConfig.closestStationCount;
+          const pairKeys = new Set();
+          const pairs = [];
+          for (let i = 0; i < stations.length; i++) {
+            const a = stations[i];
+            const candidates = [];
+            for (let j = 0; j < stations.length; j++) {
+              if (j === i) continue;
+              const dx = stations[j].x - a.x;
+              const dy = stations[j].y - a.y;
+              const distanceSquared = dx * dx + dy * dy;
+              if (distanceSquared > maxDistanceSquared || distanceSquared === 0) continue;
+              candidates.push({ j, distanceSquared });
+            }
+            candidates.sort((l, r) => l.distanceSquared - r.distanceSquared);
+            for (let n = 0; n < Math.min(closestCount, candidates.length); n++) {
+              const j = candidates[n].j;
+              const low = Math.min(i, j);
+              const high = Math.max(i, j);
+              const key = `${low}:${high}`;
+              if (pairKeys.has(key)) continue;
+              pairKeys.add(key);
+              pairs.push([i, j]);
+            }
+          }
+          return pairs;
+        }
 
-        // Populate dossier panel
-        const sectorStations = stationsBySector[key] || [];
-        const allowedTypes = ENVIRONMENT_ALLOWED_TYPES[s.environment] || [];
-        const allowedTypeNames = allowedTypes
-          .map(id => stationTypeById[id]?.name ?? id)
-          .join(" · ");
+        // Single SVG over the whole grid so links can cross cell borders.
+        const SVG_NS = "http://www.w3.org/2000/svg";
+        const linkSvg = document.createElementNS(SVG_NS, "svg");
+        linkSvg.setAttribute("class", "sector-links");
+        linkSvg.setAttribute("viewBox", `0 0 ${colsCount} ${rowsCount}`);
+        linkSvg.setAttribute("preserveAspectRatio", "none");
+        linkSvg.setAttribute("aria-hidden", "true");
+        for (const [i, j] of ambientStationPairs(mapStations)) {
+          const p = cellAt(mapStations[i].x, mapStations[i].y);
+          const q = cellAt(mapStations[j].x, mapStations[j].y);
+          const line = document.createElementNS(SVG_NS, "line");
+          line.setAttribute("class", "sector-link");
+          line.setAttribute("x1", p.sx.toFixed(4));
+          line.setAttribute("y1", p.sy.toFixed(4));
+          line.setAttribute("x2", q.sx.toFixed(4));
+          line.setAttribute("y2", q.sy.toFixed(4));
+          linkSvg.appendChild(line);
+        }
+        for (const zone of stationZones) {
+          const p = cellAt(zone.x, zone.y);
+          const ring = document.createElementNS(SVG_NS, "circle");
+          ring.setAttribute("class", "sector-zone");
+          ring.setAttribute("cx", p.sx.toFixed(4));
+          ring.setAttribute("cy", p.sy.toFixed(4));
+          ring.setAttribute("r", "0.04");
+          linkSvg.appendChild(ring);
+        }
+        for (const station of mapStations) {
+          const p = cellAt(station.x, station.y);
+          const dot = document.createElementNS(SVG_NS, "circle");
+          dot.setAttribute("class", "sector-station");
+          dot.setAttribute("cx", p.sx.toFixed(4));
+          dot.setAttribute("cy", p.sy.toFixed(4));
+          dot.setAttribute("r", "0.047");
+          dot.setAttribute("fill", station.nation?.color || "var(--paper-mute)");
+          linkSvg.appendChild(dot);
+        }
 
-        const stationListHtml = sectorStations.length
-          ? `<div class="sector-desc-section-label">Stations (${sectorStations.length})</div>
-             <div class="sector-desc-station-list">${sectorStations.map(st =>
-              `<div class="sector-desc-station-row">
+        // Axis rails — compact coordinate numbers along the top and left only.
+        // Coordinate rails on all four sides.
+        for (const id of ["sector-axis-x-top", "sector-axis-x-bottom"]) {
+          const el = document.getElementById(id);
+          el.style.gridTemplateColumns = `repeat(${colsCount}, 1fr)`;
+          for (let x = minX; x <= maxX; x++) {
+            const tick = document.createElement("span");
+            tick.textContent = String(x);
+            el.appendChild(tick);
+          }
+        }
+        for (const id of ["sector-axis-y-left", "sector-axis-y-right"]) {
+          const el = document.getElementById(id);
+          el.style.gridTemplateRows = `repeat(${rowsCount}, 1fr)`;
+          for (let y = minY; y <= maxY; y++) {
+            const tick = document.createElement("span");
+            tick.textContent = String(y);
+            el.appendChild(tick);
+          }
+        }
+
+        function deselectCell(c) {
+          c.classList.remove("is-selected");
+        }
+
+        function fillDossier(s, key, primary, sectorZoneList) {
+          const sectorStations = stationsBySector[key] || [];
+          const allowedTypes = sectorEnvironmentById[s.environment].allowedStationTypeIds;
+          const allowedTypeNames = allowedTypes
+            .map((id) => stationTypeById[id]?.name ?? id)
+            .join(" · ");
+
+          const stationListHtml = sectorStations.length
+            ? `<div class="sector-desc-section-label">Stations (${sectorStations.length})</div>
+             <div class="sector-desc-station-list">${sectorStations
+               .map(
+                 (st) =>
+                   `<div class="sector-desc-station-row">
                  <span class="sector-desc-station-nation" style="--nation-pill-tint:${st.nation.color}">${st.nation.codeName}</span>
                  <span class="sector-desc-station-name">${st.name}</span>
-                 <span class="sector-desc-station-meta">${(stationTypeById[st.stationTypeId]?.name) || st.stationTypeId} · ${longNameBySize[st.size] || st.size}</span>
-               </div>`
-            ).join("")}</div>`
-          : "";
-        const zoneListHtml = sectorZoneList.length
-          ? `<div class="sector-desc-section-label">Unclaimed zones (${sectorZoneList.length})</div>
-             <div class="sector-desc-station-list">${sectorZoneList.map(z =>
-              `<div class="sector-desc-zone-row"><span>${longNameBySize[z.size] || z.size || "—"} zone</span></div>`
-            ).join("")}</div>`
-          : "";
+                 <span class="sector-desc-station-meta">${stationTypeById[st.stationTypeId]?.name || st.stationTypeId} · ${longNameBySize[st.size] || st.size}</span>
+               </div>`,
+               )
+               .join("")}</div>`
+            : "";
+          const zoneListHtml = sectorZoneList.length
+            ? `<div class="sector-desc-section-label">Unclaimed zones (${sectorZoneList.length})</div>
+             <div class="sector-desc-station-list">${sectorZoneList
+               .map(
+                 (z) =>
+                   `<div class="sector-desc-zone-row"><span>${longNameBySize[z.size] || z.size || "—"} zone</span></div>`,
+               )
+               .join("")}</div>`
+            : "";
 
-        const primaryAccent = primary ? nationByCode[primary.n].color : "var(--paper-dim)";
-        const coordCode = `${s.x},${s.y}`;
-
-        descEl.style.setProperty("--nation-accent", primaryAccent);
-        descEl.style.setProperty(
-          "--morse-bar",
-          morseBarGradient(s.name, { color: primaryAccent }),
-        );
-
-        descEl.innerHTML = `
+          const primaryAccent = primary ? nationByCode[primary.n].color : "var(--paper-dim)";
+          const coordCode = `${s.x},${s.y}`;
+          descEl.style.setProperty("--nation-accent", primaryAccent);
+          descEl.style.setProperty("--morse-bar", morseBarGradient(s.name, { color: primaryAccent }));
+          descEl.innerHTML = `
           <div class="id-header">
             <div class="id-title">
               <div class="id-name">${s.name}</div>
-              <div class="id-type">${envLabel}</div>
+              <div class="id-type">${sectorEnvironmentById[s.environment].name}</div>
             </div>
             <div class="icon-code">
               <div class="id-serial-code id-serial-code--stamp">${coordCode}</div>
             </div>
           </div>
           <div class="sector-desc-body">${s.desc}</div>
-          ${allowedTypes.length ? `<div class="sector-desc-section-label">Supports station types</div>
-            <div class="sector-desc-station-list" style="color:var(--accent)">${allowedTypeNames}</div>` : ""}
+          ${
+            allowedTypes.length
+              ? `<div class="sector-desc-section-label">Supports station types</div>
+            <div class="sector-desc-station-list" style="color:var(--accent)">${allowedTypeNames}</div>`
+              : ""
+          }
           ${stationListHtml}
           ${zoneListHtml}
         `;
-      });
-
-      gridEl.appendChild(cell);
-    }
-
-    appendCoord(String(y));
-  }
-
-  // Bottom coord row
-  appendCoord("");
-  for (let x = minX; x <= maxX; x++) appendCoord(String(x));
-  appendCoord("");
-})();
-
-// ═══════ SVG DIAGRAM INTERACTION ═══════
-(() => {
-  const svg = document.getElementById("chain-svg");
-  if (!svg) return;
-  const connections = svg.querySelectorAll(".connection-line");
-  const nodeGroups = svg.querySelectorAll(".node-group");
-  const nodeGroupByName = Object.fromEntries([...nodeGroups].map(ng => [ng.dataset.node, ng]));
-
-  for (const ng of nodeGroups) {
-    const nodeId = ng.dataset.node;
-    ng.addEventListener("mouseenter", () => {
-      svg.classList.add("diagram-dimmed");
-      ng.classList.add("node-highlighted");
-      for (const c of connections) {
-        if (c.dataset.from === nodeId || c.dataset.to === nodeId) {
-          c.classList.add("connection-highlighted");
-          const otherId = c.dataset.from === nodeId ? c.dataset.to : c.dataset.from;
-          const otherNode = nodeGroupByName[otherId];
-          if (otherNode) otherNode.classList.add("node-highlighted");
         }
-      }
-    });
-    ng.addEventListener("mouseleave", () => {
-      svg.classList.remove("diagram-dimmed");
-      for (const n of nodeGroups) n.classList.remove("node-highlighted");
-      for (const c of connections) c.classList.remove("connection-highlighted");
-    });
-    ng.addEventListener("click", () => {
-      const target = document.querySelector(`.ware-detail-card[data-ware="${nodeId}"]`);
-      if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  }
-})();
-</script>
 
-</body>
+        for (let y = minY; y <= maxY; y++) {
+          for (let x = minX; x <= maxX; x++) {
+            const key = `${x},${y}`;
+            const s = sectorByGrid[key];
+            const cell = document.createElement("div");
+            cell.className = "sector-cell";
+            if (x === maxX) cell.classList.add("is-col-last");
+            if (y === maxY) cell.classList.add("is-row-last");
+
+            if (!s) {
+              cell.classList.add("is-empty");
+              cell.innerHTML = `<div class="sector-cell-name">—</div>`;
+              gridEl.appendChild(cell);
+              continue;
+            }
+
+            const primary =
+              s.dots.length > 0 ? s.dots.reduce((a, b) => (a.c >= b.c ? a : b)) : null;
+            const primaryColor = primary ? nationByCode[primary.n].color : null;
+            cell.style.background = primaryColor
+              ? `color-mix(in srgb, ${primaryColor} 16%, var(--ink-0))`
+              : "var(--ink-0)";
+            // Stationless sectors select with a neutral light-gray ring, not gold.
+            cell.style.setProperty("--cell-primary", primaryColor || "var(--paper-dim)");
+
+            const envLabel = sectorEnvironmentById[s.environment].name;
+            cell.innerHTML = `
+        <div class="sector-cell-name">${s.name}</div>
+        <div class="sector-cell-env">${envLabel}</div>
+      `;
+
+            const sectorZoneList = zonesBySector[key] || [];
+            cell.addEventListener("click", () => {
+              if (selectedCell) deselectCell(selectedCell);
+              selectedCell = cell;
+              cell.classList.add("is-selected");
+              fillDossier(s, key, primary, sectorZoneList);
+            });
+
+            gridEl.appendChild(cell);
+          }
+        }
+
+        gridEl.appendChild(linkSvg);
+      }
+
+      // Settled / Frontier map switcher (map-only — the rest of the page
+      // stays on the Settled reference layout).
+      (() => {
+        const switchEl = document.getElementById("sector-map-switch");
+        function selectPreset(preset) {
+          for (const button of switchEl.children) {
+            button.classList.toggle("is-on", button.dataset.preset === preset.id);
+          }
+          document.getElementById("sector-section-title").textContent = preset.name;
+          renderSectorMap(derivePresetMap(preset));
+        }
+        for (const preset of presets) {
+          const button = document.createElement("button");
+          button.className = "hud-btn";
+          button.dataset.preset = preset.id;
+          button.textContent = `${preset.name} Map`;
+          button.addEventListener("click", () => selectPreset(preset));
+          switchEl.appendChild(button);
+        }
+        selectPreset(settledPreset);
+      })();
+
+      // ═══════ SVG DIAGRAM INTERACTION ═══════
+      (() => {
+        const svg = document.getElementById("chain-svg");
+        if (!svg) return;
+        const connections = svg.querySelectorAll(".connection-line");
+        const nodeGroups = svg.querySelectorAll(".node-group");
+        const nodeGroupByName = Object.fromEntries([...nodeGroups].map((ng) => [ng.dataset.node, ng]));
+
+        for (const ng of nodeGroups) {
+          const nodeId = ng.dataset.node;
+          ng.addEventListener("mouseenter", () => {
+            svg.classList.add("diagram-dimmed");
+            ng.classList.add("node-highlighted");
+            for (const c of connections) {
+              if (c.dataset.from === nodeId || c.dataset.to === nodeId) {
+                c.classList.add("connection-highlighted");
+                const otherId = c.dataset.from === nodeId ? c.dataset.to : c.dataset.from;
+                const otherNode = nodeGroupByName[otherId];
+                if (otherNode) otherNode.classList.add("node-highlighted");
+              }
+            }
+          });
+          ng.addEventListener("mouseleave", () => {
+            svg.classList.remove("diagram-dimmed");
+            for (const n of nodeGroups) n.classList.remove("node-highlighted");
+            for (const c of connections) c.classList.remove("connection-highlighted");
+          });
+          ng.addEventListener("click", () => {
+            const target = document.querySelector(`.ware-detail-card[data-ware="${nodeId}"]`);
+            if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+          });
+        }
+      })();
+    </script>
+  </body>
 </html>

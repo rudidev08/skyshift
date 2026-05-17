@@ -1,14 +1,14 @@
 import { economyConfig } from "../../data/economy-config";
 import type { EconomyFieldName } from "./snapshot-state";
 
-interface EconomyFieldDefinition {
+interface EconomyFieldTemplate {
   description: string;
   field: EconomyFieldName;
   label: string;
   step: number;
 }
 
-const economyFieldDefinitions: EconomyFieldDefinition[] = [
+const economyFieldTemplates: EconomyFieldTemplate[] = [
   {
     field: "minimumCargoFillThreshold",
     label: "Ship Min Fill %",
@@ -19,13 +19,15 @@ const economyFieldDefinitions: EconomyFieldDefinition[] = [
     field: "cargoFillDecayPerSecond",
     label: "Min Fill Drain / min",
     step: 0.05,
-    description: "How much the minimum fill threshold drops each minute while a ship stays idle without finding a route.",
+    description:
+      "How much the minimum fill threshold drops each minute while a ship stays idle without finding a route.",
   },
   {
-    field: "optimalChance",
+    field: "optimalPickChance",
     label: "Optimal Trade %",
     step: 0.05,
-    description: "Chance a ship picks the best ware and destination instead of taking a random eligible route.",
+    description:
+      "Chance a ship picks the best ware and destination instead of taking a random eligible route.",
   },
   {
     field: "tradeWaitMinSeconds",
@@ -48,12 +50,12 @@ const economyFieldDefinitions: EconomyFieldDefinition[] = [
 ];
 
 /** `cargoFillDecayPerSecond` is stored per-second but shown per-minute in the editor. */
-export function toEconomyEditorValue(field: EconomyFieldName, value: number): number {
+export function toDisplayUnit(field: EconomyFieldName, value: number): number {
   if (field === "cargoFillDecayPerSecond") return value * 60;
   return value;
 }
 
-export function fromEconomyEditorValue(field: EconomyFieldName, value: number): number {
+export function fromDisplayUnit(field: EconomyFieldName, value: number): number {
   if (field === "cargoFillDecayPerSecond") return value / 60;
   return value;
 }
@@ -63,13 +65,13 @@ export function buildEconomyConfigHtml(): string {
   html += '<div class="panel-header"><h2>Economy</h2></div>';
   html += '<table class="metric-table">';
   html += '<tr><th>Setting</th><th class="numeric-column">Value</th><th>What It Does</th></tr>';
-  for (const field of economyFieldDefinitions) {
-    html += '<tr>';
+  for (const field of economyFieldTemplates) {
+    html += "<tr>";
     html += `<td class="label-cell">${field.label}</td>`;
-    html += `<td class="numeric-cell input-cell"><input type="number" data-target="config" data-field="${field.field}" value="${toEconomyEditorValue(field.field, economyConfig[field.field])}" step="${field.step}"></td>`;
+    html += `<td class="numeric-cell input-cell"><input type="number" data-target="config" data-field="${field.field}" value="${toDisplayUnit(field.field, economyConfig[field.field])}" step="${field.step}"></td>`;
     html += `<td class="description-cell">${field.description}</td>`;
-    html += '</tr>';
+    html += "</tr>";
   }
-  html += '</table></div>';
+  html += "</table></div>";
   return html;
 }

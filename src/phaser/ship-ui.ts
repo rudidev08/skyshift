@@ -7,17 +7,23 @@ import { closeViewAlpha } from "./camera-fade";
 import { SHIP_SQUARE } from "../render-ship-hull";
 import { type Ship } from "../sim-ships";
 import { shipCodeNameLabel } from "../sim-ship-template";
-import { LABEL_STYLE, updateIfDirty, createRenderDirtyState, type RenderDirtyState } from "./viewport-culling";
-import { Layer } from "./depth-layers";
-import { createInventoryRing, drawInventorySegments, destroyInventoryRing, TOP_SEGMENT_ARC, type InventoryRing } from "./inventory-ring-render";
+import { LABEL_STYLE } from "./text-styles";
+import { updateIfDirty, createRenderDirtyState, type RenderDirtyState } from "../render-dirty-state";
+import { Layer } from "../../data/visuals-layers";
+import {
+  createInventoryRing,
+  drawInventorySegments,
+  destroyInventoryRing,
+  TOP_SEGMENT_ARC,
+  type InventoryRing,
+} from "./inventory-ring-render";
 import { formatQuantity } from "../util-quantity-format";
 import { bodyRadiusBySize } from "../../data/stations";
 import { stationVisuals } from "../../data/station-visuals";
 
 const SHIP_RING_RADIUS = bodyRadiusBySize.L + stationVisuals.inventoryRingDistanceFromBody;
-const getSlotCurrent = (slot: { current: number }) => slot.current;
 
-export interface ShipUi {
+export interface ShipUiBundle {
   label: Phaser.GameObjects.Text;
   inventoryRing: InventoryRing;
   cargoLabel: Phaser.GameObjects.Text;
@@ -38,7 +44,7 @@ export interface ShipRenderFrame {
 
 /** Per-frame update inputs for one ship's UI overlay. */
 export interface ShipUiUpdate {
-  shipUi: ShipUi;
+  shipUi: ShipUiBundle;
   positionX: number;
   positionY: number;
   cargo: number;
@@ -48,18 +54,31 @@ export interface ShipUiUpdate {
   frame: ShipRenderFrame;
 }
 
-export function createShipUi(scene: Scene, ship: Ship, cargoCapacity: number): ShipUi {
+export function createShipUi(scene: Scene, ship: Ship, cargoCapacity: number): ShipUiBundle {
   const labelText = shipCodeNameLabel(ship);
-  const label = scene.add.text(0, 0, labelText, LABEL_STYLE)
-    .setOrigin(0.5, 0).setResolution(3).setVisible(false);
+  const label = scene.add
+    .text(0, 0, labelText, LABEL_STYLE)
+    .setOrigin(0.5, 0)
+    .setResolution(3)
+    .setVisible(false);
 
   // Higher depth than station overlays so the ring shows when a selected ship orbits its home station.
   const inventoryRing = createInventoryRing(scene, TOP_SEGMENT_ARC, Layer.ShipCargoRing);
 
-  const cargoLabel = scene.add.text(0, 0, "", { ...LABEL_STYLE, color: "#cccccc", align: "center" })
-    .setOrigin(0.5, 1).setResolution(3).setDepth(Layer.InventoryLabel).setVisible(false);
+  const cargoLabel = scene.add
+    .text(0, 0, "", { ...LABEL_STYLE, color: "#cccccc", align: "center" })
+    .setOrigin(0.5, 1)
+    .setResolution(3)
+    .setDepth(Layer.InventoryLabel)
+    .setVisible(false);
 
-  return { label, inventoryRing, cargoLabel, ringSlots: [{ current: 0, max: cargoCapacity }], cargoDirtyState: createRenderDirtyState() };
+  return {
+    label,
+    inventoryRing,
+    cargoLabel,
+    ringSlots: [{ current: 0, max: cargoCapacity }],
+    cargoDirtyState: createRenderDirtyState(),
+  };
 }
 
 function updateShipLabel(update: ShipUiUpdate) {
@@ -74,7 +93,7 @@ function updateShipLabel(update: ShipUiUpdate) {
 
 function updateShipCargoRing(update: ShipUiUpdate) {
   const { shipUi, positionX, positionY, cargo, wareName, selected, isShipInteractable, frame } = update;
-  const segmentAlpha = (selected && isShipInteractable) ? closeViewAlpha(frame.zoom) : 0;
+  const segmentAlpha = selected && isShipInteractable ? closeViewAlpha(frame.zoom) : 0;
   const ringGraphics = shipUi.inventoryRing.graphics;
 
   if (segmentAlpha <= 0) {
@@ -93,25 +112,11 @@ function updateShipCargoRing(update: ShipUiUpdate) {
     currentTick: frame.currentTick,
     isFocused: true,
     items: shipUi.ringSlots,
-    getValue: getSlotCurrent,
-    forceReason: false,
+    getValue: (slot) => slot.current,
+    forceDirty: false,
     onDirty: () => {
-      ringGraphics.clear();
-      drawInventorySegments({
-        graphics: ringGraphics,
-        x: 0,
-        y: 0,
-        radius: SHIP_RING_RADIUS,
-        slots: shipUi.ringSlots,
-        arcs: shipUi.inventoryRing.arcs,
-        alpha: 1,
-        selected: true,
-      });
-      if (cargo > 0 && wareName) {
-        shipUi.cargoLabel.setText(`${wareName} (${formatQuantity(cargo)})`);
-      } else {
-        shipUi.cargoLabel.setText("No cargo");
-      }
+      redrawCargoRingSegments(ringGraphics, shipUi);
+      setCargoLabelText(shipUi, cargo, wareName);
     },
   });
   ringGraphics.setAlpha(segmentAlpha);
@@ -123,19 +128,37 @@ function updateShipCargoRing(update: ShipUiUpdate) {
   shipUi.cargoLabel.setVisible(true);
 }
 
+function redrawCargoRingSegments(ringGraphics: Phaser.GameObjects.Graphics, shipUi: ShipUiBundle): void {
+  ringGraphics.clear();
+  drawInventorySegments({
+    graphics: ringGraphics,
+    x: 0,
+    y: 0,
+    radius: SHIP_RING_RADIUS,
+    slots: shipUi.ringSlots,
+    arcs: shipUi.inventoryRing.arcs,
+    alpha: 1,
+    selected: true,
+  });
+}
+
+function setCargoLabelText(shipUi: ShipUiBundle, cargo: number, wareName: string | null): void {
+  shipUi.cargoLabel.setText(cargo > 0 && wareName ? `${wareName} (${formatQuantity(cargo)})` : "No cargo");
+}
+
 /** Position UI elements at the given map coords; caller supplies cargo data. */
 export function updateShipUi(update: ShipUiUpdate) {
   updateShipLabel(update);
   updateShipCargoRing(update);
 }
 
-export function hideShipUi(shipUi: ShipUi) {
+export function hideShipUi(shipUi: ShipUiBundle) {
   shipUi.label.setVisible(false);
   shipUi.inventoryRing.graphics.setVisible(false);
   shipUi.cargoLabel.setVisible(false);
 }
 
-export function destroyShipUi(shipUi: ShipUi) {
+export function destroyShipUi(shipUi: ShipUiBundle) {
   shipUi.label.destroy();
   shipUi.cargoLabel.destroy();
   destroyInventoryRing(shipUi.inventoryRing);

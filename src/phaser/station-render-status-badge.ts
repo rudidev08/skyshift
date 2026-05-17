@@ -3,22 +3,19 @@
 // lives on the parent StationVisualBundle so teardown stays centralized.
 
 import type { StationVisualBundle } from "./station-visual-bundle";
-import { Layer } from "./depth-layers";
+import { Layer } from "../../data/visuals-layers";
 import { statusBadgeVisuals } from "../../data/station-visuals";
-import { DISPLAY_FONT_FAMILY } from "./viewport-culling";
+import { DISPLAY_FONT_FAMILY } from "./text-styles";
 import { getStationWareLevelHealth } from "../sim-station-health";
 import type { GameViewMode } from "../game-view-mode";
 
 export function hideStatusBadge(bundle: StationVisualBundle) {
   stopStatusBadgeTween(bundle);
-  if (bundle.statusBadgeCircle) {
-    bundle.statusBadgeCircle.setAlpha(1);
-    bundle.statusBadgeCircle.setVisible(false);
-  }
-  if (bundle.statusBadgeText) {
-    bundle.statusBadgeText.setAlpha(1);
-    bundle.statusBadgeText.setVisible(false);
-  }
+  if (!bundle.statusBadgeCircle) return;
+  bundle.statusBadgeCircle.setAlpha(1);
+  bundle.statusBadgeCircle.setVisible(false);
+  bundle.statusBadgeText!.setAlpha(1);
+  bundle.statusBadgeText!.setVisible(false);
   bundle.statusBadgeKind = undefined;
 }
 
@@ -48,10 +45,10 @@ function ensureStatusBadge(bundle: StationVisualBundle) {
     })
     .setOrigin(0.5, 0.5)
     .setResolution(3)
-    .setDepth(Layer.StationSerial);
+    .setDepth(Layer.StationStatusBadge);
 }
 
-export function updateStationStatusBadge(bundle: StationVisualBundle, viewMode: GameViewMode) {
+export function updateStatusBadge(bundle: StationVisualBundle, viewMode: GameViewMode) {
   if (viewMode !== "overview") {
     hideStatusBadge(bundle);
     return;
@@ -75,16 +72,21 @@ export function updateStationStatusBadge(bundle: StationVisualBundle, viewMode: 
   circle.setVisible(true);
   text.setVisible(true);
 
+  applyStatusBadgePulse(bundle, state);
+}
+
+/** "bad" pulses for attention; "warn" stays static so a sea of pulsing badges at overview zoom doesn't drown out the urgent ones. */
+function applyStatusBadgePulse(bundle: StationVisualBundle, state: "bad" | "warn") {
+  const circle = bundle.statusBadgeCircle!;
+  const text = bundle.statusBadgeText!;
   if (state === "bad") {
-    // "warn" stays static so a sea of pulsing badges at overview zoom doesn't
-    // drown out the urgent "bad" ones.
     if (!bundle.statusBadgeTween) {
       circle.setAlpha(1);
       text.setAlpha(1);
       bundle.statusBadgeTween = circle.scene.tweens.add({
         targets: [circle, text],
         alpha: 0.4,
-        duration: statusBadgeVisuals.pulseDurationMilliseconds,
+        duration: statusBadgeVisuals.pulseDurationSeconds * 1000,
         yoyo: true,
         repeat: -1,
         ease: "Sine.easeInOut",

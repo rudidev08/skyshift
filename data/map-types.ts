@@ -1,37 +1,35 @@
-// Authored map shapes. Runtime types (Sector, GameMap) live in src/sim-map-types.ts.
-
 import type { StationTypeId } from "./station-types";
 import type { StationZoneTemplate } from "./station-zone-types";
-import type { EnvironmentId } from "./map-environments";
+import type { SectorEnvironmentId } from "./map-sector-environments";
+
+export type NebulaLayer = "NebulaDark" | "NebulaLight" | "NebulaOvergrowth";
 
 export type Nebula = {
   textureKey: string;
   x: number;
   y: number;
+  /** Which background layer this nebula renders on. Darker nebulas are behind lighter nebulas. */
+  layer: NebulaLayer;
+  /** Rotation helps reusing nebulas without having them look too similar. */
   rotationDegrees?: number;
-  dark?: boolean;
-  depth?: number;
 };
 
-/** Authored sector — grid placement, environment, lore. Runtime Sector
- *  (`src/sim-map-types.ts`) adds computed `x`/`y`/`size` from the map origin
- *  and sectorSize in `createMapFromTemplate` (src/sim-map-builder.ts). */
 export type SectorTemplate = {
   id: string;
   name: string;
   lore: string;
   gridX: number;
   gridY: number;
-  environment: EnvironmentId;
+  environment: SectorEnvironmentId;
 };
 
-export type InitialInventoryBalance = {
+/** Each station inventory slot starts at a random ratio of its max, drawn uniformly from [inventoryLowerBound, inventoryUpperBound]. */
+export type InitialInventoryFillRange = {
   inventoryLowerBound: number;
   inventoryUpperBound: number;
-  universeWareFraction: number;
 };
 
-/** Preset-authored station. Position and size come from the referenced zone — the preset only specifies owner and type. */
+/** Position and size come from the referenced zone; the preset specifies the station's identity, owner, and type. */
 export interface PresetStation {
   /** References StationZoneTemplate.id. */
   zoneId: string;
@@ -43,28 +41,37 @@ export interface PresetStation {
   stationTypeId: StationTypeId;
 }
 
-/** Authored preset layered on top of the shared map template.
- *  Zones not in `stations` start empty (buildable). */
+/** Layered on top of the shared map template.
+ *  Zones not listed in `presetStations` start empty (buildable). */
 export interface MapPreset {
   /** URL-safe id, matches `/start/:preset`. */
   id: string;
   name: string;
   description: string;
-  stations: PresetStation[];
-  /** Seconds to fast-forward the sim before the first visible frame. */
-  simulationWarmup?: number;
-  /** Override economyConfig.initialStaggerDurationDefaultSeconds — set 0 for instant launch (editor preview). */
-  initialStaggerDuration?: number;
+  presetStations: PresetStation[];
+  /** Seconds to fast-forward the sim before the first visible frame, so the universe starts mid-activity.
+   *  This helps not have all ships take off in the same time when game starts.
+   */
+  simulationWarmupSeconds?: number;
+  /** Override economyConfig.defaultInitialStaggerDurationSeconds — set 0 for instant launch (editor preview). */
+  initialStaggerDurationSeconds?: number;
   /** Randomize inventory within these bounds at seed time, so the economy
    *  doesn't start uniformly empty or full. */
-  initialInventoryBalance?: InitialInventoryBalance;
+  initialInventoryFillRange?: InitialInventoryFillRange;
 }
 
-/** Shared map base: sectors, nebulas, and zone layout common to every preset. */
+/** Initial camera placement (map-space center + zoom level). */
+export interface CameraStart {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+/** Shared map base: sectors, nebulas, and empty station zone layout common to every preset. */
 export interface MapTemplate {
   sectors: SectorTemplate[];
   nebulas: Nebula[];
   zones: readonly StationZoneTemplate[];
   sectorSize: number;
-  cameraStart?: { x: number; y: number; zoom: number };
+  cameraStart?: CameraStart;
 }

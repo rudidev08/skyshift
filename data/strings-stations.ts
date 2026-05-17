@@ -10,4 +10,5 @@ export const TECH_FACTORY = "Assembles advanced technology from metal and hyperd
 export const ARCHIVES = "Decodes raw signal data into structured hyperdata repositories.";
 export const HABITAT = "Residential station that consumes food and medicine to sustain its population.";
 export const SHIPYARD = "Constructs and maintains fleet vessels using advanced technology.";
-export const GENERATIONAL_SHIP = "Vast migrant vessels of the Wayfarer-Ark Transitus. Ferry populations between clusters and jump beyond the charted rim.";
+export const GENERATIONAL_SHIP =
+  "Vast migrant vessels of the Wayfarer-Ark Transitus. Ferry populations between clusters and jump beyond the charted rim.";

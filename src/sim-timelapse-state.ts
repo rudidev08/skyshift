@@ -11,7 +11,7 @@ export interface TimelapseStation {
   /** NationTemplate.id; matches the string-keyed nation registry. */
   nationId: string;
   typeId: StationTypeId;
-  /** `building` → `construction`; everything else (`producing`/`claimed`/`emigrating`) → `operational`. Destroyed stations omitted from the frame. */
+  /** `building` → `construction`; everything else (`producing`/`emigrating`) → `operational`. Destroyed stations omitted from the frame. */
   state: "operational" | "construction";
 }
 

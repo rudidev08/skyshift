@@ -1,7 +1,9 @@
 import { type Scene } from "phaser";
 
 /** Generic Phaser game-object pool — acquire/release to skip per-frame allocation. */
-export class GameObjectRenderPool<TGameObject extends Phaser.GameObjects.GameObject & { setVisible(value: boolean): unknown }> {
+export class GameObjectRenderPool<
+  TGameObject extends Phaser.GameObjects.GameObject & { setVisible(value: boolean): unknown },
+> {
   private readonly pool: TGameObject[] = [];
   private activeCount = 0;
   private readonly scene: Scene;

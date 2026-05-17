@@ -1,4 +1,5 @@
-/** Tiny flavor dots flying between nearby stations. Pure visual, no sim dependency. Dots crossfade to a smaller radius when zoomed in past the station-detail band, so they don't compete with station icons. */
+/** Tiny flavor dots flying between nearby stations. Pure visual, no sim dependency.
+ *  Dots crossfade to a smaller radius when zoomed in past the station-detail band, so they don't compete with station icons. */
 export const ambientTrafficConfig = {
   closestStationCount: 2, // each station connects to this many nearest neighbors
   distanceMultiplier: 0.7, // fraction of sectorSize for max route distance

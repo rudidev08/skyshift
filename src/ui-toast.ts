@@ -6,19 +6,22 @@ import { toastVisuals } from "../data/visuals-toast";
 
 let toastRoot: HTMLElement | null = null;
 
-/** Hides the in-world selection indicator while a blocking toast is up so
+/** Hides the in-map selection indicator while a blocking toast is up so
  *  the ring doesn't compete with the toast for attention. Non-blocking
  *  toasts skip this. game.ts registers the callback. */
 type SelectionVisibilityCallback = (hidden: boolean) => void;
 let selectionVisibilityCallback: SelectionVisibilityCallback | null = null;
 let activeBlockingToasts = 0;
 
-export function registerToastSelectionHook(callback: SelectionVisibilityCallback | null): void {
+export function registerToastSelectionHook(callback: SelectionVisibilityCallback): void {
   selectionVisibilityCallback = callback;
-  // Scene teardown passes null to disown — reset the counter so the next
-  // scene's first blocking toast re-triggers the hide instead of being
-  // skipped from a stale carry-over.
-  if (callback === null) activeBlockingToasts = 0;
+}
+
+export function unregisterToastSelectionHook(): void {
+  selectionVisibilityCallback = null;
+  // Reset the counter so the next scene's first blocking toast re-triggers
+  // the hide instead of being skipped from a stale carry-over.
+  activeBlockingToasts = 0;
 }
 
 function ensureToastRoot(): HTMLElement {
@@ -35,12 +38,12 @@ function ensureToastRoot(): HTMLElement {
 export interface ToastOptions {
   /** Success variant — green accent instead of neutral. */
   ok?: boolean;
-  /** Adds a dimming backdrop; for errors the player must acknowledge.
-   *  Still auto-dismisses. */
+  /** Dims the screen and hides the selection ring so the player's eye lands
+   *  on the toast; still auto-dismisses on the same timer. */
   blocking?: boolean;
 }
 
-/** Auto-dismisses after toastVisuals.durationMilliseconds; safe to call repeatedly — each toast clears on its own timer. */
+/** Auto-dismisses after toastVisuals.durationSeconds; safe to call repeatedly — each toast clears on its own timer. */
 export function showToast(message: string, options: ToastOptions = {}): void {
   const root = ensureToastRoot();
 
@@ -53,14 +56,14 @@ export function showToast(message: string, options: ToastOptions = {}): void {
 
   if (options.blocking) openBlockingToast(root);
 
-  // Fade out slightly before removal so the transition lands as the node detaches.
+  const fadeStartDelayMs = (toastVisuals.durationSeconds - toastVisuals.fadeSeconds) * 1000;
   window.setTimeout(() => {
     item.classList.add("toast-item--fading");
-  }, toastVisuals.durationMilliseconds - toastVisuals.fadeMilliseconds);
+  }, fadeStartDelayMs);
   window.setTimeout(() => {
     item.remove();
     if (options.blocking) closeBlockingToast(root);
-  }, toastVisuals.durationMilliseconds);
+  }, toastVisuals.durationSeconds * 1000);
 }
 
 /** A counter handles overlap — the ring stays hidden until the last blocking

@@ -9,22 +9,22 @@
 
 /* Compact select used in the editor's draft / simulation rows. */
 .editor-compact-select {
-    min-width: 120px;
+  min-width: 120px;
 }
 
 /* Narrow number input used in the editor's hours / fill-time fields. */
 .editor-compact-number-input {
-    width: 60px;
+  width: 60px;
 }
 
 /* Centered header cell — used for "Universe" totals group above the
    per-ware produced / consumed / net breakdown. */
 .editor-center-header {
-    text-align: center;
+  text-align: center;
 }
 
 /* Bold totals cell — produced / consumed / net figures use this to stand out
    against the per-row inputs below them. */
 .editor-bold-cell {
-    font-weight: 700;
+  font-weight: 700;
 }

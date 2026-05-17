@@ -29,6 +29,12 @@ export function assertNotUndefined<T>(value: T | undefined, label: string): T {
   return value;
 }
 
+/** Narrows `T | null` to `T` so callers can chain property access without `!`. */
+export function assertNotNull<T>(value: T | null, label: string): T {
+  if (value === null) throw new Error(`${label}: expected non-null value`);
+  return value;
+}
+
 export function assertThrows(action: () => void, expectedSubstring: string, label: string) {
   try {
     action();

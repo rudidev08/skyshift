@@ -5,15 +5,15 @@
 
 import { allShips } from "../../data/ships";
 import { allWares } from "../../data/wares";
-import { shipCountBySize } from "../../data/stations";
+import { shipsPerStationBySize } from "../../data/stations";
 import { economyConfig } from "../../data/economy-config";
 import { shipTravel } from "../../data/ship-travel";
 import { formatQuantity } from "../util-quantity-format";
 import { createSimulation } from "../sim-lifecycle";
 import { createStation, getStationRates } from "../sim-station";
-import type { ShipTemplate } from "../../data/ship-types";
+import type { ShipTypeTemplate } from "../../data/ship-types";
 import type { WareId } from "../../data/ware-types";
-import type { StationPlacement } from "../../data/station-types";
+import type { PlacedStation } from "../../data/station-types";
 import type { Station } from "../sim-station-types";
 import type { Nation } from "../sim-nation";
 import type { MapEditorState } from "./map-editor-state";
@@ -24,29 +24,29 @@ interface FleetStationSummary {
   production: Map<WareId, number>;
   shipCount: number;
   shipTypeId: string;
-  /** Authored placement — id/x/y/nation/size source. */
-  placement: StationPlacement;
+  /** `PlacedStation` — id/x/y/nation/size source. */
+  placement: PlacedStation;
   /** Runtime station — inventory/stationType/rates source. */
-  stationData: Station;
+  station: Station;
 }
 
 const fleetSimulationHours = 1;
 
-export function buildFleetStationSummaries(stations: StationPlacement[]): FleetStationSummary[] {
+export function buildFleetStationSummaries(stations: PlacedStation[]): FleetStationSummary[] {
   const summaries: FleetStationSummary[] = [];
 
-  for (const station of stations) {
-    const shipTypeId = station.nation.shipTypeId;
+  for (const placement of stations) {
+    const shipTypeId = placement.nation.shipTypeId;
     if (!shipTypeId) continue;
 
-    const stationData = createStation(station);
-    const rates = getStationRates(stationData);
+    const station = createStation(placement);
+    const rates = getStationRates(station);
 
     summaries.push({
-      placement: station,
-      stationData,
+      placement,
+      station,
       shipTypeId,
-      shipCount: shipCountBySize[station.size] ?? 1,
+      shipCount: shipsPerStationBySize[station.size] ?? 1,
       production: rates.production,
       consumption: rates.consumption,
     });
@@ -58,7 +58,7 @@ export function buildFleetStationSummaries(stations: StationPlacement[]): FleetS
 function estimateStationWareTransportPerHour(
   home: FleetStationSummary,
   wareId: WareId,
-  shipTemplate: ShipTemplate,
+  shipTemplate: ShipTypeTemplate,
   allStations: FleetStationSummary[],
 ): number {
   if (!shipTemplate.allowedWares.includes(wareId)) return 0;
@@ -84,15 +84,20 @@ function estimateStationWareTransportPerHour(
 
   if (!Number.isFinite(nearestDistance)) return 0;
 
-  const interStationSpeed = shipTravel.baseFlightSpeed * shipTravel.globalSpeed * shipTemplate.speed;
-  const oneWayLegSeconds = shipTravel.accelerationDurationSeconds + (nearestDistance / interStationSpeed) + shipTravel.dockingDurationSeconds;
-  const averageTradeWaitSeconds = (economyConfig.tradeWaitMinSeconds + economyConfig.tradeWaitMaxSeconds) / 2;
-  const groundedDelayPerCycleSeconds = economyConfig.groundedDelaySeconds * 2;
-  const roundTripTravelSeconds = oneWayLegSeconds * 2;
-  const cycleSeconds = averageTradeWaitSeconds + groundedDelayPerCycleSeconds + roundTripTravelSeconds;
+  const cycleSeconds = estimateTradeCycleSeconds(shipTemplate, nearestDistance);
   if (cycleSeconds <= 0) return 0;
 
   return (home.shipCount * shipTemplate.cargoCapacity * 3600) / cycleSeconds;
+}
+
+function estimateTradeCycleSeconds(shipTemplate: ShipTypeTemplate, distance: number): number {
+  const interStationSpeed = shipTravel.baseFlightSpeed * shipTravel.globalSpeed * shipTemplate.speed;
+  const oneWayLegSeconds =
+    shipTravel.accelerationDurationSeconds + distance / interStationSpeed + shipTravel.dockingDurationSeconds;
+  const averageTradeWaitSeconds = (economyConfig.tradeWaitMinSeconds + economyConfig.tradeWaitMaxSeconds) / 2;
+  const groundedDelayPerCycleSeconds = economyConfig.groundedDelaySeconds * 2;
+  const roundTripTravelSeconds = oneWayLegSeconds * 2;
+  return averageTradeWaitSeconds + groundedDelayPerCycleSeconds + roundTripTravelSeconds;
 }
 
 export function simulateFleetTransportByRow(mapState: MapEditorState): Map<string, Map<WareId, number>> {
@@ -130,7 +135,8 @@ export function simulateFleetTransportByRow(mapState: MapEditorState): Map<strin
 }
 
 function getFleetSummaryNote(simulationSession: EditorSimulationSession): string {
-  const estimateText = "Est / h uses current ship stats, average trade wait, grounded delay, and the nearest eligible route from each home station.";
+  const estimateText =
+    "Est / h uses current ship stats, average trade wait, grounded delay, and the nearest eligible route from each home station.";
 
   if (!simulationSession.lastFleetTransportByRow) {
     return `${estimateText} Sim ${fleetSimulationHours}h stays blank until you click Run Simulation.`;
@@ -172,7 +178,7 @@ function buildFleetRowsFromSummaries(
   const totalTransportByWare = new Map<WareId, number>();
 
   for (const summary of stationSummaries) {
-    const shipTemplate = allShips.find(ship => ship.id === summary.shipTypeId);
+    const shipTemplate = allShips.find((ship) => ship.id === summary.shipTypeId);
     if (!shipTemplate) continue;
 
     const rowKey = `${summary.placement.nation.id}:${shipTemplate.id}`;
@@ -195,7 +201,12 @@ function buildFleetRowsFromSummaries(
     totalCargo += summary.shipCount * shipTemplate.cargoCapacity;
 
     for (const ware of allWares) {
-      const ratePerHour = estimateStationWareTransportPerHour(summary, ware.id, shipTemplate, stationSummaries);
+      const ratePerHour = estimateStationWareTransportPerHour(
+        summary,
+        ware.id,
+        shipTemplate,
+        stationSummaries,
+      );
       if (ratePerHour <= 0) continue;
       row.transportByWare.set(ware.id, (row.transportByWare.get(ware.id) ?? 0) + ratePerHour);
       totalTransportByWare.set(ware.id, (totalTransportByWare.get(ware.id) ?? 0) + ratePerHour);
@@ -221,24 +232,25 @@ function sortFleetRowsByNation(
   return [...fleetRows.entries()].sort(([leftKey, leftRow], [rightKey, rightRow]) => {
     const leftNationId = leftKey.split(":")[0];
     const rightNationId = rightKey.split(":")[0];
-    const nationDifference = (nationOrder.get(leftNationId) ?? 999) - (nationOrder.get(rightNationId) ?? 999);
+    const nationDifference = nationOrder.get(leftNationId)! - nationOrder.get(rightNationId)!;
     if (nationDifference !== 0) return nationDifference;
     return leftRow.shipLabel.localeCompare(rightRow.shipLabel);
   });
 }
 
 function buildFleetTableHeaderHtml(): string {
-  let html = '<tr><th rowspan="2">Nation</th><th rowspan="2">Ship Type</th><th rowspan="2" class="numeric-column">Count</th><th rowspan="2" class="numeric-column">Cargo Each</th><th rowspan="2" class="numeric-column">Total Cargo</th>';
+  let html =
+    '<tr><th rowspan="2">Nation</th><th rowspan="2">Ship Type</th><th rowspan="2" class="numeric-column">Count</th><th rowspan="2" class="numeric-column">Cargo Each</th><th rowspan="2" class="numeric-column">Total Cargo</th>';
   for (const ware of allWares) {
     html += `<th colspan="2">${ware.name}</th>`;
   }
-  html += '</tr>';
-  html += '<tr>';
+  html += "</tr>";
+  html += "<tr>";
   for (const _ware of allWares) {
     html += '<th class="numeric-column">Est / h</th>';
     html += `<th class="numeric-column">Sim ${fleetSimulationHours}h</th>`;
   }
-  html += '</tr>';
+  html += "</tr>";
   return html;
 }
 
@@ -271,18 +283,11 @@ function buildFleetTotalsRowHtml(totals: FleetTotals): string {
   return html;
 }
 
-/** One row per (nation, ship type) pair with count, cargo, and per-ware estimated vs simulated transport. */
-export function renderFleetSummary(
-  mapState: MapEditorState,
+function buildFleetSummaryHtml(
+  totals: FleetTotals,
+  sortedRows: Array<[string, FleetRow]>,
   simulationSession: EditorSimulationSession,
-  allPlayableNations: Nation[],
-) {
-  const container = document.getElementById("fleet-container")!;
-  const stationSummaries = buildFleetStationSummaries(mapState.editableStations);
-  const simulatedTransportByRow = simulationSession.lastFleetTransportByRow ?? new Map<string, Map<WareId, number>>();
-  const totals = buildFleetRowsFromSummaries(stationSummaries, simulatedTransportByRow);
-  const sortedRows = sortFleetRowsByNation(totals.fleetRows, allPlayableNations);
-
+): string {
   let html = '<div class="panel">';
   html += '<div class="panel-header"><h2>Fleet Summary</h2></div>';
   html += `<div class="fleet-summary-note">${getFleetSummaryNote(simulationSession)}</div>`;
@@ -296,5 +301,24 @@ export function renderFleetSummary(
 
   html += buildFleetTotalsRowHtml(totals);
   html += "</table></div></div>";
-  container.innerHTML = html;
+  return html;
+}
+
+/** One row per (nation, ship type) pair with count, cargo, and per-ware estimated vs simulated transport. */
+export function renderFleetSummary(
+  mapState: MapEditorState,
+  simulationSession: EditorSimulationSession,
+  allPlayableNations: Nation[],
+) {
+  const stationSummaries = buildFleetStationSummaries(mapState.editableStations);
+  const simulatedTransportByRow =
+    simulationSession.lastFleetTransportByRow ?? new Map<string, Map<WareId, number>>();
+  const totals = buildFleetRowsFromSummaries(stationSummaries, simulatedTransportByRow);
+  const sortedRows = sortFleetRowsByNation(totals.fleetRows, allPlayableNations);
+
+  document.getElementById("fleet-container")!.innerHTML = buildFleetSummaryHtml(
+    totals,
+    sortedRows,
+    simulationSession,
+  );
 }

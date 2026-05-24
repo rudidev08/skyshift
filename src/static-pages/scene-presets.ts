@@ -7,27 +7,16 @@ import { bioNation, farNation, hubNation, oreNation, skyNation, wayNation } from
 import type { ShipTypeTemplate } from "../../data/ship-types";
 import { jumpship, seedhaul, tanker, trader } from "../../data/ships";
 
+import { stripLucideSvgWrapper } from "../render-lucide-svg";
+
 import type { SectorShipHull } from "./static-ship-preview";
 
-/** Strips Lucide's outer `<svg>` tag so prepareStationIcon can wrap the inner shape with its own nation-stroked `<svg>`. */
-function extractInnerSvg(lucideSvg: string): string {
-  const openEnd = lucideSvg.indexOf(">") + 1;
-  const closeStart = lucideSvg.lastIndexOf("</svg>");
-  return lucideSvg.substring(openEnd, closeStart).trim();
-}
-
-/** VectorSquare — SKY archives / observatory. */
-export const ICON_ARCHIVES = extractInnerSvg(VectorSquare);
-/** Apple — BIO farm. */
-export const ICON_FARM = extractInnerSvg(Apple);
-/** Stone — ORE mine. */
-export const ICON_MINE = extractInnerSvg(Stone);
-/** Container — HUB tech factory. */
-export const ICON_TECH = extractInnerSvg(Container);
-/** Hammer — HUB metal forge. */
-export const ICON_FORGE = extractInnerSvg(Hammer);
-/** Compass — WAY generational ship. */
-export const ICON_GENERATIONAL_SHIP = extractInnerSvg(Compass);
+export const ICON_ARCHIVES = stripLucideSvgWrapper(VectorSquare).trim();
+export const ICON_FARM = stripLucideSvgWrapper(Apple).trim();
+export const ICON_MINE = stripLucideSvgWrapper(Stone).trim();
+export const ICON_TECH = stripLucideSvgWrapper(Container).trim();
+export const ICON_FORGE = stripLucideSvgWrapper(Hammer).trim();
+export const ICON_GENERATIONAL_SHIP = stripLucideSvgWrapper(Compass).trim();
 
 export const NATION_COLORS = {
   hub: hubNation.color,
@@ -38,8 +27,9 @@ export const NATION_COLORS = {
   way: wayNation.color,
 } as const;
 
-/** trailWidth is an explicit parameter rather than scaled from ship.trailWidthMultiplier — the game's multiplier targets a much larger texture and produces hair-thin trails on these small static-page canvases. */
-function hullFromShip(ship: ShipTypeTemplate, trailWidth: number): SectorShipHull {
+/** Create a runtime `SectorShipHull` from a `ShipTypeTemplate`.
+ *  trailWidth is an explicit parameter rather than scaled from ship.trailWidthMultiplier — the game's multiplier targets a much larger texture and produces hair-thin trails on these small static-page canvases. */
+function createSectorHullFromShipTemplate(ship: ShipTypeTemplate, trailWidth: number): SectorShipHull {
   return {
     taperFront: ship.taperFront,
     taperBack: ship.taperBack,
@@ -52,7 +42,7 @@ function hullFromShip(ship: ShipTypeTemplate, trailWidth: number): SectorShipHul
   };
 }
 
-export const HULL_JUMPSHIP = hullFromShip(jumpship, 9);
-export const HULL_SEEDHAUL = hullFromShip(seedhaul, 7.5);
-export const HULL_TANKER = hullFromShip(tanker, 6);
-export const HULL_TRADER = hullFromShip(trader, 5);
+export const HULL_JUMPSHIP = createSectorHullFromShipTemplate(jumpship, 9);
+export const HULL_SEEDHAUL = createSectorHullFromShipTemplate(seedhaul, 7.5);
+export const HULL_TANKER = createSectorHullFromShipTemplate(tanker, 6);
+export const HULL_TRADER = createSectorHullFromShipTemplate(trader, 5);

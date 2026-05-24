@@ -299,11 +299,21 @@
         <div class="palette">
           <div class="palette-group">Surfaces</div>
           <div class="swatch">
+            <div class="swatch-chip" style="background: var(--ink-deep)"></div>
+            <div class="swatch-body">
+              <div class="swatch-name"><span>Void</span><span class="swatch-hex">#050709</span></div>
+              <div class="swatch-use">
+                Deepest void — body bg on landing pages under the nebula canvas; matches the
+                browser theme color.
+              </div>
+            </div>
+          </div>
+          <div class="swatch">
             <div class="swatch-chip" style="background: var(--ink-0)"></div>
             <div class="swatch-body">
               <div class="swatch-name"><span>Base</span><span class="swatch-hex">#0a0d14</span></div>
               <div class="swatch-use">
-                Deepest background — the page, and the empty channel behind cargo bars.
+                Default page background, and the empty channel behind cargo bars.
               </div>
             </div>
           </div>
@@ -493,6 +503,27 @@
             </div>
           </div>
         </div>
+
+        <h3 class="showcase-subhead">Section bands</h3>
+        <div style="display: flex; flex-direction: column; gap: 6px; max-width: 320px">
+          <div class="section-band">» Section header</div>
+          <div class="section-band">// Mode</div>
+          <div class="section-band">Producing</div>
+        </div>
+
+        <h3 class="showcase-subhead">Page masthead</h3>
+        <div class="hud-preview">
+          <header class="page-masthead" style="margin-bottom: 0; padding-top: 0">
+            <div class="page-masthead-topbar">
+              <a class="page-masthead-back" href="/">«<span class="num">00</span>Index</a>
+              <span class="page-masthead-label">BUREAU OF CARTOGRAPHY</span>
+            </div>
+            <h1 class="page-masthead-title"><span class="page-masthead-brand">Skyshift</span> Lore</h1>
+            <p class="page-masthead-sub">
+              An atlas of the settled universe — nations, ships, wares, stations, sectors.
+            </p>
+          </header>
+        </div>
       </section>
 
       <!-- ══ BUTTONS ══ -->
@@ -659,8 +690,8 @@
 
           <div>
             <div class="row-label">SPEED HUD · 1× RUNNING</div>
-            <div class="speed-hud" style="position: static; align-items: flex-start">
-              <div class="speed-hud__elapsed" style="text-align: left">
+            <div class="speed-hud">
+              <div class="speed-hud__elapsed">
                 // elapsed <span class="num">00h:12m</span>
               </div>
               <div class="speed-hud__row">
@@ -684,8 +715,8 @@
 
           <div>
             <div class="row-label">SPEED HUD · 2× RUNNING</div>
-            <div class="speed-hud" style="position: static; align-items: flex-start">
-              <div class="speed-hud__elapsed" style="text-align: left">
+            <div class="speed-hud">
+              <div class="speed-hud__elapsed">
                 // elapsed <span class="num">00h:12m</span>
               </div>
               <div class="speed-hud__row">
@@ -711,8 +742,8 @@
 
           <div>
             <div class="row-label">SPEED HUD · 5× RUNNING</div>
-            <div class="speed-hud" style="position: static; align-items: flex-start">
-              <div class="speed-hud__elapsed" style="text-align: left">
+            <div class="speed-hud">
+              <div class="speed-hud__elapsed">
                 // elapsed <span class="num">00h:12m</span>
               </div>
               <div class="speed-hud__row">
@@ -737,8 +768,8 @@
 
           <div>
             <div class="row-label">SPEED HUD · PAUSED</div>
-            <div class="speed-hud" style="position: static; align-items: flex-start">
-              <div class="speed-hud__elapsed" style="text-align: left">
+            <div class="speed-hud">
+              <div class="speed-hud__elapsed">
                 // elapsed <span class="num">00h:12m</span>
               </div>
               <div class="speed-hud__row">
@@ -793,7 +824,7 @@
                     <div class="cargo-note-value">Farm · Medical Lab<br />Water Processing · Habitat</div>
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Environment: Bio Nebula</div>
+                <div class="section-band id-status-band">Environment: Bio Nebula</div>
               </div>
               <div class="lore-card">
                 <div class="lore-title">Green Silence</div>
@@ -843,7 +874,7 @@
                     >
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Producing</div>
+                <div class="section-band id-status-band">Producing</div>
               </div>
             </div>
           </div>
@@ -882,7 +913,7 @@
                     >
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Producing</div>
+                <div class="section-band id-status-band">Producing</div>
               </div>
             </div>
           </div>
@@ -919,7 +950,7 @@
                     >
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Producing</div>
+                <div class="section-band id-status-band">Producing</div>
               </div>
             </div>
           </div>
@@ -949,7 +980,7 @@
                     >
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Producing</div>
+                <div class="section-band id-status-band">Producing</div>
               </div>
             </div>
           </div>
@@ -987,7 +1018,7 @@
                     >
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Producing</div>
+                <div class="section-band id-status-band">Producing</div>
               </div>
             </div>
           </div>
@@ -1024,7 +1055,7 @@
                     <span class="cargo-stat">3.1k/4.8k</span>
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">In Construction</div>
+                <div class="section-band id-status-band">In Construction</div>
               </div>
             </div>
           </div>
@@ -1061,7 +1092,7 @@
                     </div>
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Emigrating</div>
+                <div class="section-band id-status-band">Emigrating</div>
               </div>
             </div>
           </div>
@@ -1106,7 +1137,7 @@
                     </div>
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Flying</div>
+                <div class="section-band id-status-band">Flying</div>
               </div>
             </div>
           </div>
@@ -1139,7 +1170,7 @@
                     </div>
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Looking for Traders</div>
+                <div class="section-band id-status-band">Looking for Traders</div>
               </div>
             </div>
           </div>
@@ -1175,7 +1206,7 @@
                     </div>
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Flying</div>
+                <div class="section-band id-status-band">Flying</div>
               </div>
             </div>
           </div>
@@ -1211,7 +1242,7 @@
                     </div>
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Flying</div>
+                <div class="section-band id-status-band">Flying</div>
               </div>
             </div>
           </div>
@@ -1244,7 +1275,7 @@
                     </div>
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Looking for Traders</div>
+                <div class="section-band id-status-band">Looking for Traders</div>
               </div>
             </div>
           </div>
@@ -1263,8 +1294,8 @@
             <div class="hud-preview-label">
               <span class="num">07-A</span> &nbsp;OVERVIEW · LOG · 20D ELAPSED · SCRUBBED TO 14D:00H
             </div>
-            <div class="trade-route-overlay" style="position: static; pointer-events: auto">
-              <div class="ware-sidebar-wrap ware-sidebar-wrap--wide" style="position: static">
+            <div class="trade-route-overlay">
+              <div class="ware-sidebar-wrap ware-sidebar-wrap--wide">
                 <div class="hud-segment hud-segment--row">
                   <button class="hud-btn">Trading</button>
                   <button class="hud-btn">Nations</button>
@@ -1287,17 +1318,17 @@
 
         <h3 class="showcase-subhead">Pane layout</h3>
 
-        <!-- 07-A · Active pane: 300px wide (1.5× the wares sidebar), morse stripe at
+        <!-- 08-A · Active pane: 300px wide (1.5× the wares sidebar), morse stripe at
          top, five-tab nation strip above the visible card. Player cycles which
          nation is visible by clicking a tab; the active tab inherits the nation
          accent color. -->
-        <div class="hud-preview-grid" style="grid-template-columns: 1fr; margin-bottom: 32px">
+        <div class="hud-preview-grid" style="margin-bottom: 32px">
           <div class="hud-preview">
             <div class="hud-preview-label">
               <span class="num">08-A</span> &nbsp;NATIONS PANE · LAYOUT (HUB ACTIVE)
             </div>
-            <div class="trade-route-overlay" style="position: static; pointer-events: auto">
-              <div class="ware-sidebar-wrap ware-sidebar-wrap--wide" style="position: static">
+            <div class="trade-route-overlay">
+              <div class="ware-sidebar-wrap ware-sidebar-wrap--wide">
                 <div class="hud-segment hud-segment--row">
                   <button class="hud-btn">Trading</button>
                   <button class="hud-btn is-on">Nations</button>
@@ -1343,10 +1374,10 @@
 
         <h3 class="showcase-subhead">Card states reference</h3>
 
-        <!-- 07-B · Card variants in a single column for designer reference. Each
+        <!-- 08-B · Card variants in a single column for designer reference. Each
          row is one nation, idle (no cargo-grid). The actual game shows only
-         one card at a time — see 07-A for the active-pane layout. -->
-        <div class="hud-preview-grid" style="grid-template-columns: 1fr; margin-bottom: 32px">
+         one card at a time — see 08-A for the active-pane layout. -->
+        <div class="hud-preview-grid" style="margin-bottom: 32px">
           <div class="hud-preview">
             <div class="hud-preview-label">
               <span class="num">08-B</span> &nbsp;NATION CARDS · IDLE STATES
@@ -1456,7 +1487,7 @@
 
               <!-- WAY · generational-ship carrier; doesn't run a build cycle but
                rides along on the tab strip so the player can inspect it.
-               Activity area cycles through three states — see 07-C for the variants. -->
+               Activity area cycles through three states — see 08-C for the variants. -->
               <div class="nation-card" style="--nation-accent: #808080">
                 <div class="id-header">
                   <div class="id-title">
@@ -1479,7 +1510,7 @@
             </div>
           </div>
 
-          <!-- 07-C · Active states — building nations show "Building station at"
+          <!-- 08-C · Active states — building nations show "Building station at"
            with sector + type + progress. WAY cycles through three generational-ship
            states in the activity area. -->
           <div class="hud-preview">
@@ -1604,15 +1635,14 @@
           </div>
         </div>
 
-        <!-- 07-D · Contract display on requester's nation card -->
-        <div class="hud-preview-grid" style="grid-template-columns: 1fr">
-          <!-- 07-D · SKY contracting BIO for habitat -->
+        <div class="hud-preview-grid">
+          <!-- 08-D · SKY contracting BIO for habitat -->
           <div class="hud-preview">
             <div class="hud-preview-label">
               <span class="num">08-D</span> &nbsp;CONTRACT &middot; BUILDING VIA CONTRACT
             </div>
             <div style="width: 280px">
-              <div class="stack-label">// SKY contracting BIO * habitat</div>
+              <div class="stack-label">// SKY contracting BIO &middot; habitat</div>
               <div class="nation-card" style="--nation-accent: #00f9ff">
                 <div class="id-header">
                   <div class="id-title">
@@ -1652,13 +1682,13 @@
         </h2>
 
         <div class="hud-preview-grid" style="grid-template-columns: 200px; gap: 40px; align-items: start">
-          <!-- 08-A · Default state: no ware selected -->
+          <!-- 09-A · Default state: no ware selected -->
           <div class="hud-preview">
             <div class="hud-preview-label">
               <span class="num">09-A</span> &nbsp;OVERVIEW · DEFAULT · NO WARE
             </div>
-            <div class="trade-route-overlay" style="position: static; pointer-events: auto">
-              <div class="ware-sidebar-wrap" style="position: static">
+            <div class="trade-route-overlay">
+              <div class="ware-sidebar-wrap">
                 <div class="hud-segment hud-segment--row">
                   <button class="hud-btn is-on">Trading</button>
                   <button class="hud-btn">Nations</button>
@@ -1681,11 +1711,11 @@
             </div>
           </div>
 
-          <!-- 08-B · Dropdown open, Metal selected -->
+          <!-- 09-B · Dropdown open, Metal selected -->
           <div class="hud-preview">
             <div class="hud-preview-label"><span class="num">09-B</span> &nbsp;OVERVIEW · DROPDOWN OPEN</div>
-            <div class="trade-route-overlay" style="position: static; pointer-events: auto">
-              <div class="ware-sidebar-wrap" style="position: static">
+            <div class="trade-route-overlay">
+              <div class="ware-sidebar-wrap">
                 <div class="hud-segment hud-segment--row">
                   <button class="hud-btn is-on">Trading</button>
                   <button class="hud-btn">Nations</button>
@@ -1765,9 +1795,9 @@
 
         <h3 class="showcase-subhead">Generational ship dossier</h3>
 
-        <!-- 09-A/B · Generational-ship dossiers (selected generational ship in NW1) -->
-        <div class="hud-preview-grid" style="grid-template-columns: 1fr">
-          <!-- 09-A · Taking It Easy (idle generational ship between events) -->
+        <!-- 10-A/B · Generational-ship dossiers (selected generational ship in NW1) -->
+        <div class="hud-preview-grid">
+          <!-- 10-A · Taking It Easy (idle generational ship between events) -->
           <div class="hud-preview">
             <div class="hud-preview-label">
               <span class="num">10-A</span> &nbsp;GENERATIONAL SHIP · TAKING IT EASY (WAY)
@@ -1800,12 +1830,12 @@
                     </div>
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Taking It Easy</div>
+                <div class="section-band id-status-band">Taking It Easy</div>
               </div>
             </div>
           </div>
 
-          <!-- 09-B · Preparing to Jump (same generational ship as 09-A, later phase of the event) -->
+          <!-- 10-B · Preparing to Jump (same generational ship as 10-A, later phase of the event) -->
           <div class="hud-preview">
             <div class="hud-preview-label">
               <span class="num">10-B</span> &nbsp;GENERATIONAL SHIP · PREPARING TO JUMP
@@ -1823,19 +1853,9 @@
                   </div>
                 </div>
                 <div class="cargo-grid">
-                  <!-- Destination promoted to a prominent heading at the top of the body.
-                   Override cargo-note's natural footer-border treatment. -->
-                  <div
-                    class="cargo-note"
-                    style="
-                      border-top: none;
-                      padding-top: 0;
-                      margin-top: 0;
-                      padding-bottom: 8px;
-                      margin-bottom: 4px;
-                      border-bottom: 1px dashed var(--line);
-                    "
-                  >
+                  <!-- Destination promoted to a prominent heading at the top of the body
+                       via the .cargo-note--heading modifier. -->
+                  <div class="cargo-note cargo-note--heading">
                     <span class="cargo-note-label">Destination</span>
                     <div class="cargo-note-value">
                       <span class="cargo-note-accent">The Long Drift</span>
@@ -1853,7 +1873,7 @@
                     </div>
                   </div>
                 </div>
-                <div class="id-type-mrz id-status-band">Preparing to Jump</div>
+                <div class="section-band id-status-band">Preparing to Jump</div>
               </div>
             </div>
           </div>
@@ -1861,18 +1881,18 @@
 
         <h3 class="showcase-subhead">Emigration controls</h3>
 
-        <!-- 09-C/D · Emigration controls, two mode variants side-by-side (stack on narrow viewports) -->
+        <!-- 10-C/D · Emigration controls, two mode variants side-by-side (stack on narrow viewports) -->
         <div
           class="hud-preview-grid"
           style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 300px)); max-width: 620px"
         >
-          <!-- 09-C · Auto mode (50% threshold, manual button disabled) -->
+          <!-- 10-C · Auto mode (50% threshold, manual button disabled) -->
           <div class="hud-preview">
             <div class="hud-preview-label">
               <span class="num">10-C</span> &nbsp;EMIGRATION CONTROLS · AUTO
             </div>
-            <div class="trade-route-overlay" style="position: static; pointer-events: auto">
-              <div class="ware-sidebar-wrap" style="position: static">
+            <div class="trade-route-overlay">
+              <div class="ware-sidebar-wrap">
                 <div class="ware-sidebar">
                   <div class="ware-sidebar-head">Emigration</div>
                   <div class="ware-sidebar-blurb">
@@ -1887,15 +1907,7 @@
                       <button class="hud-btn is-on">Auto</button>
                       <button class="hud-btn">Manual</button>
                     </div>
-                    <div
-                      style="
-                        font-family: var(--font-mono);
-                        font-size: 10px;
-                        line-height: 1.5;
-                        color: var(--paper-dim);
-                        margin-top: 8px;
-                      "
-                    >
+                    <div class="description-text-dim">
                       Emigration triggers automatically once a vast majority of sectors are populated.
                     </div>
                   </div>
@@ -1908,15 +1920,7 @@
                       <button class="hud-btn is-on">50%</button>
                       <button class="hud-btn">75%</button>
                     </div>
-                    <div
-                      style="
-                        font-family: var(--font-mono);
-                        font-size: 10px;
-                        line-height: 1.5;
-                        color: var(--paper-dim);
-                        margin-top: 8px;
-                      "
-                    >
+                    <div class="description-text-dim">
                       Percentage of stations that will start emigrating out of the cluster.
                     </div>
                   </div>
@@ -1927,13 +1931,13 @@
             </div>
           </div>
 
-          <!-- 09-D · Manual mode (75% threshold, button ready to fire) -->
+          <!-- 10-D · Manual mode (75% threshold, button ready to fire) -->
           <div class="hud-preview">
             <div class="hud-preview-label">
               <span class="num">10-D</span> &nbsp;EMIGRATION CONTROLS · MANUAL
             </div>
-            <div class="trade-route-overlay" style="position: static; pointer-events: auto">
-              <div class="ware-sidebar-wrap" style="position: static">
+            <div class="trade-route-overlay">
+              <div class="ware-sidebar-wrap">
                 <div class="ware-sidebar">
                   <div class="ware-sidebar-head">Emigration</div>
                   <div class="ware-sidebar-blurb">
@@ -1948,15 +1952,7 @@
                       <button class="hud-btn">Auto</button>
                       <button class="hud-btn is-on">Manual</button>
                     </div>
-                    <div
-                      style="
-                        font-family: var(--font-mono);
-                        font-size: 10px;
-                        line-height: 1.5;
-                        color: var(--paper-dim);
-                        margin-top: 8px;
-                      "
-                    >
+                    <div class="description-text-dim">
                       Emigration only triggers when you start it yourself.
                     </div>
                   </div>
@@ -1969,15 +1965,7 @@
                       <button class="hud-btn">50%</button>
                       <button class="hud-btn is-on">75%</button>
                     </div>
-                    <div
-                      style="
-                        font-family: var(--font-mono);
-                        font-size: 10px;
-                        line-height: 1.5;
-                        color: var(--paper-dim);
-                        margin-top: 8px;
-                      "
-                    >
+                    <div class="description-text-dim">
                       Percentage of stations that will start emigrating out of the cluster.
                     </div>
                   </div>
@@ -1985,28 +1973,8 @@
                   <!-- Manual trigger · button ready to fire -->
                   <div class="ware-section">
                     <div class="ware-section-label ware-section-label--settings">» Trigger</div>
-                    <button
-                      class="hud-btn is-on"
-                      style="
-                        width: 100%;
-                        justify-content: center;
-                        font-family: var(--font-mono);
-                        font-size: 11px;
-                        letter-spacing: 0.12em;
-                        text-transform: uppercase;
-                      "
-                    >
-                      Start emigration
-                    </button>
-                    <div
-                      style="
-                        font-family: var(--font-mono);
-                        font-size: 10px;
-                        line-height: 1.5;
-                        color: var(--paper-dim);
-                        margin-top: 10px;
-                      "
-                    >
+                    <button class="hud-btn is-on hud-btn--wide">Start emigration</button>
+                    <div class="description-text-dim">
                       Encourage station population to board generational ship and emigrate to another cluster.
                     </div>
                   </div>
@@ -2070,7 +2038,7 @@
                       <span class="cargo-stat">880/4.0k</span>
                     </div>
                   </div>
-                  <div class="id-type-mrz id-status-band">Flying</div>
+                  <div class="section-band id-status-band">Flying</div>
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 4px">
                   <button class="hud-btn hud-btn-icon" style="width: 40px; height: 40px" title="Collapse">
@@ -2122,7 +2090,7 @@
                       <span class="cargo-stat">880/4.0k</span>
                     </div>
                   </div>
-                  <div class="id-type-mrz id-status-band">Flying</div>
+                  <div class="section-band id-status-band">Flying</div>
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 4px">
                   <button class="hud-btn hud-btn-icon" style="width: 40px; height: 40px" title="Collapse">
@@ -2194,7 +2162,7 @@
           <span class="mono caps">// debug log · faction tint · emphasis rules</span>
         </h2>
 
-        <div class="hud-preview-grid" style="grid-template-columns: 1fr">
+        <div class="hud-preview-grid">
           <div class="hud-preview">
             <div class="hud-preview-label">
               <span class="num">12-A</span> &nbsp;SHIP LOG · ACTIVE HAULER · MULTI-LEG
@@ -2288,7 +2256,7 @@
           <span class="mono caps">// index.html · cover · ledger · dossier · register</span>
         </h2>
 
-        <div class="hud-preview-grid" style="grid-template-columns: 1fr">
+        <div class="hud-preview-grid">
           <!-- Hero -->
           <div class="hud-preview">
             <div class="hud-preview-label"><span class="num">13-A</span> &nbsp;HERO · gradient wordmark</div>
@@ -2347,7 +2315,7 @@
           <!-- Start actions · returning (save exists) -->
           <div class="hud-preview">
             <div class="hud-preview-label">
-              <span class="num">13-C2</span> &nbsp;START ACTIONS · RETURNING · prominent Continue over small
+              <span class="num">13-D</span> &nbsp;START ACTIONS · RETURNING · prominent Continue over small
               "Start new" pair
             </div>
             <div class="landing-preview-stage">
@@ -2371,7 +2339,7 @@
           <!-- Settings panel -->
           <div class="hud-preview">
             <div class="hud-preview-label">
-              <span class="num">13-D</span> &nbsp;SETTINGS PANEL · audio + savegame slots
+              <span class="num">13-E</span> &nbsp;SETTINGS PANEL · audio + savegame slots
             </div>
             <div class="settings-modal id-card">
               <div class="settings-head">
@@ -2451,7 +2419,7 @@
           <!-- Toast — unified top-center notification, reuses .id-card chrome. -->
           <div class="hud-preview">
             <div class="hud-preview-label">
-              <span class="num">12-T</span> &nbsp;TOAST · unified top-center notification · neutral and
+              <span class="num">13-F</span> &nbsp;TOAST · unified top-center notification · neutral and
               .toast--ok variants
             </div>
             <div style="position: relative; min-height: 120px">
@@ -2468,10 +2436,10 @@
           <!-- Landing nav -->
           <div class="hud-preview">
             <div class="hud-preview-label">
-              <span class="num">13-E</span> &nbsp;LANDING NAV · two-tier · prominent Orientation + Lore over
+              <span class="num">13-G</span> &nbsp;LANDING NAV · two-tier · prominent Orientation + Lore over
               dim utility links
             </div>
-            <nav class="landing-nav" style="align-self: flex-start">
+            <nav class="landing-nav">
               <div class="landing-nav-primary">
                 <a>// <span class="num">01</span> Orientation</a>
                 <a>// <span class="num">02</span> Lore</a>
@@ -2487,10 +2455,10 @@
           <!-- Load error -->
           <div class="hud-preview">
             <div class="hud-preview-label">
-              <span class="num">13-F</span> &nbsp;LOAD ERROR · shown by /universe or /start/:preset when the
+              <span class="num">13-H</span> &nbsp;LOAD ERROR · shown by /universe or /start/:preset when the
               route can't boot
             </div>
-            <main class="load-error__panel" style="align-self: flex-start">
+            <main class="load-error__panel">
               <p class="load-error__eyebrow">Load error</p>
               <h1 class="load-error__title">Can't load universe</h1>
               <p class="load-error__detail">Save file is not a Skyshift save.</p>
@@ -2510,10 +2478,10 @@ Missing or invalid field: emigrationManager.emigrantLaunchState</pre
           <!-- Load error · pending step (1500ms pulsing dots after first Clear-saves click) -->
           <div class="hud-preview">
             <div class="hud-preview-label">
-              <span class="num">13-G</span> &nbsp;LOAD ERROR · CLEAR-SAVES PENDING · 1.5s pulse before the
+              <span class="num">13-I</span> &nbsp;LOAD ERROR · CLEAR-SAVES PENDING · 1.5s pulse before the
               destructive confirm appears
             </div>
-            <main class="load-error__panel" style="align-self: flex-start">
+            <main class="load-error__panel">
               <p class="load-error__eyebrow">Load error</p>
               <h1 class="load-error__title">Can't load universe</h1>
               <p class="load-error__detail">Save file is not a Skyshift save.</p>
@@ -2526,10 +2494,10 @@ Missing or invalid field: emigrationManager.emigrantLaunchState</pre
           <!-- Load error · confirm step (full-red button + cancel-X) -->
           <div class="hud-preview">
             <div class="hud-preview-label">
-              <span class="num">13-H</span> &nbsp;LOAD ERROR · CLEAR-SAVES CONFIRM · full-red button wipes
+              <span class="num">13-J</span> &nbsp;LOAD ERROR · CLEAR-SAVES CONFIRM · full-red button wipes
               every slot, X cancels back to idle
             </div>
-            <main class="load-error__panel" style="align-self: flex-start">
+            <main class="load-error__panel">
               <p class="load-error__eyebrow">Load error</p>
               <h1 class="load-error__title">Can't load universe</h1>
               <p class="load-error__detail">Save file is not a Skyshift save.</p>
@@ -2554,10 +2522,10 @@ Missing or invalid field: emigrationManager.emigrantLaunchState</pre
         </h2>
 
         <div class="hud-preview-grid">
-          <!-- 13 · ID-card placeholder -->
+          <!-- 14-A · ID-card placeholder -->
           <div class="hud-preview">
             <div class="hud-preview-label">
-              <span class="num">14</span> &nbsp;ID-CARD PLACEHOLDER · top-left chassis, pulsing bar is the
+              <span class="num">14-A</span> &nbsp;ID-CARD PLACEHOLDER · top-left chassis, pulsing bar is the
               hero element
             </div>
             <div class="loading-stage loading-stage--left">
@@ -2570,7 +2538,7 @@ Missing or invalid field: emigrationManager.emigrantLaunchState</pre
                     </div>
                   </div>
                   <div class="loading-bar loading-bar--hero"></div>
-                  <div class="id-type-mrz id-status-band">// standby</div>
+                  <div class="section-band id-status-band">// standby</div>
                 </div>
               </div>
             </div>
@@ -2578,29 +2546,6 @@ Missing or invalid field: emigrationManager.emigrantLaunchState</pre
         </div>
       </section>
 
-      <!-- ══ PAGE MASTHEAD ══ -->
-      <section class="showcase-section">
-        <h2>
-          <span><span class="num">15</span> &nbsp;Page masthead</span>
-          <span class="mono caps">// help · lore · design — shared title · subtitle · return</span>
-        </h2>
-
-        <div class="hud-preview">
-          <div class="hud-preview-label">
-            <span class="num">14-A</span> &nbsp;LEDGER · applied live above and on help, lore, design
-          </div>
-          <header class="page-masthead" style="margin-bottom: 0; padding-top: 0">
-            <div class="page-masthead-topbar">
-              <a class="page-masthead-back" href="/">«<span class="num">00</span>Index</a>
-              <span class="page-masthead-label">BUREAU OF CARTOGRAPHY</span>
-            </div>
-            <h1 class="page-masthead-title"><span class="page-masthead-brand">Skyshift</span> Lore</h1>
-            <p class="page-masthead-sub">
-              An atlas of the settled universe — nations, ships, wares, stations, sectors.
-            </p>
-          </header>
-        </div>
-      </section>
     </div>
   </body>
 </html>

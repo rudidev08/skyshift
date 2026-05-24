@@ -3,26 +3,27 @@ import type { StationZone } from "./sim-station-zone-types";
 import type { Sector } from "./sim-map-types";
 import { stationBuilderNations } from "../data/nations";
 import { findSectorAtPosition } from "./sim-sector-lookup";
+import { generateUniqueId } from "./util-ids";
 
-/** Sector id a zone id names by the `<sector-id>-<n>` convention (strip the trailing `-<number>`). */
+/** Extracts the sector id from a zone id that follows the `<sector-id>-<n>` convention. */
 function sectorIdFromZoneId(zoneId: string): string {
   return zoneId.replace(/-\d+$/, "");
 }
 
 /** Generate an unused NIL-namespaced zone code (e.g. "NIL-3K"). Mutates `takenCodes` by inserting the returned code. */
 function generateUniqueZoneCode(takenCodes: Set<string>): string {
-  for (let attempt = 0; attempt < 200; attempt++) {
-    const digit = Math.floor(Math.random() * 10);
-    const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26));
-    const code = `NIL-${digit}${letter}`;
-    if (!takenCodes.has(code)) {
-      takenCodes.add(code);
-      return code;
-    }
-  }
-  // Pool is 26 letters × 10 digits = 260 codes. Fall back to a 3-char base36 tail if all are taken.
-  const tail = Math.random().toString(36).slice(2, 5).toUpperCase();
-  const code = `NIL-${tail}`;
+  const code = generateUniqueId({
+    prefix: "NIL",
+    randomSuffix: () => {
+      const digit = Math.floor(Math.random() * 10);
+      const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26));
+      return `${digit}${letter}`;
+    },
+    randomAttempts: 200,
+    takenIds: takenCodes,
+    // Pool is 26 letters × 10 digits = 260 codes. Fall back to a 3-char base36 tail if all are taken.
+    fallback: () => `NIL-${Math.random().toString(36).slice(2, 5).toUpperCase()}`,
+  });
   takenCodes.add(code);
   return code;
 }
@@ -48,7 +49,7 @@ function createZoneFromTemplate(
   }
 
   const nation = stationBuilderNations[index % stationBuilderNations.length];
-  const nameSuffix = nation.nameSuffixes[index % nation.nameSuffixes.length] ?? String(index + 1);
+  const nameSuffix = nation.nameSuffixes[index % nation.nameSuffixes.length];
 
   return {
     ...template,

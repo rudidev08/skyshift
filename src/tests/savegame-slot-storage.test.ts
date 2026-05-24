@@ -12,10 +12,10 @@ test("saveToManualSlot rejects out-of-range indices", () => {
   // off-by-one comparison flip would let a hostile index sneak through.
   localStorageShim.clear();
   const game = setupFreshTestGame();
-  assertThrows(() => saveToManualSlot(game as never, 0), "Invalid manual slot 0", "rejects 0");
-  assertThrows(() => saveToManualSlot(game as never, -1), "Invalid manual slot -1", "rejects negative index");
+  assertThrows(() => saveToManualSlot(game, 0), "Invalid manual slot 0", "rejects 0");
+  assertThrows(() => saveToManualSlot(game, -1), "Invalid manual slot -1", "rejects negative index");
   assertThrows(
-    () => saveToManualSlot(game as never, MANUAL_SLOT_COUNT + 1),
+    () => saveToManualSlot(game, MANUAL_SLOT_COUNT + 1),
     `Invalid manual slot ${MANUAL_SLOT_COUNT + 1}`,
     "rejects above-range index",
   );
@@ -26,9 +26,9 @@ test("saveToManualSlot accepts the valid boundary indices", () => {
   // bound) inside. An off-by-one flip would reject a legitimate boundary slot.
   localStorageShim.clear();
   const game = setupFreshTestGame();
-  saveToManualSlot(game as never, 1);
+  saveToManualSlot(game, 1);
   assertNotUndefined(localStorageShim.get(saveSlotKey("manual", 1)), "slot 1 written");
-  saveToManualSlot(game as never, MANUAL_SLOT_COUNT);
+  saveToManualSlot(game, MANUAL_SLOT_COUNT);
   assertNotUndefined(
     localStorageShim.get(saveSlotKey("manual", MANUAL_SLOT_COUNT)),
     `slot ${MANUAL_SLOT_COUNT} written`,
@@ -40,7 +40,7 @@ test("saveToManualSlot writes to the slot key derived from kind + index", () => 
   // would write somewhere readSlot can't find on the way back.
   localStorageShim.clear();
   const game = setupFreshTestGame();
-  saveToManualSlot(game as never, 2);
+  saveToManualSlot(game, 2);
   const raw = localStorageShim.get(saveSlotKey("manual", 2));
   assertNotUndefined(raw, "slot 2 written under manual.2 key");
   const parsed = JSON.parse(raw!);
@@ -54,7 +54,7 @@ test("saveAutoSlot tags the written snapshot with source 'auto'", () => {
   localStorageShim.clear();
   const game = setupFreshTestGame();
   localStorageShim.set(autoSaveNextIndexKey(), "1");
-  saveAutoSlot(game as never);
+  saveAutoSlot(game);
   const raw = localStorageShim.get(saveSlotKey("auto", 1));
   assertNotUndefined(raw, "auto slot 1 written");
   const parsed = JSON.parse(raw!);
@@ -74,7 +74,7 @@ test("readSlot returns ok: true for a populated slot", () => {
   // Round-trip check — what saveToManualSlot writes must come back ok.
   localStorageShim.clear();
   const game = setupFreshTestGame();
-  saveToManualSlot(game as never, 1);
+  saveToManualSlot(game, 1);
   const loaded = readSlot("manual", 1);
   assertEqual(loaded.ok, true, "populated slot validates as ok");
 });
@@ -110,20 +110,20 @@ test("saveToManualSlot maps a QuotaExceededError onto the user-facing quota mess
   // message — anything else (including swallowing the cause) leaves the user
   // staring at "DOMException: QuotaExceededError" with no recovery hint.
   withSetItemThrowing("QuotaExceededError", (game) => {
-    let quotaCaught: unknown = null;
+    let caughtError: unknown = null;
     try {
-      saveToManualSlot(game as never, 1);
+      saveToManualSlot(game, 1);
     } catch (error) {
-      quotaCaught = error;
+      caughtError = error;
     }
-    assertTrue(quotaCaught instanceof Error, "quota error caught");
+    assertTrue(caughtError instanceof Error, "quota error caught");
     assertEqual(
-      (quotaCaught as Error).message,
+      (caughtError as Error).message,
       "Save failed: browser storage is full. Delete old saves or export to file.",
       "quota error mapped to user-facing message",
     );
     assertTrue(
-      (quotaCaught as Error & { cause?: unknown }).cause instanceof DOMException,
+      (caughtError as Error & { cause?: unknown }).cause instanceof DOMException,
       "underlying DOMException attached as cause",
     );
   });
@@ -133,15 +133,15 @@ test("saveToManualSlot bubbles non-quota DOMExceptions unchanged", () => {
   // Non-quota DOMException names must NOT be remapped — the caller can
   // distinguish a quota failure from a security or invalid-state failure.
   withSetItemThrowing("SecurityError", (game) => {
-    let otherCaught: unknown = null;
+    let caughtError: unknown = null;
     try {
-      saveToManualSlot(game as never, 1);
+      saveToManualSlot(game, 1);
     } catch (error) {
-      otherCaught = error;
+      caughtError = error;
     }
-    assertTrue(otherCaught instanceof DOMException, "non-quota DOMException bubbles");
+    assertTrue(caughtError instanceof DOMException, "non-quota DOMException bubbles");
     assertEqual(
-      (otherCaught as DOMException).name,
+      (caughtError as DOMException).name,
       "SecurityError",
       "non-quota DOMException preserves its name",
     );
@@ -159,7 +159,7 @@ test("saveAutoSlot writes to the slot pointed at by the cursor and advances it",
 
   for (let cursor = 1; cursor <= AUTO_SLOT_COUNT; cursor++) {
     localStorageShim.set(autoSaveNextIndexKey(), String(cursor));
-    saveAutoSlot(game as never);
+    saveAutoSlot(game);
     assertNotUndefined(
       localStorageShim.get(saveSlotKey("auto", cursor)),
       `cursor=${cursor} writes into slot ${cursor}`,

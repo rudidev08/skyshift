@@ -4,7 +4,7 @@
 // retained size — for proper retention analysis (children/closures), load
 // both snapshots in Chrome DevTools Memory tab and use the "Comparison" view.
 //
-// What this script IS good for: pinpointing which constructors are allocating
+// Use this to pinpoint which constructors are allocating
 // extra instances over the run (e.g. "+342 EmigrationEvent objects" tells you
 // the emigration cycle is leaking event records).
 //
@@ -28,11 +28,14 @@ if (positionals.length !== 2) {
 }
 
 const topN = Number(options.top);
-if (!Number.isFinite(topN) || topN <= 0) throw new Error(`--top must be positive, got "${options.top}"`);
+if (!Number.isFinite(topN) || topN <= 0) {
+  console.error(`--top must be positive, got "${options.top}"`);
+  process.exit(2);
+}
 
-function loadClassCounts(path) {
-  console.log(`[snapshot-diff] loading ${path}...`);
-  const json = JSON.parse(readFileSync(path, "utf-8"));
+function loadClassCounts(snapshotPath) {
+  console.log(`[snapshot-diff] loading ${snapshotPath}...`);
+  const json = JSON.parse(readFileSync(snapshotPath, "utf-8"));
   const fieldNames = json.snapshot.meta.node_fields;
   const nodeTypeNames = json.snapshot.meta.node_types[0];
   const fieldsPerNode = fieldNames.length;

@@ -2,14 +2,14 @@
 // Verifies each tab renders without errors and that clicking an occupied
 // sector populates the dossier panel (which exercises station→nation lookup).
 
-import { checkPage, wait } from "./lib.mjs";
+import { checkPage, wait } from "./page-test-helpers.mjs";
 
 await checkPage({
   name: "lore",
   path: "/lore.html",
   async interact(page) {
     const tabs = await page.$$eval(".lore-nav .hud-btn", (elements) =>
-      elements.map((element) => element.dataset.tab).filter(Boolean),
+      elements.map((element) => element.dataset.tab),
     );
     if (tabs.length === 0) throw new Error("no lore tabs found");
     for (const tab of tabs) {

@@ -6,17 +6,33 @@
 import { ChevronDown } from "lucide-static";
 import type { WareTemplate } from "../data/ware-types";
 import type { WareId } from "../data/ware-types";
-import { morseBarGradient } from "./render-morse-bar";
+import { createWareSidebar } from "./ui-overview-sidebar-shell";
 import { getWareTemplate } from "./sim-ware-template";
-import { DOM_INPUT_SHIELD_EVENT_TYPES } from "./ui-dom-input-shield";
+import { shieldDomSurfaceFromPhaserInput } from "./ui-dom-input-shield";
 import { NONE, type WareSelection } from "./phaser/overview-trade-render";
 import { setTextIfChanged } from "./ui-dom-cache";
+import { formatTradeMagnitude } from "./util-quantity-format";
 
 const NONE_LABEL = "None";
 
 function formatTradeTotal(tradeTotal: number): string {
   if (tradeTotal === 0) return "0";
-  return tradeTotal < 10 ? tradeTotal.toFixed(1) : String(Math.round(tradeTotal));
+  return formatTradeMagnitude(tradeTotal);
+}
+
+/** Show the 2h shipment total next to a ware, hidden for the NONE option. */
+function applyWareCount(
+  countElement: HTMLElement,
+  selection: WareSelection,
+  totals: Map<WareId, number>,
+): void {
+  if (selection === NONE) {
+    setTextIfChanged(countElement, "");
+    countElement.hidden = true;
+    return;
+  }
+  countElement.hidden = false;
+  setTextIfChanged(countElement, formatTradeTotal(totals.get(selection) ?? 0));
 }
 
 export interface OverviewTradeSidebar {
@@ -45,142 +61,85 @@ interface WareDropdown {
   wareRows: Map<WareSelection, WareRow>;
 }
 
-/** Owns dropdown state (selected ware, open/closed, per-ware totals); every
- *  mutator pushes the new state to the DOM through sync(). */
-interface WareDropdownState {
-  setSelectedWare(ware: WareSelection): void;
-  setOpen(open: boolean): void;
-  toggleOpen(): void;
-  setTotals(totals: Map<WareId, number>): void;
-  isOpen(): boolean;
-  sync(): void;
-}
-
-function createWareDropdownState(wareDropdown: WareDropdown | null): WareDropdownState {
-  let selectedWare: WareSelection = NONE;
-  let dropdownOpen = false;
-  let wareTradeTotals: Map<WareId, number> = new Map();
-
-  function sync(): void {
-    if (!wareDropdown) return;
-    const { rootElement, triggerLabel, triggerCount, wareRows } = wareDropdown;
-    rootElement.classList.toggle("is-open", dropdownOpen);
-    const triggerLabelText =
-      selectedWare === NONE ? NONE_LABEL : getWareTemplate(selectedWare as WareId).name;
-    setTextIfChanged(triggerLabel, triggerLabelText);
-    if (selectedWare === NONE) {
-      setTextIfChanged(triggerCount, "");
-      triggerCount.hidden = true;
-    } else {
-      triggerCount.hidden = false;
-      setTextIfChanged(triggerCount, formatTradeTotal(wareTradeTotals.get(selectedWare as WareId) ?? 0));
-    }
-    for (const row of wareRows.values()) {
-      row.row.classList.toggle("is-selected", row.selection === selectedWare);
-      if (row.selection === NONE) {
-        setTextIfChanged(row.count, "");
-        row.count.hidden = true;
-        continue;
-      }
-      row.count.hidden = false;
-      setTextIfChanged(row.count, formatTradeTotal(wareTradeTotals.get(row.selection as WareId) ?? 0));
-    }
-  }
-
-  return {
-    setSelectedWare(ware) {
-      selectedWare = ware;
-      sync();
-    },
-    setOpen(open) {
-      dropdownOpen = open;
-      sync();
-    },
-    toggleOpen() {
-      dropdownOpen = !dropdownOpen;
-      sync();
-    },
-    setTotals(totals) {
-      wareTradeTotals = totals;
-      sync();
-    },
-    isOpen() {
-      return dropdownOpen;
-    },
-    sync,
-  };
-}
-
 export function createOverviewTradeSidebar(options: OverviewTradeSidebarOptions): OverviewTradeSidebar {
   const { parent, tradeableWares, onSelectionChange } = options;
-  parent.innerHTML = "";
 
-  const sidebar = buildSidebarShell();
-  const sortedWares = [...tradeableWares].sort((wareA, wareB) => wareA.name.localeCompare(wareB.name));
-  const hasTradeableWares = sortedWares.length > 0;
-
-  const wareDropdown = hasTradeableWares
-    ? buildWareDropdown({
-        sidebar,
-        sortedWares,
-        onWareSelect(ware) {
-          dropdownState.setSelectedWare(ware);
-          dropdownState.setOpen(false);
-          onSelectionChange(ware);
-        },
-        onTriggerToggle() {
-          dropdownState.toggleOpen();
-        },
-      })
-    : null;
-  if (!wareDropdown) appendEmptyWareSection(sidebar);
-  const dropdownState = createWareDropdownState(wareDropdown);
-
-  parent.appendChild(sidebar);
-
-  const detachInputShield = shieldSidebarFromCanvasInput(sidebar);
-  const detachOutsideClick = closeDropdownOnOutsideClick({
-    dropdown: wareDropdown?.rootElement ?? null,
-    isOpen: () => dropdownState.isOpen(),
-    closeDropdown() {
-      dropdownState.setOpen(false);
-    },
-  });
-
-  dropdownState.sync();
-
-  return {
-    setWareTotals(totals: Map<WareId, number>): void {
-      dropdownState.setTotals(totals);
-    },
-    closeDropdown(): void {
-      if (!dropdownState.isOpen()) return;
-      dropdownState.setOpen(false);
-    },
-    destroy(): void {
-      detachOutsideClick();
-      detachInputShield();
-      parent.innerHTML = "";
-    },
-  };
-}
-
-function buildSidebarShell(): HTMLElement {
-  const sidebar = document.createElement("div");
-  sidebar.className = "ware-sidebar";
-  sidebar.style.setProperty(
-    "--morse-bar",
-    morseBarGradient("Overview", { letterCount: 3, color: "var(--paper-mute)" }),
-  );
-
+  const shell = createWareSidebar(parent, "Overview");
+  const sidebar = shell.sidebar;
   const head = document.createElement("div");
   head.className = "ware-sidebar-head";
   head.textContent = "Overview";
   sidebar.appendChild(head);
-  return sidebar;
+  const sortedWares = [...tradeableWares].sort((wareA, wareB) => wareA.name.localeCompare(wareB.name));
+  const hasTradeableWares = sortedWares.length > 0;
+
+  let selectedWare: WareSelection = NONE;
+  let dropdownOpen = false;
+  let wareTradeTotals: Map<WareId, number> = new Map();
+
+  function syncDropdownToState(): void {
+    if (!wareDropdown) return;
+    const { rootElement, triggerLabel, triggerCount, wareRows } = wareDropdown;
+    rootElement.classList.toggle("is-open", dropdownOpen);
+    const triggerLabelText =
+      selectedWare === NONE ? NONE_LABEL : getWareTemplate(selectedWare).name;
+    setTextIfChanged(triggerLabel, triggerLabelText);
+    applyWareCount(triggerCount, selectedWare, wareTradeTotals);
+    for (const row of wareRows.values()) {
+      row.row.classList.toggle("is-selected", row.selection === selectedWare);
+      applyWareCount(row.count, row.selection, wareTradeTotals);
+    }
+  }
+
+  const wareDropdown = hasTradeableWares
+    ? appendWareDropdown({
+        sidebar,
+        sortedWares,
+        onWareSelect(ware) {
+          selectedWare = ware;
+          dropdownOpen = false;
+          syncDropdownToState();
+          onSelectionChange(ware);
+        },
+        onTriggerToggle() {
+          dropdownOpen = !dropdownOpen;
+          syncDropdownToState();
+        },
+      })
+    : null;
+  if (!wareDropdown) appendEmptyWareSection(sidebar);
+
+  const detachInputShield = shieldDomSurfaceFromPhaserInput(sidebar);
+  const detachOutsideClick = closeDropdownOnOutsideClick({
+    dropdown: wareDropdown?.rootElement ?? null,
+    isOpen: () => dropdownOpen,
+    closeDropdown() {
+      dropdownOpen = false;
+      syncDropdownToState();
+    },
+  });
+
+  syncDropdownToState();
+
+  return {
+    setWareTotals(totals: Map<WareId, number>): void {
+      wareTradeTotals = totals;
+      syncDropdownToState();
+    },
+    closeDropdown(): void {
+      if (!dropdownOpen) return;
+      dropdownOpen = false;
+      syncDropdownToState();
+    },
+    destroy(): void {
+      detachOutsideClick();
+      detachInputShield();
+      shell.destroy();
+    },
+  };
 }
 
-function buildWareDropdown(input: {
+function appendWareDropdown(input: {
   sidebar: HTMLElement;
   sortedWares: WareTemplate[];
   onWareSelect(ware: WareSelection): void;
@@ -273,20 +232,6 @@ function appendEmptyWareSection(sidebar: HTMLElement): void {
   emptyMessage.textContent = "No tradeable wares are available for this map's spawned fleet.";
   emptyState.append(emptyLabel, emptyMessage);
   sidebar.appendChild(emptyState);
-}
-
-/** Stop pointer/wheel events inside the sidebar from leaking into the Phaser map.
- *  Returns a teardown that detaches the listeners. */
-function shieldSidebarFromCanvasInput(sidebar: HTMLElement): () => void {
-  const stopEventPropagation = (event: Event) => event.stopPropagation();
-  for (const eventType of DOM_INPUT_SHIELD_EVENT_TYPES) {
-    sidebar.addEventListener(eventType, stopEventPropagation);
-  }
-  return () => {
-    for (const eventType of DOM_INPUT_SHIELD_EVENT_TYPES) {
-      sidebar.removeEventListener(eventType, stopEventPropagation);
-    }
-  };
 }
 
 /** Close the dropdown when the user clicks outside it (anywhere in the document

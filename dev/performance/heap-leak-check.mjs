@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-/* global document */ // referenced inside page.evaluate() callbacks (browser context).
-// Heap-leak / GC-pressure sanity check for the running game.
+// Heap-leak / GC-pressure check for the running game.
 //
 // Spawns a headless Chrome via Puppeteer, navigates to a game URL, captures
 // V8 heap snapshots at intervals, and reports heap-size deltas. Snapshots are
@@ -32,10 +31,16 @@
 //   # Frame-jank check: normal speed (sim time = wall time), watch one short window
 //   node dev/performance/heap-leak-check.mjs --duration 120 --snapshots 2 --accelerate 0
 
-import puppeteer from "puppeteer";
-import { createWriteStream, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import {
+  formatRunId,
+  ensureOutDir,
+  launchInstrumentedBrowser,
+  gotoGameUrlAndSettle,
+  clickDevSpeed,
+  takeHeapSnapshot,
+} from "./puppeteer-helpers.mjs";
 
 const { values: args } = parseArgs({
   options: {
@@ -57,20 +62,15 @@ if (!Number.isFinite(snapshotCount)) throw new Error(`--snapshots must be a numb
 if (!Number.isFinite(accelerateSpeed) || accelerateSpeed < 0)
   throw new Error(`--accelerate must be a non-negative number, got "${args.accelerate}"`);
 const intervalSeconds = durationSeconds / (snapshotCount - 1);
-const runId = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
-const outDir = join(args.out, runId);
+const outDir = join(args.out, formatRunId());
 
-if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+ensureOutDir(outDir);
 
 console.log(
   `[heap-check] url=${args.url} duration=${durationSeconds}s snapshots=${snapshotCount} accelerate=${accelerateSpeed}x out=${outDir}`,
 );
 
-const browser = await puppeteer.launch({
-  headless: !args.headed,
-  // Precise heap reporting + larger heap so we can watch growth without OOM.
-  args: ["--enable-precise-memory-info", "--js-flags=--max-old-space-size=2048"],
-});
+const browser = await launchInstrumentedBrowser({ headless: !args.headed });
 
 const measurements = [];
 
@@ -81,59 +81,26 @@ try {
   await client.send("HeapProfiler.enable");
 
   console.log(`[heap-check] navigating...`);
-  await page.goto(args.url, { waitUntil: "networkidle2", timeout: 60_000 });
-
-  // Phaser scene + Vite HMR can keep firing settle events for a beat after networkidle2.
-  // Wait for the canvas to exist (proxy for "scene created") plus a short cushion.
-  await page.waitForSelector("canvas", { timeout: 30_000 });
-  await new Promise((resolve) => setTimeout(resolve, 3_000));
+  await gotoGameUrlAndSettle(page, args.url, 3);
 
   if (accelerateSpeed > 0) {
-    const clicked = await page.evaluate((speed) => {
-      const button = document.querySelector(`[data-dev-speed="${speed}"]`);
-      if (!button) return false;
-      button.click();
-      return true;
-    }, accelerateSpeed);
-    if (clicked) {
-      console.log(`[heap-check] clicked ${accelerateSpeed}× dev speed`);
-    } else {
-      console.log(
-        `[heap-check] WARNING: no [data-dev-speed="${accelerateSpeed}"] button found — running at 1×`,
-      );
-    }
+    await clickDevSpeed(page, accelerateSpeed, "[heap-check]");
   }
 
-  async function takeSnapshot(label) {
-    // Drain minor-GC noise so the snapshot reflects retained-by-roots state.
-    await client.send("HeapProfiler.collectGarbage");
-
+  async function captureLabeledSnapshot(label) {
     const file = join(outDir, `${label}.heapsnapshot`);
-    // Stream chunks straight to disk — buffering + joining a multi-GB snapshot
-    // would OOM the Node runner long before the browser hits its own heap cap.
-    const stream = createWriteStream(file);
-    const onChunk = ({ chunk }) => stream.write(chunk);
-    client.on("HeapProfiler.addHeapSnapshotChunk", onChunk);
-    await client.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
-    client.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
-    await new Promise((resolve, reject) => {
-      stream.end((error) => (error ? reject(error) : resolve()));
-    });
-
-    const metrics = await page.metrics();
-    const heapMB = metrics.JSHeapUsedSize / 1024 / 1024;
-    measurements.push({ label, heapMB, file });
-    console.log(`[${label}] heap=${heapMB.toFixed(2)}MB → ${file}`);
+    const measurement = await takeHeapSnapshot(client, page, file, label);
+    measurements.push(measurement);
   }
 
-  await takeSnapshot("t0");
+  await captureLabeledSnapshot("t0");
   const startMs = Date.now();
   for (let i = 1; i < snapshotCount; i++) {
     const targetMs = startMs + intervalSeconds * 1000 * i;
     const waitMs = targetMs - Date.now();
     if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
     const elapsedSeconds = Math.round(intervalSeconds * i);
-    await takeSnapshot(`t${elapsedSeconds}s`);
+    await captureLabeledSnapshot(`t${elapsedSeconds}s`);
   }
 } finally {
   await browser.close();

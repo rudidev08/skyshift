@@ -331,24 +331,21 @@
         background: color-mix(in srgb, var(--active) 22%, transparent);
         color: var(--paper);
       }
-      /* The ship footer is the MRZ action bar, but re-cast to surface nations. */
-      .ship-card .id-type-mrz {
-        margin: 0 -22px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 14px;
-        flex-wrap: wrap;
-        text-align: center;
-      }
-      .ship-card .id-type-mrz .mrz-sep {
-        opacity: 0.45;
-      }
-      .ship-card .id-type-mrz .mrz-nation {
-        color: var(--nation-tint, var(--active));
+      .ship-nation-pill {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 3px 8px;
+        border-radius: 2px;
+        background: color-mix(in srgb, var(--nation-tint, var(--active)) 18%, transparent);
+        /* Mix the nation color with white so dark tints (HUB blue, ORE orange)
+           still read against the page bg without flattening bright tints. */
+        color: color-mix(in srgb, var(--nation-tint, var(--paper)) 55%, white);
         cursor: pointer;
-        border-bottom: 1px dashed currentColor;
-        padding-bottom: 1px;
+      }
+      .ship-nation-pill:hover {
+        background: color-mix(in srgb, var(--nation-tint, var(--active)) 32%, transparent);
       }
 
       /* --- Wares tab ------------------------------------------- */
@@ -975,9 +972,6 @@
         .ship-card .id-name {
           font-size: 18px;
         }
-        .ship-card .id-type-mrz {
-          margin: 0 -16px;
-        }
 
         .station-card.id-card,
         .ware-detail-card.id-card {
@@ -1088,7 +1082,6 @@
                   font-weight="500"
                   letter-spacing="3"
                   font-family="var(--font-mono)"
-                  text-transform="uppercase"
                 >
                   RESOURCES
                 </text>
@@ -1794,6 +1787,12 @@
       import { zones as universeZones } from "/data/map-zones.ts";
       import { settledPreset } from "/data/map-preset-settled.ts";
       import { presets } from "/data/map-presets.ts";
+      import { SECTOR_SIZE } from "/data/map.ts";
+      import { ambientTrafficConfig } from "/data/station-ambient-traffic-visuals.ts";
+      import { sectorEnvironmentById } from "/data/map-sector-environments.ts";
+      import { getShipHudIcon, getStationHudIcon } from "/src/render-hud-icon.ts";
+      import { morseBarGradient } from "/src/render-morse-bar.ts";
+      import { derivePresetMap } from "/src/static-pages/lore-derive-preset-map.ts";
 
       // Each preset's stations take their zone's coordinates; unoccupied zones
       // are unclaimed slots. derivePresetMap() (below) builds this per preset
@@ -1801,11 +1800,6 @@
       // reference layout.
       const zoneById = new Map(universeZones.map((z) => [z.id, z]));
       const nationById = new Map(allNations.map((n) => [n.id, n]));
-      import { SECTOR_SIZE } from "/data/map.ts";
-      import { ambientTrafficConfig } from "/data/station-ambient-traffic-visuals.ts";
-      import { sectorEnvironmentById } from "/data/map-sector-environments.ts";
-      import { getShipHudIcon, getStationHudIcon } from "/src/render-hud-icon.ts";
-      import { morseBarGradient } from "/src/render-morse-bar.ts";
 
       // Compass-as-data-URI used for WAY's nation seal (WAY has no station glyph —
       // generational ships are nomadic carriers, so a compass reads as the navigational
@@ -1822,7 +1816,7 @@
       const wareById = Object.fromEntries(allWares.map((w) => [w.id, w]));
       const stationTypeById = Object.fromEntries(canonicalStationTypes.map((s) => [s.id, s]));
 
-      // Compute minimum grid coords so we can map world-space station coords back
+      // Compute minimum grid coords so we can map map-space station coords back
       // to the declared grid coords (sectors' gridX can be negative).
       let minGridX = Infinity,
         minGridY = Infinity;
@@ -1831,46 +1825,17 @@
         if (s.gridY < minGridY) minGridY = s.gridY;
       }
 
-      function sectorKey(worldX, worldY) {
-        const gridX = Math.floor(worldX / SECTOR_SIZE) + minGridX;
-        const gridY = Math.floor(worldY / SECTOR_SIZE) + minGridY;
+      function sectorKey(mapX, mapY) {
+        const gridX = Math.floor(mapX / SECTOR_SIZE) + minGridX;
+        const gridY = Math.floor(mapY / SECTOR_SIZE) + minGridY;
         return `${gridX},${gridY}`;
       }
 
-      // Build the Sectors-map dataset for one preset. Returns only what the
-      // map render needs; the switcher calls it per preset (map-only).
-      function derivePresetMap(preset) {
-        const occupiedZoneIds = new Set(preset.presetStations.map((station) => station.zoneId));
-        const mapStations = preset.presetStations.map((station) => {
-          const zone = zoneById.get(station.zoneId);
-          return {
-            ...station,
-            x: zone?.x ?? 0,
-            y: zone?.y ?? 0,
-            size: zone?.size ?? "M",
-            nation: nationById.get(station.nationId),
-          };
-        });
-        const stationZones = universeZones.filter((z) => !occupiedZoneIds.has(z.id));
-        const stationNamesByNation = {};
-        const stationsBySector = {};
-        const sectorDotMap = {};
-        for (const station of mapStations) {
-          const code = station.nation.codeName;
-          if (!stationNamesByNation[code]) stationNamesByNation[code] = [];
-          if (station.name) stationNamesByNation[code].push(station.name);
-          const key = sectorKey(station.x, station.y);
-          if (!sectorDotMap[key]) sectorDotMap[key] = {};
-          sectorDotMap[key][code] = (sectorDotMap[key][code] || 0) + 1;
-          if (!stationsBySector[key]) stationsBySector[key] = [];
-          stationsBySector[key].push(station);
-        }
-        return { mapStations, stationZones, sectorDotMap, stationsBySector, stationNamesByNation };
-      }
+      const derivePresetMapDeps = { zoneById, nationById, universeZones, sectorKey };
 
       // The Settled preset drives the page-wide structures (the Wares tab uses
       // nationsByStationType); the Sectors map re-derives per preset.
-      const settledMap = derivePresetMap(settledPreset);
+      const settledMap = derivePresetMap(settledPreset, derivePresetMapDeps);
       const nationsByStationType = {};
       for (const station of settledMap.mapStations) {
         if (!nationsByStationType[station.stationTypeId])
@@ -1907,11 +1872,11 @@
       }
 
       // Which nations build each station type (from nation.buildableStationTypeIds)
-      const nationsByBuildBlueprint = {};
+      const nationsByBuildableStationType = {};
       for (const nation of allNations) {
-        for (const blueprintId of nation.buildableStationTypeIds) {
-          if (!nationsByBuildBlueprint[blueprintId]) nationsByBuildBlueprint[blueprintId] = [];
-          nationsByBuildBlueprint[blueprintId].push(nation);
+        for (const stationTypeId of nation.buildableStationTypeIds) {
+          if (!nationsByBuildableStationType[stationTypeId]) nationsByBuildableStationType[stationTypeId] = [];
+          nationsByBuildableStationType[stationTypeId].push(nation);
         }
       }
 
@@ -1950,7 +1915,7 @@
             const shipType = allShips.find((s) => s.id === n.shipTypeId);
             const stationNamesList = (n.stationNames || []).join(" · ");
             const producedWares = waresByNation[n.codeName] || [];
-            const buildBlueprints = n.buildableStationTypeIds
+            const buildableStationTypeNames = n.buildableStationTypeIds
               .map((id) => stationTypeById[id]?.name ?? id)
               .join(" · ");
             const shipTypeLink = shipType
@@ -1964,7 +1929,7 @@
               : `<span class="nation-field-value is-mono">none</span>`;
 
             const statusBand = !n.buildsStations
-              ? `<div class="id-type-mrz id-status-band" style="margin: 14px -22px -20px;">Non-aligned · Transit carrier</div>`
+              ? `<div class="section-band id-status-band" style="margin: 14px -22px -20px;">Non-aligned · Transit carrier</div>`
               : "";
 
             return `
@@ -1981,7 +1946,7 @@
         </div>
         <div class="nation-foot">
           <span class="label">Builds stations</span>
-          <span class="items">${buildBlueprints || "none"}</span>
+          <span class="items">${buildableStationTypeNames || "none"}</span>
         </div>
 
         <div class="nation-body">
@@ -2053,14 +2018,14 @@
             const primaryColor = primary?.color || "var(--paper-dim)";
             const wareNames = s.allowedWares.map((id) => wareById[id]?.name || id);
 
-            const nationsMrz = shipNations.length
+            const nationsPills = shipNations.length
               ? shipNations
                   .map(
                     (n) =>
-                      `<span class="mrz-nation" style="--nation-tint:${n.color}" onclick="goTab('nations')">${n.codeName}</span>`,
+                      `<span class="ship-nation-pill" style="--nation-tint:${n.color}" onclick="goTab('nations')">${n.codeName}</span>`,
                   )
-                  .join(`<span class="mrz-sep">·</span>`)
-              : `<span class="mrz-nation" style="color:var(--paper-mute)">UNASSIGNED</span>`;
+                  .join("")
+              : `<span class="ship-nation-pill" style="color:var(--paper-mute)">UNASSIGNED</span>`;
 
             // Serial code: SHP-T for Trader, SHP-S for Seedhaul, etc.
             const serial = `SHP-${s.name.charAt(0).toUpperCase()}`;
@@ -2091,13 +2056,12 @@
           <span class="cargo-stat">${s.cargoCapacity.toLocaleString()} t</span>
         </div>
         <div class="ship-wares-row">
+          <span class="ship-wares-label">Nations</span>
+          ${nationsPills}
+        </div>
+        <div class="ship-wares-row">
           <span class="ship-wares-label">Allowed cargo</span>
           ${waresPills}
-        </div>
-        <div class="id-type-mrz">
-          <span>Nations</span>
-          <span class="mrz-sep">·</span>
-          ${nationsMrz}
         </div>
       </article>`;
           })
@@ -2123,27 +2087,6 @@
 
       // ═══════ WARES ═══════
       (() => {
-        // Hardcoded ware lore — wares.ts doesn't currently carry descriptions. Make
-        // sure every entry in allWares has a corresponding line.
-        const wareDescriptions = {
-          ice: "Frozen volatiles harvested from planetary surfaces and asteroid fields.",
-          mineral: "Unprocessed ore extracted from crust deposits and asteroid mining.",
-          signal: "Raw deep-space emissions captured by orbital observatory arrays.",
-          water: "Purified from raw ice. Feeds farms and sustains station populations.",
-          metal: "Smelted from mineral ore. The backbone of all industrial construction.",
-          hyperdata: "Decoded signal data. Powers advanced technology fabrication.",
-          food: "Grown in hydroponic farms. Sustains station populations alongside medicine.",
-          medicine: "Synthesized from minerals and food stocks. Essential for habitat life support.",
-          tech: "Assembled from metal and hyperdata. Used in shipyard construction.",
-          provisions: "Food and medicine consumed by habitat populations.",
-          hulls: "Ship frames assembled from advanced technology at shipyards.",
-        };
-        for (const w of allWares) {
-          if (!(w.id in wareDescriptions)) {
-            wareDescriptions[w.id] = `Ware in the production chain.`;
-          }
-        }
-
         // Wares with no downstream consumers are terminals ("Consumed" — hulls,
         // provisions flow to build cycles, not further production chains).
         const terminalWareIds = new Set(
@@ -2194,7 +2137,7 @@
           </div>
           ${producingStation ? `<div class="icon-code"><div class="id-seal" data-station-seal="${producingStation.id}"></div></div>` : ""}
         </div>
-        <div class="wd-desc">${wareDescriptions[w.id] ?? ""}</div>
+        <div class="wd-desc">${w.lore}</div>
         <div class="wd-rows">
           ${inputLine}
           ${outputLine}
@@ -2222,11 +2165,11 @@
       (() => {
         const stationsEl = document.getElementById("stations-grid");
 
-        // "Built by" = nations whose stationBuildBlueprints list this station type.
+        // "Built by" = nations whose buildableStationTypeIds list this station type.
         // That includes WAY for the generational ship, even though WAY doesn't run the build-cycle
         // (buildsStations: false) — the association is lore-only.
         function buildersFor(stationTypeId) {
-          return nationsByBuildBlueprint[stationTypeId] || [];
+          return nationsByBuildableStationType[stationTypeId] || [];
         }
         function primaryNationForStationType(stationTypeId) {
           return buildersFor(stationTypeId)[0] ?? null;
@@ -2388,9 +2331,9 @@
         const bandX1 = 1 - SIDE_MARGIN - DOT_RADIUS;
         const bandY0 = NAME_STRIP + DOT_RADIUS;
         const bandY1 = 1 - TYPE_STRIP - DOT_RADIUS;
-        function cellAt(worldX, worldY) {
-          const rawX = worldX / SECTOR_SIZE;
-          const rawY = worldY / SECTOR_SIZE;
+        function cellAt(mapX, mapY) {
+          const rawX = mapX / SECTOR_SIZE;
+          const rawY = mapY / SECTOR_SIZE;
           const gridX = Math.floor(rawX) + minGridX;
           const gridY = Math.floor(rawY) + minGridY;
           const fracX = rawX - Math.floor(rawX);
@@ -2477,7 +2420,6 @@
           linkSvg.appendChild(dot);
         }
 
-        // Axis rails — compact coordinate numbers along the top and left only.
         // Coordinate rails on all four sides.
         for (const id of ["sector-axis-x-top", "sector-axis-x-bottom"]) {
           const el = document.getElementById(id);
@@ -2613,7 +2555,7 @@
             button.classList.toggle("is-on", button.dataset.preset === preset.id);
           }
           document.getElementById("sector-section-title").textContent = preset.name;
-          renderSectorMap(derivePresetMap(preset));
+          renderSectorMap(derivePresetMap(preset, derivePresetMapDeps));
         }
         for (const preset of presets) {
           const button = document.createElement("button");

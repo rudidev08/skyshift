@@ -11,7 +11,7 @@ export function test(name: string, body: () => void) {
   }
 }
 
-/** Generic so primitive comparisons report `expected X, got Y` instead of a bare boolean failure. */
+/** Generic ties `actual` and `expected` to the same type, so a type mismatch fails at compile time instead of slipping through to a runtime `!==` comparison. */
 export function assertEqual<T>(actual: T, expected: T, label = "") {
   if (actual !== expected) {
     const prefix = label ? `${label}: ` : "";
@@ -33,6 +33,34 @@ export function assertNotUndefined<T>(value: T | undefined, label: string): T {
 export function assertNotNull<T>(value: T | null, label: string): T {
   if (value === null) throw new Error(`${label}: expected non-null value`);
   return value;
+}
+
+/** Narrows a discriminated-union value to the variant matching `type`, so callers can read variant-only fields without re-checking. */
+export function assertActionType<T extends { type: string }, K extends T["type"]>(
+  value: T,
+  type: K,
+  label: string,
+): Extract<T, { type: K }> {
+  if (value.type !== type) {
+    throw new Error(`${label}: expected type=${type}, got ${value.type}`);
+  }
+  return value as Extract<T, { type: K }>;
+}
+
+/** Replaces Math.random for the duration of `run`, cycling through `sequence` (looping if needed), then restores the original. */
+export function withScriptedMathRandom(sequence: number[], run: () => void): void {
+  const original = Math.random;
+  let cursor = 0;
+  Math.random = () => {
+    const value = sequence[cursor % sequence.length];
+    cursor++;
+    return value;
+  };
+  try {
+    run();
+  } finally {
+    Math.random = original;
+  }
 }
 
 export function assertThrows(action: () => void, expectedSubstring: string, label: string) {

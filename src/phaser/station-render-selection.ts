@@ -7,13 +7,13 @@ import { economyConfig } from "../../data/economy-config";
 import { announceStation } from "../audio-announcer";
 import type { SelectionTarget } from "./selection-input";
 import { getStationHudIcon } from "../render-hud-icon";
-import { getWareTemplate } from "../sim-ware-template";
 import { formatCargoBar } from "../util-quantity-format";
 import { escapeHtml } from "../util-html-escape";
+import { clamp01 } from "../util-clamp";
 import type { StationGenerationalShipBuild } from "../sim-station-types";
 
 // Reusable position for getMapPosition — only one station selected at a time.
-const selectedStationPosition = { x: 0, y: 0 };
+const selectedStationMapPositionScratch = { x: 0, y: 0 };
 
 // Cached per stationType.id — station types are static for process lifetime, so this never invalidates.
 const producedWareIdsByStationTypeId = new Map<string, Set<string>>();
@@ -21,23 +21,19 @@ const producedWareIdsByStationTypeId = new Map<string, Set<string>>();
 function getProducedWareIdsForStationType(stationType: Station["stationType"]): Set<string> {
   const cached = producedWareIdsByStationTypeId.get(stationType.id);
   if (cached) return cached;
-  // "Produced" = listed in `produces` with non-zero productionOutput, so
-  // pure-sink wares like passengers don't show.
-  const set = new Set<string>();
-  for (const wareId of stationType.produces) {
-    if (getWareTemplate(wareId).productionOutput > 0) set.add(wareId);
-  }
+  // No filter needed: data-integrity.test.ts pins that no station type lists a pure-sink ware in `produces`.
+  const set = new Set<string>(stationType.produces);
   producedWareIdsByStationTypeId.set(stationType.id, set);
   return set;
 }
 
 function buildGenerationalShipDescription(build: StationGenerationalShipBuild | null): string {
   if (build) {
-    const fraction = Math.max(0, Math.min(1, build.arrivalFraction));
+    const fraction = clamp01(build.arrivalFraction);
     const percent = Math.floor(fraction * 100);
     const destinationName = escapeHtml(build.destinationName);
     return `
-      <div class="cargo-note" style="border-top: none; padding-top: 0; margin-top: 0; padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px dashed var(--line);">
+      <div class="cargo-note cargo-note--heading">
         <span class="cargo-note-label">Destination</span>
         <div class="cargo-note-value"><span class="cargo-note-accent cargo-note-accent--lg">${destinationName}</span></div>
       </div>
@@ -52,7 +48,7 @@ function buildGenerationalShipDescription(build: StationGenerationalShipBuild | 
       </div>
     `;
   }
-  // Idle: generational ship docked, no event — crew ashore, waiting for the next call.
+  // Generational ship is docked with no active emigration event.
   return `
     <div class="cargo-note">
       <span class="cargo-note-label">Ship status</span>
@@ -87,17 +83,17 @@ function buildEmigratingDescription(emigration: Station["emigrationEvent"]): str
 }
 
 function buildProducingDescription(station: Station): string {
-  const perSecond = 1 / economyConfig.simulationIntervalSeconds;
+  const ticksPerSecond = 1 / economyConfig.simulationIntervalSeconds;
 
-  // Net signed rate per ware: positive = produced, negative = consumed.
-  // Per-tick sim amounts get scaled to /s for the cargo bar's "/s" label.
+  // Positive = produced, negative = consumed. Per-tick sim amounts get scaled
+  // to /s for the cargo bar's "/s" label.
   const stationRates = getStationRates(station);
-  const rates = new Map<string, number>();
+  const netRateByWareId = new Map<string, number>();
   for (const [wareId, amount] of stationRates.production) {
-    rates.set(wareId, (rates.get(wareId) ?? 0) + amount * perSecond);
+    netRateByWareId.set(wareId, (netRateByWareId.get(wareId) ?? 0) + amount * ticksPerSecond);
   }
   for (const [wareId, amount] of stationRates.consumption) {
-    rates.set(wareId, (rates.get(wareId) ?? 0) - amount * perSecond);
+    netRateByWareId.set(wareId, (netRateByWareId.get(wareId) ?? 0) - amount * ticksPerSecond);
   }
 
   const producedWareIds = getProducedWareIdsForStationType(station.stationType);
@@ -107,7 +103,7 @@ function buildProducingDescription(station: Station): string {
   const producedBars: string[] = [];
   const consumedBars: string[] = [];
   for (const inventorySlot of getAllInventorySlots(station)) {
-    const rate = rates.get(inventorySlot.ware.id) ?? 0;
+    const rate = netRateByWareId.get(inventorySlot.ware.id) ?? 0;
     const reservation = inventorySlot.reservedIncoming - inventorySlot.reservedOutgoing;
     const bar = formatCargoBar({
       wareName: inventorySlot.ware.name,
@@ -149,7 +145,7 @@ function buildStationSelectionLabel(input: {
     description,
     loreTypeName: `Station Type: ${station.stationType.name}`,
     lore: station.stationType.lore,
-    hasDetails: false,
+    hasLog: false,
     accentColor: station.nation.color,
     statusLabel,
   };
@@ -163,11 +159,11 @@ export class StationSelectionTarget implements SelectionTarget {
     announceStation(this.station.name, this.station.stationType.name, this.station.nation);
   }
 
-  // Stations don't need teardown — selection auto-clears on bundle unregister.
+  /** Does nothing — selection auto-clears when the station bundle unregisters. */
   exitSelected() {}
 
   isActive() {
-    // Selection auto-clears on bundle unregister, so isActive never has to return false here.
+    // Always true: same auto-clear-on-unregister means isActive never has to flag a stale station.
     return true;
   }
 
@@ -210,8 +206,8 @@ export class StationSelectionTarget implements SelectionTarget {
   }
 
   getMapPosition() {
-    selectedStationPosition.x = this.station.x;
-    selectedStationPosition.y = this.station.y;
-    return selectedStationPosition;
+    selectedStationMapPositionScratch.x = this.station.x;
+    selectedStationMapPositionScratch.y = this.station.y;
+    return selectedStationMapPositionScratch;
   }
 }

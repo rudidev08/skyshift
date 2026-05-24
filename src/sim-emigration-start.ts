@@ -48,23 +48,22 @@ export function beginStationEmigration(
 ): number {
   const sizeMultiplier = sizeMultiplierBySize[station.size];
   const totalEmigrants = EMIGRANT_SHIPS_PER_STATION_BASE * sizeMultiplier;
-  const initialHomedShipIds: string[] = [];
+  const initialHomedShipIdSet = new Set<string>();
   for (const tradeShip of dependencies.tradeManager.getTradeShipsByHomeStationId(station.id)) {
-    initialHomedShipIds.push(tradeShip.orbitingShipId);
+    initialHomedShipIdSet.add(tradeShip.orbitingShipId);
     queueFerryToGenerationalShip(tradeShip, generationalShip, destinationName, dependencies);
   }
   station.emigrationEvent = {
     eventId,
     destinationName,
-    initialHomedShipIds,
-    initialHomedShipIdSet: new Set(initialHomedShipIds),
+    initialHomedShipIdSet,
     totalEmigrants,
     launched: 0,
     // First launch fires immediately on the next tick.
     secondsUntilNextLaunch: 0,
     progressFraction: 0,
   };
-  return totalEmigrants + initialHomedShipIds.length;
+  return totalEmigrants + initialHomedShipIdSet.size;
 }
 
 /** Per-tick emigrant launcher. Walks emigrating stations, batches all
@@ -122,31 +121,29 @@ function enrollLaunchedShipsAsTraders(
   }
 }
 
-/** Launch this station's next batch of emigrant ships. Decrements
- *  `secondsUntilNextLaunch` by `deltaSeconds` and spawns one ship for every
- *  full launch interval, capped by `totalEmigrants`. If the nation has no
- *  ship type, retires the launch budget so `totalExpectedShips` drops in
- *  lockstep — otherwise WAY would wait on phantoms.
- *  Returns the ships built (caller batches the registration). */
+/** Launch this station's next batch of emigrant ships. If the nation has no
+ *  ship type, retires the remaining budget so `totalExpectedShips` drops to
+ *  match — otherwise WAY would wait on ships that can never spawn.
+ *  Returns the ships created; caller batches the registration. */
 function launchEmigrantsForStation(
   station: Station,
   deltaSeconds: number,
   event: EmigrationEvent,
   dependencies: LaunchDependencies,
 ): Ship[] {
-  const state = station.emigrationEvent!;
-  if (state.launched >= state.totalEmigrants) return [];
+  const emigration = station.emigrationEvent!;
+  if (emigration.launched >= emigration.totalEmigrants) return [];
   const shipTypeId = station.nation.shipTypeId;
   if (!shipTypeId) {
-    retireUnlaunched(state, event);
+    retireUnlaunched(emigration, event);
     return [];
   }
-  state.secondsUntilNextLaunch -= deltaSeconds;
+  emigration.secondsUntilNextLaunch -= deltaSeconds;
   const orbitingShips: Ship[] = [];
-  while (state.secondsUntilNextLaunch <= 0 && state.launched < state.totalEmigrants) {
+  while (emigration.secondsUntilNextLaunch <= 0 && emigration.launched < emigration.totalEmigrants) {
     orbitingShips.push(createEmigrantShip(station, shipTypeId, dependencies));
-    state.launched++;
-    state.secondsUntilNextLaunch += EMIGRANT_LAUNCH_INTERVAL_SECONDS;
+    emigration.launched++;
+    emigration.secondsUntilNextLaunch += EMIGRANT_LAUNCH_INTERVAL_SECONDS;
   }
   return orbitingShips;
 }
@@ -175,7 +172,7 @@ function createEmigrantShip(
 /** Append fly-to-generational-ship + decommission to a trade ship's queue.
  *  Used for fresh emigrants and rerouted homed ships. Decommission targets
  *  the generational ship so save/load survives mid-flight home-station demolition. */
-export function queueFerryToGenerationalShip(
+function queueFerryToGenerationalShip(
   tradeShip: TradeShip,
   generationalShip: Station,
   destinationName: string,

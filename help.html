@@ -16,30 +16,12 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/ui.css" />
     <style>
-      :root {
-        color-scheme: dark;
-      }
-      * {
-        box-sizing: border-box;
-        margin: 0;
-      }
-
       /* overflow-x: clip (not hidden) — hidden establishes a scroll
          container on <body> that kills iOS inertial scroll in PWA mode. */
       body {
         min-height: 100dvh;
-        background: #050709;
-        color: var(--paper);
-        font-family: var(--font-display);
+        background: var(--ink-deep);
         overflow-x: clip;
-        padding-bottom: 0;
-      }
-
-      #bg {
-        position: fixed;
-        inset: 0;
-        z-index: 0;
-        pointer-events: none;
       }
 
       .help-page {
@@ -54,7 +36,7 @@
         gap: 40px;
       }
 
-      /* Shared glass panel surface — see --glass-* tokens in ui.css. */
+      /* Glass panel surface — see --glass-* tokens in ui.css. */
       .surface-blur {
         background: var(--glass-bg);
         -webkit-backdrop-filter: var(--glass-blur);
@@ -89,10 +71,10 @@
         color: var(--paper);
       }
 
-      /* ── Flow steps (trade / build / emigrate) — green settings-panel
-         hatch header with a letter key (A/B/C), matching the in-game
-         `.settings-section h3` look so the flow lands as "one step of
-         the game system" rather than a page-level heading. ── */
+      /* Flow steps (trade / build / emigrate) — green hatch header with
+         a letter key (A/B/C), reusing the .section-band visual from ui.css
+         so the flow reads as "one step of the game system" rather than a
+         page-level heading. */
       .flow-stack {
         display: flex;
         flex-direction: column;
@@ -109,19 +91,6 @@
         gap: 10px;
         margin: 0 0 2px;
         padding: 8px 14px 9px;
-        background:
-          repeating-linear-gradient(
-            43deg,
-            color-mix(in srgb, var(--accent) 10%, transparent) 0 1px,
-            transparent 1px 5px
-          ),
-          var(--ink-0);
-        font-family: var(--font-mono);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.24em;
-        text-transform: uppercase;
-        color: var(--accent);
       }
       .flow-step-head::before {
         content: "»";
@@ -230,7 +199,7 @@
         </h2>
         <div class="flow-stack">
           <article class="flow-step">
-            <div class="flow-step-head">
+            <div class="flow-step-head section-band">
               <span class="flow-step-letter">A</span>
               <h3 class="flow-step-title">Trade</h3>
             </div>
@@ -242,7 +211,7 @@
           </article>
 
           <article class="flow-step">
-            <div class="flow-step-head">
+            <div class="flow-step-head section-band">
               <span class="flow-step-letter">B</span>
               <h3 class="flow-step-title">Build</h3>
             </div>
@@ -254,7 +223,7 @@
           </article>
 
           <article class="flow-step">
-            <div class="flow-step-head">
+            <div class="flow-step-head section-band">
               <span class="flow-step-letter">C</span>
               <h3 class="flow-step-title">Emigrate</h3>
             </div>

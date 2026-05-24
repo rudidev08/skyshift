@@ -12,13 +12,12 @@ import {
 import { map } from "../../data/map";
 import { MapEditorController } from "./map-controller";
 import type { MapEditorState } from "./map-editor-state";
-import { createEditorRuntimeMapFromPreset } from "./map-runtime";
 import { hasUnsavedEdits } from "./edits-heuristic";
 import { getPresetById } from "../util-map-preset";
 import { waitForEditorSceneReady } from "./scene-ready";
 import type { EditorSimulationSession } from "./simulation-session";
 
-export type EditorTab = "economy" | "map" | "timelapse";
+export type EditorTab = "timelapse" | "map" | "economy";
 
 /** Map-editor lifecycle:
  *  - `hidden`   — nothing mounted, tab is not "map".
@@ -47,7 +46,7 @@ export interface EditorTabLifecycleDependencies {
   simulationSession: EditorSimulationSession;
   refreshDerivedPanels: () => void;
   rebuildEditorPage: () => void;
-  timelapseTab: { activate: () => void; dispose: () => void };
+  timelapseTab: { activate: () => void; destroy: () => void };
 }
 
 export interface EditorTabLifecycle {
@@ -59,7 +58,7 @@ export interface EditorTabLifecycle {
 
 /** Builds the tab lifecycle controller and wires the tab + unload listeners.
  *  The returned object owns map-editor mount state and exposes operations the
- *  entry point invokes (set tab, mark stale, switch preset, dispose). */
+ *  entry point invokes (set tab, mark stale, switch preset, destroy). */
 export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDependencies): EditorTabLifecycle {
   const { controls, mapState, simulationSession, refreshDerivedPanels, rebuildEditorPage } = dependencies;
 
@@ -68,7 +67,7 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
   let tabGeneration = 0;
   let mapEditorController: MapEditorController | null = null;
 
-  function disposeMapEditor() {
+  function destroyMapEditor() {
     mapEditorController?.destroy();
     mapEditorController = null;
     destroyGameRuntime();
@@ -76,10 +75,10 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
 
   function markMapEditorNeedsRemount() {
     if (mapEditorPhase === "hidden" || mapEditorPhase === "stale") return;
-    // Hidden editor data no longer matches the mounted scene — dispose so the
+    // Hidden editor data no longer matches the mounted scene — destroy so the
     // next map visit rebuilds from shared state.
     if (activeTab !== "map" && mapEditorPhase === "mounted") {
-      disposeMapEditor();
+      destroyMapEditor();
       mapEditorPhase = "hidden";
       return;
     }
@@ -116,11 +115,7 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
       mapEditorController = null;
       mapEditorPhase = "mounting";
       const runtime = await mountGameRuntime({
-        mapData: createEditorRuntimeMapFromPreset(
-          mapState.activePreset,
-          mapState.editableStations,
-          mapState.editableNebulas,
-        ),
+        mapData: mapState.currentMap(),
         keyboardShortcutsEnabled: false,
         isEditorMode: true,
       });
@@ -134,7 +129,7 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
       });
       if (generation !== tabGeneration || activeTab !== "map") {
         // Tab switched mid-mount — discard the scene we just built.
-        disposeMapEditor();
+        destroyMapEditor();
         mapEditorPhase = "hidden";
         return;
       }
@@ -161,7 +156,7 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
    *  in-flight sim runner so nothing ticks behind a hidden tab. */
   function tearDownLeavingTab(previousTab: EditorTab) {
     if (previousTab === "map") sleepGameRuntime();
-    if (previousTab === "timelapse") dependencies.timelapseTab.dispose();
+    if (previousTab === "timelapse") dependencies.timelapseTab.destroy();
   }
 
   /** Returning to economy from map invalidates the previous simulation —
@@ -183,7 +178,7 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
         void mountMapEditor(tabGeneration);
         return;
       case "stale":
-        disposeMapEditor();
+        destroyMapEditor();
         void mountMapEditor(tabGeneration);
         return;
       case "mounting":
@@ -215,10 +210,12 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
     if (presetId === mapState.activePreset.id) return;
     const nextPreset = getPresetById(presetId);
     if (!nextPreset) return;
-    const unsavedEdits = hasUnsavedEdits({
-      stations: { current: mapState.editableStations, baseline: mapState.baselineMap.stations },
-      nebulas: { current: mapState.editableNebulas, baseline: map.nebulas },
-    });
+    const unsavedEdits = hasUnsavedEdits(
+      mapState.editableStations,
+      mapState.baselineMap.stations,
+      mapState.editableNebulas,
+      map.nebulas,
+    );
     if (unsavedEdits && !confirmDiscardingUnsavedEdits(nextPreset.name)) return;
     mapState.switchPreset(presetId);
     simulationSession.clearCaches();
@@ -242,8 +239,8 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
   }
 
   window.addEventListener("beforeunload", () => {
-    disposeMapEditor();
-    dependencies.timelapseTab.dispose();
+    destroyMapEditor();
+    dependencies.timelapseTab.destroy();
   });
 
   return {

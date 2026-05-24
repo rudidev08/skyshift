@@ -2,7 +2,7 @@ import { test, assertEqual, assertTrue } from "./test-utils.ts";
 import { WareStationIndex } from "../sim-ware-station-index.ts";
 import { createInventorySlot } from "../sim-station.ts";
 import { getWareTemplate } from "../sim-ware-template.ts";
-import { makeStation } from "./factories.ts";
+import { makeStationWithProduces } from "./factories.ts";
 import type { Station } from "../sim-station-types.ts";
 import type { WareId } from "../../data/ware-types.ts";
 
@@ -15,27 +15,24 @@ function slotFor(wareId: WareId): ReturnType<typeof createInventorySlot> {
 
 function metalForge(instanceTag = ""): Station {
   // metal-forge produces metal, consumes mineral.
-  return makeStation({
+  return makeStationWithProduces(["metal"], {
     placement: { id: `ORE-F${instanceTag}`, stationTypeId: "metal-forge" },
-    producesOverride: ["metal"],
     inventory: [slotFor("metal"), slotFor("mineral")],
   });
 }
 
 function mine(instanceTag = ""): Station {
   // mine produces ice and mineral, consumes nothing — multi-output producer.
-  return makeStation({
+  return makeStationWithProduces(["ice", "mineral"], {
     placement: { id: `ORE-M${instanceTag}`, stationTypeId: "mine" },
-    producesOverride: ["ice", "mineral"],
     inventory: [slotFor("ice"), slotFor("mineral")],
   });
 }
 
 function medicalLab(instanceTag = ""): Station {
   // medical-lab produces medicine, consumes mineral and food — multi-input consumer.
-  return makeStation({
+  return makeStationWithProduces(["medicine"], {
     placement: { id: `BIO-L${instanceTag}`, stationTypeId: "medical-lab" },
-    producesOverride: ["medicine"],
     inventory: [slotFor("medicine"), slotFor("mineral"), slotFor("food")],
   });
 }
@@ -99,14 +96,13 @@ test("rebuild: under-construction stations are consumer-only across all slots", 
   // the rule is "isOutputSlot is false for every slot when isUnderConstruction"
   // — pin it with a station whose inventory includes a would-be producer slot
   // (metal) that must still land in consumers while state === "building".
-  const station = makeStation({
+  const station = makeStationWithProduces(["metal"], {
     placement: {
       id: "ORE-F",
       stationTypeId: "metal-forge",
       state: "building",
       build: { waresRequired: { provisions: 100, hulls: 100 } },
     },
-    producesOverride: ["metal"],
     inventory: [slotFor("metal"), slotFor("mineral")],
   });
   const index = new WareStationIndex();
@@ -127,9 +123,8 @@ test("rebuild: under-construction stations are consumer-only across all slots", 
 test("rebuild: emigrating-state stations are excluded from both indices", () => {
   // canStationTrade returns false for `emigrating` — pin that the early-continue
   // skips them. Mutating the guard would leak emigrating stations into the index.
-  const station = makeStation({
+  const station = makeStationWithProduces(["metal"], {
     placement: { id: "ORE-E", stationTypeId: "metal-forge", state: "emigrating" },
-    producesOverride: ["metal"],
     inventory: [slotFor("metal"), slotFor("mineral")],
   });
   const index = new WareStationIndex();
@@ -140,10 +135,9 @@ test("rebuild: emigrating-state stations are excluded from both indices", () => 
 });
 
 test("rebuild swap is atomic — no partial-build state visible after the call", () => {
-  // The local `producers`/`consumers` maps build up before the assignment.
-  // Pin that re-rebuild fully replaces both indices: if the swap were dropped
-  // (e.g. `this.producersByWare = producers` removed), getProducers would
-  // still return data from the first rebuild after the second.
+  // Pin that re-rebuild fully replaces both indices: if the leading `.clear()`
+  // calls were dropped, getProducers would still return data from the first
+  // rebuild after the second.
   const stationA = metalForge("a");
   const index = new WareStationIndex();
   index.rebuild([stationA]);
@@ -167,13 +161,13 @@ test("getProducers returns the same shared empty array per miss (no per-call all
   assertEqual(first.length, 0, "miss-path return is an empty array");
 });
 
-test("producersByWareEntries skips wares with zero producers", () => {
+test("producedWaresWithStations skips wares with zero producers", () => {
   // Mine produces ice and mineral — only those wares should appear in entries().
   // metal (consumed by tech-factory etc.) shouldn't show up.
   const index = new WareStationIndex();
   index.rebuild([mine()]);
   const wareIdsInEntries = new Set<WareId>();
-  for (const [wareId] of index.producersByWareEntries()) wareIdsInEntries.add(wareId);
+  for (const [wareId] of index.producedWaresWithStations()) wareIdsInEntries.add(wareId);
 
   assertEqual(wareIdsInEntries.size, 2, "exactly two wares have producers");
   assertTrue(wareIdsInEntries.has("ice"), "ice has producer entry");
@@ -199,14 +193,13 @@ test("rebuild after building→producing flip moves output slots from consumer t
   // Simulate the lifecycle flip: same station instance rebuilt twice — first
   // while state="building" (output slot lands in consumers), then while
   // state="producing" (output slot lands in producers).
-  const station = makeStation({
+  const station = makeStationWithProduces(["metal"], {
     placement: {
       id: "ORE-F",
       stationTypeId: "metal-forge",
       state: "building",
       build: { waresRequired: { provisions: 100, hulls: 100 } },
     },
-    producesOverride: ["metal"],
     inventory: [slotFor("metal"), slotFor("mineral")],
   });
   const index = new WareStationIndex();
@@ -240,6 +233,6 @@ test("rebuild on empty roster produces empty indices and entries iterator", () =
   assertEqual(index.getProducers("metal").length, 0, "empty roster clears producers");
   assertEqual(index.getConsumers("mineral").length, 0, "empty roster clears consumers");
   let entryCount = 0;
-  for (const _ of index.producersByWareEntries()) entryCount++;
+  for (const _ of index.producedWaresWithStations()) entryCount++;
   assertEqual(entryCount, 0, "empty roster produces no entries");
 });

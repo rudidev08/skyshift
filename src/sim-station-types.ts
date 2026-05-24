@@ -11,11 +11,9 @@ export interface StationEmigration {
   /** Matches EmigrationEvent.id. */
   eventId: string;
   destinationName: string;
-  /** Snapshot of ship ids homed here at event trigger — used each tick to
-   *  count how many have departed. */
-  initialHomedShipIds: string[];
-  /** O(1) lookup mirror of `initialHomedShipIds`. Not serialized; rebuilt at
-   *  trigger and after load. */
+  /** Ship ids homed here at event trigger — used each tick to count how many
+   *  have departed. Serialized as an array (JSON has no Set); seeded at the
+   *  trigger sites and on deserialize. */
   initialHomedShipIdSet: Set<string>;
   totalEmigrants: number;
   launched: number;
@@ -70,14 +68,13 @@ export interface Station {
    *  or the stagger offset before its first tick (negative). Staggered at init
    *  so production ticks don't all land on the same frame. Not persisted. */
   secondsSinceLastTick: number;
-  /** Did the station produce on its last economy tick? Drives UI signals.
+  /** Did the station produce on its last economy tick? Read by the trade simulation report to track stall percentage.
    *  Distinct from `state === "producing"` (lifecycle state). */
   didProduceLastTick: boolean;
-  typeAndSizeLabel: string;
-  /** Set while state === "emigrating"; null otherwise. See {@link StationEmigration}. */
+  /** Set while state === "emigrating"; null otherwise. See StationEmigration. */
   emigrationEvent: StationEmigration | null;
   /** Set on a generational ship while an emigration event is active; null while idle.
-   *  See {@link StationGenerationalShipBuild}. */
+   *  See StationGenerationalShipBuild. */
   generationalShipBuild: StationGenerationalShipBuild | null;
 }
 

@@ -28,6 +28,28 @@ body {
   margin-top: 4px;
 }
 
+/* Showcase-only: in-game these chrome elements are pinned to the canvas
+   (absolute / fixed). On the design page they need to sit inline inside
+   showcase cards, so flatten the positioning and let flow lay them out. */
+.showcase-section .speed-hud {
+  position: static;
+  align-items: flex-start;
+}
+.showcase-section .speed-hud__elapsed {
+  text-align: left;
+}
+.showcase-section .trade-route-overlay {
+  position: static;
+  pointer-events: auto;
+}
+.showcase-section .trade-route-overlay .ware-sidebar-wrap {
+  position: static;
+}
+.showcase-section .landing-nav,
+.showcase-section .load-error__panel {
+  align-self: flex-start;
+}
+
 /* Showcase-only backdrop for the landing-page variants — a dark radial
    so the start buttons and nav render against the deep starfield they
    live on in production rather than the pale showcase surface. */
@@ -46,9 +68,9 @@ body {
 }
 
 /* Loading-state showcase backdrop — matches the in-game canvas so the
-   13 preview sits on the same dark surface as the live HUD. The loading
-   bar, hero modifier, and .id-card.is-loading modifiers themselves
-   live in ui.css. */
+   loading preview sits on the same dark surface as the live HUD. The
+   loading bar, hero modifier, and .id-card.is-loading modifiers
+   themselves live in ui.css. */
 .loading-stage {
   min-height: 260px;
   padding: 28px;
@@ -57,7 +79,7 @@ body {
   border-radius: 6px;
   background:
     radial-gradient(circle at 25% 30%, rgba(79, 179, 184, 0.08), transparent 55%),
-    radial-gradient(circle at 80% 75%, rgba(245, 194, 107, 0.05), transparent 55%), #050709;
+    radial-gradient(circle at 80% 75%, rgba(245, 194, 107, 0.05), transparent 55%), var(--ink-deep);
 }
 .loading-stage--left {
   place-items: center start;
@@ -72,7 +94,7 @@ body {
 }
 
 /* Same no-animation rule for the pending/confirm pulsing dots — without
-   this the load-error showcase 12-G card would breathe in the design
+   this the load-error pending-dots showcase would breathe in the design
    page even though everything else around it is frozen. */
 .slot-pending {
   animation: none;

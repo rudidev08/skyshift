@@ -2,7 +2,7 @@ import { type Scene } from "phaser";
 import { CircleDashed } from "lucide-static";
 import type { StationZone } from "../sim-station-zone-types";
 import type { Selection, SelectionLabel, SelectionTarget } from "./selection-input";
-import type { StationSize } from "../../data/station-types";
+import { longNameBySize } from "../../data/stations";
 import { closeViewAlpha } from "./camera-fade";
 import { LABEL_STYLE } from "./text-styles";
 import { getStationZoneHudIcon } from "../render-hud-icon";
@@ -10,12 +10,10 @@ import { announceStationZone } from "../audio-announcer";
 import { loadLucideSvgTexture } from "./texture-cache";
 
 const ZONE_ICON_TEXTURE_KEY = "station-zone-icon";
-const ZONE_SIZE_LABELS: Record<StationSize, string> = { S: "Small", M: "Medium", L: "Large" };
 const ZONE_ICON_TINT = 0x666666;
-const ZONE_ICON_MAP_SIZE = 80;
-export const ZONE_LABEL_Y_OFFSET = ZONE_ICON_MAP_SIZE / 2 + 8;
-
-export type MutableBooleanRef = { value: boolean };
+const ZONE_ICON_MAP_PIXELS = 80;
+const ZONE_LABEL_FONT_PIXELS = 40;
+export const ZONE_LABEL_Y_OFFSET_PIXELS = ZONE_ICON_MAP_PIXELS / 2 + 8;
 
 export type StationZoneVisualBundle = {
   zone: StationZone;
@@ -23,7 +21,7 @@ export type StationZoneVisualBundle = {
   label: Phaser.GameObjects.Text;
 };
 
-/** Queue the station zone icon texture for loading. Call during preload. */
+/** Call during Phaser preload — textures loaded outside preload aren't available in create. */
 export function preloadStationZoneIcon(scene: Scene): void {
   loadLucideSvgTexture(scene, ZONE_ICON_TEXTURE_KEY, CircleDashed);
 }
@@ -31,11 +29,11 @@ export function preloadStationZoneIcon(scene: Scene): void {
 export class StationZoneSelectionTarget implements SelectionTarget {
   readonly kind = "zone" as const;
   private readonly visualBundle: StationZoneVisualBundle;
-  private readonly zonesVisibleRef: MutableBooleanRef;
+  private readonly isZonesViewActive: () => boolean;
 
-  constructor(visualBundle: StationZoneVisualBundle, zonesVisibleRef: MutableBooleanRef) {
+  constructor(visualBundle: StationZoneVisualBundle, isZonesViewActive: () => boolean) {
     this.visualBundle = visualBundle;
-    this.zonesVisibleRef = zonesVisibleRef;
+    this.isZonesViewActive = isZonesViewActive;
   }
 
   enterSelected(): void {
@@ -51,8 +49,8 @@ export class StationZoneSelectionTarget implements SelectionTarget {
   }
 
   canSelect(): boolean {
-    // Selectable only when the toggle is active — prevents clicking invisible zones.
-    return this.zonesVisibleRef.value;
+    // Selectable only in zones view — prevents clicking invisible zones.
+    return this.isZonesViewActive();
   }
 
   showRingAtCloseZoom(): boolean {
@@ -63,13 +61,13 @@ export class StationZoneSelectionTarget implements SelectionTarget {
   getSelectedLabel(): SelectionLabel {
     return {
       iconUri: getStationZoneHudIcon(),
-      stackLabel: `Station Zone · ${ZONE_SIZE_LABELS[this.visualBundle.zone.size]}`,
+      stackLabel: `Station Zone · ${longNameBySize[this.visualBundle.zone.size]}`,
       name: this.visualBundle.zone.name,
       serialCode: this.visualBundle.zone.code,
       description: "",
       loreTypeName: "Unclaimed Station Zone",
       lore: "An unclaimed area of space available for station construction.",
-      hasDetails: false,
+      hasLog: false,
       accentColor: "",
       statusLabel: "",
     };
@@ -88,7 +86,7 @@ export class StationZoneSelectionTarget implements SelectionTarget {
 export function createStationZoneVisualBundles(
   scene: Scene,
   zones: StationZone[],
-  zonesVisibleRef: MutableBooleanRef,
+  isZonesViewActive: () => boolean,
   selection: Selection,
 ): { visualBundles: StationZoneVisualBundle[]; selectionTargets: StationZoneSelectionTarget[] } {
   const visualBundles: StationZoneVisualBundle[] = [];
@@ -96,19 +94,19 @@ export function createStationZoneVisualBundles(
 
   for (const zone of zones) {
     const image = scene.add.image(zone.x, zone.y, ZONE_ICON_TEXTURE_KEY);
-    image.setDisplaySize(ZONE_ICON_MAP_SIZE, ZONE_ICON_MAP_SIZE);
+    image.setDisplaySize(ZONE_ICON_MAP_PIXELS, ZONE_ICON_MAP_PIXELS);
     image.setTint(ZONE_ICON_TINT);
     image.setVisible(false);
 
-    const label = scene.add.text(zone.x, zone.y + ZONE_LABEL_Y_OFFSET, zone.name, {
+    const label = scene.add.text(zone.x, zone.y + ZONE_LABEL_Y_OFFSET_PIXELS, zone.name, {
       ...LABEL_STYLE,
-      fontSize: "40px",
+      fontSize: `${ZONE_LABEL_FONT_PIXELS}px`,
     });
     label.setOrigin(0.5, 0);
     label.setVisible(false);
 
     const visualBundle: StationZoneVisualBundle = { zone, image, label };
-    const target = new StationZoneSelectionTarget(visualBundle, zonesVisibleRef);
+    const target = new StationZoneSelectionTarget(visualBundle, isZonesViewActive);
     selection.register(target);
 
     visualBundles.push(visualBundle);
@@ -123,10 +121,10 @@ export function createStationZoneVisualBundles(
  *  by zoom level. */
 export function updateStationZoneVisibility(
   visualBundles: StationZoneVisualBundle[],
-  visible: boolean,
+  zonesViewActive: boolean,
 ): void {
   for (const visualBundle of visualBundles) {
-    if (!visible) {
+    if (!zonesViewActive) {
       visualBundle.image.setVisible(false);
       visualBundle.label.setVisible(false);
       continue;
@@ -140,9 +138,9 @@ export function updateStationZoneVisibility(
 export function updateStationZoneLabels(
   visualBundles: StationZoneVisualBundle[],
   zoom: number,
-  visible: boolean,
+  zonesViewActive: boolean,
 ): void {
-  if (!visible) return;
+  if (!zonesViewActive) return;
 
   const labelAlpha = closeViewAlpha(zoom);
 

@@ -1,12 +1,12 @@
 // HUD-facing display helpers for trade ships: status label, the cargo-grid
 // description rendered in the info card, the predicates the ship visual
 // bundle uses to gate selection / idle states, and the multi-line trade
-// log shown in the expandable details panel.
+// log shown in the expandable log panel.
 //
 // Pure read-only formatters — every entry takes a TradeShip + the live
-// TradeManager + currentTime; resolvers and the trade clock flow through
-// the manager. Don't mutate sim state here; the manager and queue files
-// own the writes.
+// TradeManager + currentTimeSeconds; resolvers and the trade clock flow
+// through the manager. Don't mutate sim state here; the manager and queue
+// files own the writes.
 
 import { economyConfig } from "../data/economy-config";
 import type { WareId } from "../data/ware-types";
@@ -17,7 +17,7 @@ import { getShipTypeTemplate } from "./sim-ship-template";
 import { getWareTemplate } from "./sim-ware-template";
 import type { ShipTypeTemplate } from "../data/ship-types";
 import type { ShipAction } from "./sim-travel-types";
-import { formatQuantity, formatDuration, formatCargoBar } from "./util-quantity-format";
+import { formatQuantity, formatDuration, formatCargoBar, formatPercent } from "./util-quantity-format";
 import { nationColoredCodeSpan } from "./sim-nation-code-format";
 import { type TradeShip } from "./sim-trade-types";
 import type { TradeManager } from "./sim-trade-manager";
@@ -28,9 +28,9 @@ import {
   scoreForDirection,
 } from "./sim-trade-decision";
 
-/** Player-selectable when idle, waiting to deploy, or on an inter-station flight. */
+/** Player-selectable when idle or on an inter-station flight; not selectable while deploying. */
 export function isTradeShipSelectable(ship: TradeShip): boolean {
-  if (ship.actionQueue.length === 0) return true;
+  if (isTradeShipIdle(ship)) return true;
   const current = ship.actionQueue[0];
   if (current.type === "fly" && current.travelMode === "interStation") return true;
   return false;
@@ -43,7 +43,7 @@ export function isTradeShipIdle(ship: TradeShip): boolean {
 
 /** Waiting to deploy (stagger timer not yet fired). */
 export function isTradeShipDeploying(ship: TradeShip): boolean {
-  if (ship.actionQueue.length === 0) return false;
+  if (isTradeShipIdle(ship)) return false;
   const current = ship.actionQueue[0];
   return current.type === "fly" && current.deploying === true;
 }
@@ -66,11 +66,6 @@ function buildCargoNote(label: string, value: string): string {
   return `<div class="cargo-note"><span class="cargo-note-label">${label}</span><div class="cargo-note-value">${value}</div></div>`;
 }
 
-/** Format a 0-1 fraction as "X.X%". */
-function formatPercent(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
-}
-
 /** Render a slot's current quantity plus reservation deltas, e.g. "(120 +30 in -10 out)". */
 function slotDetails(slot: InventorySlot): string {
   const parts: string[] = [formatQuantity(slot.current)];
@@ -86,7 +81,7 @@ function formatSubRow(station: Station, slot: InventorySlot): string {
 
 /** Status-band label for the info card (e.g. "Flying"). */
 export function getTradeShipStatusLabel(ship: TradeShip): string {
-  if (ship.actionQueue.length === 0) return "Looking for Traders";
+  if (isTradeShipIdle(ship)) return "Looking for Traders";
   if (isTradeShipDeploying(ship)) return "Deploying";
   const current = ship.actionQueue[0];
   if (current.type === "fly") return "Flying";
@@ -98,10 +93,16 @@ function formatEmptyCargoBar(capacity: number): string {
   return formatCargoBar({ wareName: "No Cargo", current: 0, max: capacity });
 }
 
+/** Seconds since the ship's last trade, or 0 if it has never traded
+ *  (`idleSinceTradeTimeSeconds` stays 0 until the first trade completes). */
+function idleElapsedSeconds(ship: TradeShip, currentTimeSeconds: number): number {
+  return ship.idleSinceTradeTimeSeconds > 0 ? currentTimeSeconds - ship.idleSinceTradeTimeSeconds : 0;
+}
+
 /** Idle ship — empty cargo bar plus "last trade Xs ago" when a previous trade has occurred. */
-function formatIdleTradeShipDescription(ship: TradeShip, capacity: number, currentTime: number): string {
+function formatIdleTradeShipDescription(ship: TradeShip, capacity: number, currentTimeSeconds: number): string {
   const cargoBar = formatEmptyCargoBar(capacity);
-  const idleElapsed = ship.idleSinceTradeTime > 0 ? currentTime - ship.idleSinceTradeTime : 0;
+  const idleElapsed = idleElapsedSeconds(ship, currentTimeSeconds);
   if (idleElapsed <= 0) return cargoBar;
   const statusRow = buildCargoNote(
     "Status",
@@ -130,14 +131,13 @@ function formatActiveCargoBars(ship: TradeShip, capacity: number): string {
 }
 
 /** Route or status note derived from the head action in the queue. */
-function formatActiveActionNote(currentAction: ShipAction): string {
+export function formatActiveActionNote(currentAction: ShipAction): string {
   switch (currentAction.type) {
     case "fly":
-      if (currentAction.route) {
-        const { fromStation, toStation } = currentAction.route;
+      if (currentAction.isTradeFlight) {
         return buildCargoNote(
           "Route",
-          `${formatStationLabelHtml(fromStation)} <span class="cargo-note-dim">to</span><br>${formatStationLabelHtml(toStation)}`,
+          `${formatStationLabelHtml(currentAction.originStation)} <span class="cargo-note-dim">to</span><br>${formatStationLabelHtml(currentAction.destinationStation)}`,
         );
       }
       return buildCargoNote("Status", currentAction.label);
@@ -153,13 +153,17 @@ function formatActiveActionNote(currentAction: ShipAction): string {
 
 /** Info-panel HTML for a trade ship. Injected into `.cargo-grid` — bare grid
  *  children (label / track / stat) plus optional cargo-note rows, no wrapper. */
-export function getTradeShipDescription(ship: TradeShip, manager: TradeManager, currentTime: number): string {
+export function getTradeShipDescription(
+  ship: TradeShip,
+  manager: TradeManager,
+  currentTimeSeconds: number,
+): string {
   // Home may be missing for emigrating ships on a ferry-to-generational-ship
   // queue after home demolition; fall back so the panel still renders the cargo + label.
   const homeStation = manager.stationResolver(ship.homeStationId);
   const capacity = getShipTypeTemplate(manager.requireResolvedShip(ship.orbitingShipId).shipTypeId).cargoCapacity;
 
-  if (ship.actionQueue.length === 0) return formatIdleTradeShipDescription(ship, capacity, currentTime);
+  if (isTradeShipIdle(ship)) return formatIdleTradeShipDescription(ship, capacity, currentTimeSeconds);
   if (isTradeShipDeploying(ship)) return formatDeployingTradeShipDescription(homeStation ?? null, capacity);
 
   const cargoBars = formatActiveCargoBars(ship, capacity);
@@ -169,7 +173,7 @@ export function getTradeShipDescription(ship: TradeShip, manager: TradeManager, 
 
 // Line colors live in `.log-panel-body .is-*` in ui.css; formatters here only set the `is-*` class.
 
-function formatAction(action: ShipAction): string {
+function formatActionLogLine(action: ShipAction): string {
   switch (action.type) {
     case "fly":
       return action.label;
@@ -184,13 +188,13 @@ function formatAction(action: ShipAction): string {
   }
 }
 
-/** Concise trade-state explanation for the details panel. */
-export function getTradeLog(ship: TradeShip, manager: TradeManager, currentTime: number): string {
+/** Concise trade-state explanation for the log panel. */
+export function getTradeLog(ship: TradeShip, manager: TradeManager, currentTimeSeconds: number): string {
   const shipTemplate = getShipTypeTemplate(manager.requireResolvedShip(ship.orbitingShipId).shipTypeId);
   if (shipTemplate.cargoCapacity === 0) return `<span class="is-blocked">Ship has no cargo capacity</span>`;
   if (isTradeShipDeploying(ship)) return `<span class="is-blocked">Deploying — not yet trading</span>`;
   if (ship.actionQueue.length > 0) return formatActiveTradeLog(ship, manager);
-  return formatIdleTradeLog(ship, shipTemplate, manager, currentTime);
+  return formatIdleTradeLog(ship, shipTemplate, manager, currentTimeSeconds);
 }
 
 /** Buy/Sell summary line plus From/To station rows with fill levels, and Bonus rows for any extra cargo.
@@ -198,11 +202,10 @@ export function getTradeLog(ship: TradeShip, manager: TradeManager, currentTime:
 function formatActiveTradeSummary(ship: TradeShip, manager: TradeManager): string[] {
   const home = manager.stationResolver(ship.homeStationId);
   const targetStation = ship.targetStationId ? (manager.stationResolver(ship.targetStationId) ?? null) : null;
-  const cargoEntries = [...ship.cargoAmountByWareId.entries()];
-  const primary = cargoEntries[0];
-  if (!home || !primary || !targetStation) return [];
+  const primaryEntry = ship.cargoAmountByWareId.entries().next().value;
+  if (!home || !primaryEntry || !targetStation) return [];
 
-  const [primaryWareId] = primary;
+  const [primaryWareId] = primaryEntry;
   const primaryWare = getWareTemplate(primaryWareId);
   const sourceStation = ship.tradeDirection === "sell" ? home : targetStation;
   const destinationStation = ship.tradeDirection === "sell" ? targetStation : home;
@@ -225,8 +228,8 @@ function formatActiveTradeSummary(ship: TradeShip, manager: TradeManager): strin
     );
   }
 
-  for (let i = 1; i < cargoEntries.length; i++) {
-    const [extraWareId, extraAmount] = cargoEntries[i];
+  for (const [extraWareId, extraAmount] of ship.cargoAmountByWareId) {
+    if (extraWareId === primaryWareId) continue;
     const extraWare = getWareTemplate(extraWareId);
     lines.push(
       `<span class="is-label">Bonus:</span> ${extraWare.name} (${formatQuantity(extraAmount)} on ship)`,
@@ -242,7 +245,7 @@ function formatActionQueueWithCurrentSelected(ship: TradeShip): string[] {
   for (let i = 0; i < ship.actionQueue.length; i++) {
     const prefix = i === 0 ? "▸ " : "  ";
     const className = i === 0 ? "is-current" : "is-blocked";
-    lines.push(`<span class="${className}">${prefix}${formatAction(ship.actionQueue[i])}</span>`);
+    lines.push(`<span class="${className}">${prefix}${formatActionLogLine(ship.actionQueue[i])}</span>`);
   }
   return lines;
 }
@@ -283,15 +286,15 @@ function scoreCounterparts(
   manager: TradeManager,
   direction: TradeDirection,
 ): { eligible: ScoredCandidate[]; fallbacks: ScoredCandidate[] } {
-  const scoreFn = scoreForDirection(direction);
-  const homeScore = scoreFn(home, slot);
+  const scoreForSlot = scoreForDirection(direction);
+  const homeScore = scoreForSlot(home, slot);
   const eligible: ScoredCandidate[] = [];
   const fallbacks: ScoredCandidate[] = [];
   for (const station of counterpartStations(manager, slot.ware.id, direction)) {
     if (station === home) continue;
     const counterpartSlot = getInventorySlot(station, slot.ware.id);
     if (!counterpartSlot) continue;
-    const score = scoreFn(station, counterpartSlot);
+    const score = scoreForSlot(station, counterpartSlot);
     if (score > homeScore) eligible.push({ station, slot: counterpartSlot, score });
     else fallbacks.push({ station, slot: counterpartSlot, score });
   }
@@ -333,6 +336,18 @@ function formatFallbackBlock(
   return lines;
 }
 
+/** Ware name plus the sell/buy tag, e.g. `Water (sell):` — the shared prefix
+ *  every idle-log status line and the disallowed-ware line start with. */
+function formatWareLogLabel(wareName: string, sellOrBuy: "sell" | "buy"): string {
+  return `<span class="log-ware">${wareName}</span> <span class="log-dim">(${sellOrBuy}):</span>`;
+}
+
+/** No-availability log line — selling with no surplus, or buying with a full slot. */
+function formatNoAvailabilityLine(slot: InventorySlot, wareLabel: string, isSell: boolean): string {
+  const noGateMessage = isSell ? "no surplus" : "full";
+  return `<div>${wareLabel}<span class="log-tail"> ${noGateMessage}</span> <span class="log-dim">${slotDetails(slot)}</span></div>`;
+}
+
 /** Below-min-fill log line — quantity available, percent of capacity it'd fill, and the threshold note. */
 function formatBelowMinFillLine(
   wareLabel: string,
@@ -341,6 +356,19 @@ function formatBelowMinFillLine(
   fillRatio: number,
 ): string {
   return `<div>${wareLabel} <span class="log-num">${formatQuantity(amount)}/${formatQuantity(capacity)}</span> <span class="log-dim">(${formatPercent(fillRatio)})</span><span class="log-tail"> below min fill</span></div>`;
+}
+
+/** Ready-to-ship log line — amount the trade would move and the chosen counterpart. */
+function formatReadyToShipLine(
+  wareLabel: string,
+  amount: number,
+  best: ScoredCandidate,
+  eligibleCount: number,
+  isSell: boolean,
+): string {
+  const arrow = isSell ? "→" : "←";
+  const countLabel = isSell ? "dest" : "src";
+  return `<div class="is-ready">${wareLabel} <span class="log-num">${formatQuantity(amount)}</span> ${arrow} ${nationColoredCodeSpan(best.station.nation)} <span class="log-ware">${best.station.name}</span> <span class="log-dim">(${eligibleCount} ${countLabel})</span></div>`;
 }
 
 interface IdleLogContext {
@@ -361,14 +389,11 @@ function formatTradeWareLog(
 ): string[] {
   const { home, capacity, minimumFill, manager } = context;
   const isSell = direction === "sell";
-  const wareLabel = `<span class="log-ware">${slot.ware.name}</span> <span class="log-dim">(${isSell ? "sell" : "buy"}):</span>`;
+  const wareLabel = formatWareLogLabel(slot.ware.name, isSell ? "sell" : "buy");
 
   const homeAvailability = isSell ? effectiveAvailable(slot) : effectiveSpace(slot);
   if (homeAvailability <= 0) {
-    const noGateMessage = isSell ? "no surplus" : "full";
-    return [
-      `<div>${wareLabel}<span class="log-tail"> ${noGateMessage}</span> <span class="log-dim">${slotDetails(slot)}</span></div>`,
-    ];
+    return [formatNoAvailabilityLine(slot, wareLabel, isSell)];
   }
 
   const { eligible, fallbacks } = scoreCounterparts(slot, home, manager, direction);
@@ -389,11 +414,14 @@ function formatTradeWareLog(
     return [formatBelowMinFillLine(wareLabel, amount, capacity, fillRatio)];
   }
 
-  const arrow = isSell ? "→" : "←";
-  const countLabel = isSell ? "dest" : "src";
-  return [
-    `<div class="is-ready">${wareLabel} <span class="log-num">${formatQuantity(amount)}</span> ${arrow} ${nationColoredCodeSpan(best.station.nation)} <span class="log-ware">${best.station.name}</span> <span class="log-dim">(${eligible.length} ${countLabel})</span></div>`,
-  ];
+  return [formatReadyToShipLine(wareLabel, amount, best, eligible.length, isSell)];
+}
+
+/** Log block for a ware the ship can't carry — the trader's allowedWares
+ *  list excludes it, so it never trades regardless of fill. */
+function formatDisallowedWareLog(slot: InventorySlot, isOutput: boolean): string[] {
+  const wareLabel = formatWareLogLabel(slot.ware.name, isOutput ? "sell" : "buy");
+  return [`<div>${wareLabel}<span class="log-tail"> not in allowed wares</span></div>`];
 }
 
 /** Log for idle ships — explains why each ware is or isn't tradeable. */
@@ -401,7 +429,7 @@ function formatIdleTradeLog(
   ship: TradeShip,
   shipTemplate: ShipTypeTemplate,
   manager: TradeManager,
-  currentTime: number,
+  currentTimeSeconds: number,
 ): string {
   // Idle ships with no home can't report tradeability — show a blocked
   // notice instead of throwing.
@@ -410,7 +438,7 @@ function formatIdleTradeLog(
   const producedWares = new Set(home.stationType.produces);
   const allowed = shipTemplate.allowedWares;
 
-  const idleElapsed = ship.idleSinceTradeTime > 0 ? currentTime - ship.idleSinceTradeTime : 0;
+  const idleElapsed = idleElapsedSeconds(ship, currentTimeSeconds);
   const minimumFill = Math.max(
     0,
     economyConfig.minimumCargoFillThreshold - idleElapsed * economyConfig.cargoFillDecayPerSecond,
@@ -429,14 +457,9 @@ function formatIdleTradeLog(
     const isOutput = producedWares.has(slot.ware.id);
 
     const context: IdleLogContext = { home, capacity, minimumFill, manager };
-    let groupLines: string[];
-    if (!isAllowed) {
-      const action = isOutput ? "sell" : "buy";
-      const wareLabel = `<span class="log-ware">${slot.ware.name}</span> <span class="log-dim">(${action}):</span>`;
-      groupLines = [`<div>${wareLabel}<span class="log-tail"> not in allowed wares</span></div>`];
-    } else {
-      groupLines = formatTradeWareLog(slot, context, isOutput ? "sell" : "buy");
-    }
+    const groupLines = isAllowed
+      ? formatTradeWareLog(slot, context, isOutput ? "sell" : "buy")
+      : formatDisallowedWareLog(slot, isOutput);
 
     parts.push(`<div class="log-group">${groupLines.join("")}</div>`);
   }

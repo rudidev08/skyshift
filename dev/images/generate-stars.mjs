@@ -27,45 +27,59 @@ async function rotateTile(filePath) {
   return await sharp(filePath).rotate(angle).toBuffer();
 }
 
-function clamp(v, min, max) {
-  return Math.max(min, Math.min(max, v));
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
-async function buildLayer(filename, count, pickTile, requiredFiles, opts = {}) {
+function randomTileCoord() {
+  return Math.floor(Math.random() * (SIZE - TILE));
+}
+
+async function composeTileAt(file, left, top) {
+  return {
+    input: await rotateTile(path.join(tilesDir, file)),
+    left,
+    top,
+  };
+}
+
+async function placeClusterAround(seedLeft, seedTop, clusterOptions, pickTile, composites, remainingCount) {
+  const extraStarCount =
+    clusterOptions.clusterMin + Math.floor(Math.random() * (clusterOptions.clusterMax - clusterOptions.clusterMin + 1));
+  const cap = Math.min(extraStarCount, remainingCount);
+  let placed = 0;
+  for (let j = 0; j < cap; j++) {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = Math.random() * clusterOptions.clusterRadius;
+    composites.push(
+      await composeTileAt(
+        pickTile(),
+        clamp(Math.round(seedLeft + Math.cos(angle) * distance), 0, SIZE - TILE),
+        clamp(Math.round(seedTop + Math.sin(angle) * distance), 0, SIZE - TILE),
+      ),
+    );
+    placed++;
+  }
+  return placed;
+}
+
+async function buildLayer(filename, count, pickTile, guaranteedTiles, clusterOptions = {}) {
   const composites = [];
 
   // Place each required file once before random fill so every variant is guaranteed in the output.
-  for (const file of requiredFiles) {
-    composites.push({
-      input: await rotateTile(path.join(tilesDir, file)),
-      left: Math.floor(Math.random() * (SIZE - TILE)),
-      top: Math.floor(Math.random() * (SIZE - TILE)),
-    });
+  for (const file of guaranteedTiles) {
+    composites.push(await composeTileAt(file, randomTileCoord(), randomTileCoord()));
   }
 
-  // Each placed star may seed a cluster of nearby stars when opts.cluster is set.
+  // Each placed star may seed a cluster of nearby stars when clusterOptions.cluster is set.
   for (let i = composites.length; i < count; i++) {
-    const cx = Math.floor(Math.random() * (SIZE - TILE));
-    const cy = Math.floor(Math.random() * (SIZE - TILE));
+    const cx = randomTileCoord();
+    const cy = randomTileCoord();
 
-    composites.push({
-      input: await rotateTile(path.join(tilesDir, pickTile())),
-      left: cx,
-      top: cy,
-    });
+    composites.push(await composeTileAt(pickTile(), cx, cy));
 
-    if (opts.cluster && Math.random() < opts.clusterChance) {
-      const extraStarCount =
-        opts.clusterMin + Math.floor(Math.random() * (opts.clusterMax - opts.clusterMin + 1));
-      for (let j = 0; j < extraStarCount && i + 1 < count; j++, i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const distance = Math.random() * opts.clusterRadius;
-        composites.push({
-          input: await rotateTile(path.join(tilesDir, pickTile())),
-          left: clamp(Math.round(cx + Math.cos(angle) * distance), 0, SIZE - TILE),
-          top: clamp(Math.round(cy + Math.sin(angle) * distance), 0, SIZE - TILE),
-        });
-      }
+    if (clusterOptions.cluster && Math.random() < clusterOptions.clusterChance) {
+      i += await placeClusterAround(cx, cy, clusterOptions, pickTile, composites, count - composites.length);
     }
   }
 

@@ -33,7 +33,7 @@ export function effectiveSpace(slot: InventorySlot): number {
   return Math.max(0, slot.max - slot.current - slot.reservedIncoming);
 }
 
-/** Fill % accounting for reservations: (current + incoming) / max. */
+/** Fill % including en-route deliveries — prevents overselling a slot that's nearly full from incoming cargo. */
 export function effectiveFillPercent(slot: InventorySlot): number {
   if (slot.max === 0) return 1;
   return (slot.current + slot.reservedIncoming) / slot.max;
@@ -72,7 +72,7 @@ export function getPossibleTradeRoutes(
   }
 
   const routesByPair = new Map<string, { fromStationId: string; toStationId: string; wares: Set<WareId> }>();
-  for (const [wareId, producers] of manager.wareStationIndex.producersByWareEntries()) {
+  for (const [wareId, producers] of manager.wareStationIndex.producedWaresWithStations()) {
     const consumers = manager.wareStationIndex.getConsumers(wareId);
     addRoutesForWare(wareId, producers, consumers, allowedWaresByHomeStationId, routesByPair);
   }
@@ -128,68 +128,60 @@ export function getShipTransportableWares(manager: TradeManager): WareId[] {
 /** Routes that carried cargo in the last `windowSeconds` (Infinity = all-time).
  *  Cached per-window, refreshing after tradeRouteCacheRefreshSeconds. Returns
  *  the same reference while warm so callers can identity-compare for diffs. */
-export function getTradedRoutes(manager: TradeManager, now: number, windowSeconds: number): RouteStats[] {
+export function getTradedRoutes(manager: TradeManager, nowSeconds: number, windowSeconds: number): RouteStats[] {
   const cached = manager.routesCacheByWindow.get(windowSeconds);
-  if (cached && now - cached.cachedAt < economyConfig.tradeRouteCacheRefreshSeconds) return cached.routes;
-  const routes = manager.tradeRouteStats.getRouteStatsInWindow(now, windowSeconds);
-  manager.routesCacheByWindow.set(windowSeconds, { cachedAt: now, routes });
+  if (cached && nowSeconds - cached.cachedAtSeconds < economyConfig.tradeRouteCacheRefreshSeconds)
+    return cached.routes;
+  const routes = manager.tradeRouteStats.getRouteStatsInWindow(nowSeconds, windowSeconds);
+  manager.routesCacheByWindow.set(windowSeconds, { cachedAtSeconds: nowSeconds, routes });
   return routes;
 }
 
-/** Distinct ware IDs across `getTradedRoutes(...)`. */
-export function getTradedWares(manager: TradeManager, now: number, windowSeconds: number): WareId[] {
-  const set = new Set<WareId>();
-  for (const route of getTradedRoutes(manager, now, windowSeconds)) {
-    for (const wareStats of route.wares) set.add(wareStats.wareId);
-  }
-  return [...set];
-}
-
-/** Highest-scoring item from `candidates`, with ties broken by uniform random
+/** Highest-scoring candidate from `candidates`, with ties broken by uniform random
  *  pick. Caller must pass a non-empty array. */
-function pickRandomFromMaxScore<T>(candidates: T[], scoreFn: (item: T) => number): T {
+function pickRandomFromMaxScore<T>(candidates: T[], scoreForSlot: (candidate: T) => number): T {
   let bestScore = -Infinity;
-  let tied: T[] = [];
+  let tiedForBest: T[] = [];
   for (const candidate of candidates) {
-    const score = scoreFn(candidate);
+    const score = scoreForSlot(candidate);
     if (score > bestScore) {
       bestScore = score;
-      tied = [candidate];
+      tiedForBest = [candidate];
     } else if (score === bestScore) {
-      tied.push(candidate);
+      tiedForBest.push(candidate);
     }
   }
-  return tied[Math.floor(Math.random() * tied.length)];
+  return tiedForBest[Math.floor(Math.random() * tiedForBest.length)];
 }
 
 /** Pick the main cargo leg — direction (sell/buy), ware, destination, amount.
  *  Respects allowedWares, minimum-fill threshold (with idle decay), and the
  *  optimalPickChance vs random pick. Returns null if no viable leg exists. */
 function pickPrimaryLeg(ship: TradeShip, manager: TradeManager): TradeTripLeg | null {
-  const home = manager.requireResolvedStation(ship.homeStationId);
+  const homeStation = manager.requireResolvedStation(ship.homeStationId);
   const orbitingShip = manager.requireResolvedShip(ship.orbitingShipId);
   const cargoCapacity = getShipTypeTemplate(orbitingShip.shipTypeId).cargoCapacity;
   if (cargoCapacity === 0) return null;
 
   const allowedWares = getShipTypeTemplate(orbitingShip.shipTypeId).allowedWares;
-  const candidates = scoreHomeInventoryCandidates(home, allowedWares);
+  const candidates = scoreHomeInventoryCandidates(homeStation, allowedWares);
   if (candidates.length === 0) return null;
 
-  const picked = pickPrimaryLegCandidate(candidates);
+  const primaryCandidate = pickWeightedByOptimalChance(candidates, (candidate) => candidate.score);
 
-  const counterStation = pickDestinationStation(picked, home, manager);
+  const counterStation = pickDestinationStation(primaryCandidate, homeStation, manager);
   if (!counterStation) return null;
 
-  const cargoAmount = sizeCargoForLeg(picked, counterStation, cargoCapacity);
+  const cargoAmount = sizeCargoForLeg(primaryCandidate, counterStation, cargoCapacity);
   if (cargoAmount <= 0) return null;
 
   if (cargoAmount / cargoCapacity < decayedMinimumCargoFill(ship, manager)) return null;
 
   return {
-    wareId: picked.slot.ware.id,
+    wareId: primaryCandidate.slot.ware.id,
     amount: cargoAmount,
-    fromStation: picked.direction === "sell" ? home : counterStation,
-    toStation: picked.direction === "sell" ? counterStation : home,
+    fromStation: primaryCandidate.direction === "sell" ? homeStation : counterStation,
+    toStation: primaryCandidate.direction === "sell" ? counterStation : homeStation,
   };
 }
 
@@ -206,18 +198,21 @@ interface PrimaryLegCandidate {
  *  Exported so tests can pin the building-station classification rule directly
  *  — `findEligibleCounterStations` blocks the bug downstream by the demand
  *  floor + `score > homeScore`, but those are trade-balance knobs, not
- *  invariants. The lone external consumer is the test suite. */
-export function scoreHomeInventoryCandidates(home: Station, allowedWares: WareId[]): PrimaryLegCandidate[] {
+ *  a correctness rule. The lone external consumer is the test suite. */
+export function scoreHomeInventoryCandidates(
+  homeStation: Station,
+  allowedWares: WareId[],
+): PrimaryLegCandidate[] {
   // A station-under-construction's slots are inbound-only construction inputs.
   // Treating them via stationType.produces (which already names the future
   // output) would route a shipyard-construction's hulls back out, locking
   // total hulls in a closed loop between builds.
-  const producedWares = isStationUnderConstruction(home)
+  const producedWares = isStationUnderConstruction(homeStation)
     ? new Set<WareId>()
-    : new Set(home.stationType.produces);
+    : new Set(homeStation.stationType.produces);
   const candidates: PrimaryLegCandidate[] = [];
 
-  for (const slot of getAllInventorySlots(home)) {
+  for (const slot of getAllInventorySlots(homeStation)) {
     if (!allowedWares.includes(slot.ware.id)) continue;
 
     if (producedWares.has(slot.ware.id)) {
@@ -234,7 +229,7 @@ export function scoreHomeInventoryCandidates(home: Station, allowedWares: WareId
       if (effectiveSpace(slot) > 0) {
         candidates.push({
           slot,
-          score: getTradeBuyDemand(home, slot),
+          score: getTradeBuyDemand(homeStation, slot),
           direction: "buy",
         });
       }
@@ -247,15 +242,11 @@ export function scoreHomeInventoryCandidates(home: Station, allowedWares: WareId
 /** optimalPickChance of the time picks the highest-score candidate (ties shuffle),
  *  otherwise uniform random — keeps fleets from converging on the same leg
  *  every tick. */
-function pickWeightedByOptimalChance<T>(candidates: T[], scoreFn: (candidate: T) => number): T {
+function pickWeightedByOptimalChance<T>(candidates: T[], scoreForSlot: (candidate: T) => number): T {
   if (Math.random() < economyConfig.optimalPickChance) {
-    return pickRandomFromMaxScore(candidates, scoreFn);
+    return pickRandomFromMaxScore(candidates, scoreForSlot);
   }
   return candidates[Math.floor(Math.random() * candidates.length)];
-}
-
-function pickPrimaryLegCandidate(candidates: PrimaryLegCandidate[]): PrimaryLegCandidate {
-  return pickWeightedByOptimalChance(candidates, (candidate) => candidate.score);
 }
 
 interface CounterStationCandidate {
@@ -278,20 +269,20 @@ export function scoreForDirection(
 
 /** Counter-side stations that score higher than home for this ware. */
 function findEligibleCounterStations(
-  picked: PrimaryLegCandidate,
-  home: Station,
+  primaryCandidate: PrimaryLegCandidate,
+  homeStation: Station,
   manager: TradeManager,
 ): CounterStationCandidate[] {
-  const wareId = picked.slot.ware.id;
+  const wareId = primaryCandidate.slot.ware.id;
   const stations =
-    picked.direction === "sell"
+    primaryCandidate.direction === "sell"
       ? manager.wareStationIndex.getConsumers(wareId)
       : manager.wareStationIndex.getProducers(wareId);
-  const scoreFor = scoreForDirection(picked.direction);
-  const homeScore = scoreFor(home, picked.slot);
+  const scoreFor = scoreForDirection(primaryCandidate.direction);
+  const homeScore = scoreFor(homeStation, primaryCandidate.slot);
   const eligible: CounterStationCandidate[] = [];
   for (const station of stations) {
-    if (station === home) continue;
+    if (station === homeStation) continue;
     const slot = getInventorySlot(station, wareId);
     if (!slot) continue;
     const score = scoreFor(station, slot);
@@ -300,36 +291,42 @@ function findEligibleCounterStations(
   return eligible;
 }
 
-/** Resolve the counter-side station for `picked`'s leg — optimalPickChance of the
- *  time goes to the highest-scoring eligible candidate, otherwise uniform
+/** Resolve the counter-side station for `primaryCandidate`'s leg — optimalPickChance
+ *  of the time goes to the highest-scoring eligible candidate, otherwise uniform
  *  random. Returns null if none qualify. */
 function pickDestinationStation(
-  picked: PrimaryLegCandidate,
-  home: Station,
+  primaryCandidate: PrimaryLegCandidate,
+  homeStation: Station,
   manager: TradeManager,
 ): Station | null {
-  const eligible = findEligibleCounterStations(picked, home, manager);
+  const eligible = findEligibleCounterStations(primaryCandidate, homeStation, manager);
   if (eligible.length === 0) return null;
   return pickWeightedByOptimalChance(eligible, (entry) => entry.score).station;
 }
 
 /** Cargo amount for the leg — clamped by ship capacity, source surplus,
  *  and destination room (all reservation-aware). */
-function sizeCargoForLeg(picked: PrimaryLegCandidate, target: Station, cargoCapacity: number): number {
-  const wareId = picked.slot.ware.id;
-  const sourceSlot = picked.direction === "sell" ? picked.slot : getInventorySlot(target, wareId)!;
-  const destinationSlot = picked.direction === "sell" ? getInventorySlot(target, wareId)! : picked.slot;
+function sizeCargoForLeg(
+  primaryCandidate: PrimaryLegCandidate,
+  target: Station,
+  cargoCapacity: number,
+): number {
+  const wareId = primaryCandidate.slot.ware.id;
+  const sourceSlot =
+    primaryCandidate.direction === "sell" ? primaryCandidate.slot : getInventorySlot(target, wareId)!;
+  const destinationSlot =
+    primaryCandidate.direction === "sell" ? getInventorySlot(target, wareId)! : primaryCandidate.slot;
   return Math.min(cargoCapacity, effectiveAvailable(sourceSlot), effectiveSpace(destinationSlot));
 }
 
-/** Minimum fraction of cargo a leg must fill to be worth flying. Starts at
- *  minimumCargoFillThreshold and decays to 0 over time per cargoFillDecayPerSecond
- *  — values live in data/economy-config.ts. */
+/** Minimum fraction of cargo a leg must fill to be worth flying. Decays toward 0
+ *  while the ship stays idle, so a ship that can't find a full load eventually
+ *  flies a partially-loaded trip rather than waiting indefinitely. */
 function decayedMinimumCargoFill(ship: TradeShip, manager: TradeManager): number {
-  const idleElapsed = manager.tradeTime - ship.idleSinceTradeTime;
+  const idleElapsedSeconds = manager.tradeTimeSeconds - ship.idleSinceTradeTimeSeconds;
   return Math.max(
     0,
-    economyConfig.minimumCargoFillThreshold - idleElapsed * economyConfig.cargoFillDecayPerSecond,
+    economyConfig.minimumCargoFillThreshold - idleElapsedSeconds * economyConfig.cargoFillDecayPerSecond,
   );
 }
 

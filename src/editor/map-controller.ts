@@ -6,8 +6,7 @@ import { Layer } from "../../data/visuals-layers";
 import { getStationBodyRadius, getStationNameLabelOffsetY } from "../phaser/station-visual-bundle";
 import type { SelectionTarget } from "../phaser/selection-input";
 import { StationSelectionTarget } from "../phaser/station-render-selection";
-import { ZONE_LABEL_Y_OFFSET } from "../phaser/station-zone-render";
-import { setAnnouncementsMuted } from "../audio-announcer";
+import { ZONE_LABEL_Y_OFFSET_PIXELS } from "../phaser/station-zone-render";
 
 /** Interaction mode for the in-browser map editor.
  *  - `view`   — read-only camera; no edits.
@@ -23,9 +22,9 @@ type SelectableEntity =
   | { kind: "zone"; index: number };
 
 type DragTarget =
-  | { type: "nebula"; nebulaIndex: number }
-  | { type: "station"; stationIndex: number }
-  | { type: "zone"; zoneIndex: number };
+  | { kind: "nebula"; nebulaIndex: number }
+  | { kind: "station"; stationIndex: number }
+  | { kind: "zone"; zoneIndex: number };
 
 interface MapEditorControls {
   editableNebulas: Nebula[];
@@ -37,12 +36,6 @@ interface MapEditorControls {
 
 const ZONE_CLICK_RADIUS = 60;
 
-function pointerDistanceTo(entityX: number, entityY: number, pointerX: number, pointerY: number): number {
-  const deltaX = pointerX - entityX;
-  const deltaY = pointerY - entityY;
-  return Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-}
-
 export class MapEditorController {
   private mode: MapEditorMode = "view";
   private draggedTarget: DragTarget | null = null;
@@ -52,7 +45,7 @@ export class MapEditorController {
   private readonly nebulaSelectionOutline: Phaser.GameObjects.Rectangle;
 
   // Click-cycling state for selectFromClick / advanceClickCycle.
-  private entityClickStack: SelectableEntity[] = [];
+  private entitiesAtLastClick: SelectableEntity[] = [];
   private entityClickIndex = 0;
   private lastClickX = 0;
   private lastClickY = 0;
@@ -71,7 +64,7 @@ export class MapEditorController {
       if (stationIndex === null || !this.isPointerOverStation(stationIndex, pointer.worldX, pointer.worldY))
         return null;
       const station = this.scene.stations[stationIndex];
-      return { x: station.x, y: station.y, dragTarget: { type: "station", stationIndex } };
+      return { x: station.x, y: station.y, dragTarget: { kind: "station", stationIndex } };
     });
   }
 
@@ -81,7 +74,7 @@ export class MapEditorController {
       if (zoneIndex === null || !this.isPointerOverZone(zoneIndex, pointer.worldX, pointer.worldY))
         return null;
       const zone = this.scene.stationZoneVisualBundles[zoneIndex].zone;
-      return { x: zone.x, y: zone.y, dragTarget: { type: "zone", zoneIndex } };
+      return { x: zone.x, y: zone.y, dragTarget: { kind: "zone", zoneIndex } };
     });
   }
 
@@ -90,8 +83,8 @@ export class MapEditorController {
       const nebulaIndex = this.getSelectedNebulaIndex();
       if (nebulaIndex === null || !this.isPointerOverNebula(nebulaIndex, pointer.worldX, pointer.worldY))
         return null;
-      const nebulaImage = this.scene.nebulaImages[nebulaIndex];
-      return { x: nebulaImage.x, y: nebulaImage.y, dragTarget: { type: "nebula", nebulaIndex } };
+      const nebulaImage = this.scene.background.nebulaImages[nebulaIndex];
+      return { x: nebulaImage.x, y: nebulaImage.y, dragTarget: { kind: "nebula", nebulaIndex } };
     });
   }
 
@@ -113,9 +106,9 @@ export class MapEditorController {
     if (!this.draggedTarget || !pointer.isDown) return;
     const nextX = pointer.worldX + this.dragOffsetX;
     const nextY = pointer.worldY + this.dragOffsetY;
-    if (this.draggedTarget.type === "station") {
+    if (this.draggedTarget.kind === "station") {
       this.moveStation(this.draggedTarget.stationIndex, nextX, nextY);
-    } else if (this.draggedTarget.type === "zone") {
+    } else if (this.draggedTarget.kind === "zone") {
       this.moveZone(this.draggedTarget.zoneIndex, nextX, nextY);
     } else {
       this.moveNebula(this.draggedTarget.nebulaIndex, nextX, nextY);
@@ -190,19 +183,19 @@ export class MapEditorController {
 
   updateStatus() {
     const selectedLabel =
-      this.selectedEntity !== null ? this.formatSelectedEntityLabel(this.selectedEntity) : null;
+      this.selectedEntity !== null ? this.formatSelectedEntityStatusText(this.selectedEntity) : null;
     this.controls.statusText.textContent = selectedLabel ?? this.defaultModeStatus();
   }
 
-  private formatSelectedEntityLabel(entity: SelectableEntity): string {
-    if (entity.kind === "station") return this.formatStationLabel(entity.index);
-    if (entity.kind === "nebula") return this.formatNebulaLabel(entity.index);
-    return this.formatZoneLabel(entity.index);
+  private formatSelectedEntityStatusText(entity: SelectableEntity): string {
+    if (entity.kind === "station") return this.formatStationStatusText(entity.index);
+    if (entity.kind === "nebula") return this.formatNebulaStatusText(entity.index);
+    return this.formatZoneStatusText(entity.index);
   }
 
   private defaultModeStatus(): string {
     if (this.mode === "view") return "";
-    if (this.mode === "move") return "Select a station or nebula to move";
+    if (this.mode === "move") return "Select a station, zone, or nebula to move";
     return "Click a station, nebula, or zone to select";
   }
 
@@ -226,7 +219,7 @@ export class MapEditorController {
     const selectedTarget = this.scene.selection.selectedTarget;
     if (!(selectedTarget instanceof StationSelectionTarget)) return null;
 
-    const selectedIndex = this.scene.stationBundles.findIndex(
+    const selectedIndex = [...this.scene.stationBundleByStation.values()].findIndex(
       (bundle) => bundle.selectionTarget === selectedTarget,
     );
     return selectedIndex >= 0 ? selectedIndex : null;
@@ -243,7 +236,7 @@ export class MapEditorController {
   }
 
   private moveStation(stationIndex: number, nextX: number, nextY: number) {
-    const bundle = this.scene.stationBundles[stationIndex];
+    const bundle = [...this.scene.stationBundleByStation.values()][stationIndex];
     const stationData = this.scene.stations[stationIndex];
 
     stationData.x = nextX;
@@ -261,11 +254,11 @@ export class MapEditorController {
     zoneVisualBundle.zone.x = nextX;
     zoneVisualBundle.zone.y = nextY;
     zoneVisualBundle.image.setPosition(nextX, nextY);
-    zoneVisualBundle.label.setPosition(nextX, nextY + ZONE_LABEL_Y_OFFSET);
+    zoneVisualBundle.label.setPosition(nextX, nextY + ZONE_LABEL_Y_OFFSET_PIXELS);
   }
 
   private moveNebula(nebulaIndex: number, nextX: number, nextY: number) {
-    const image = this.scene.nebulaImages[nebulaIndex];
+    const image = this.scene.background.nebulaImages[nebulaIndex];
     image.setPosition(nextX, nextY);
     this.controls.editableNebulas[nebulaIndex].x = nextX;
     this.controls.editableNebulas[nebulaIndex].y = nextY;
@@ -290,17 +283,17 @@ export class MapEditorController {
   private gatherEntitiesUnderPointer(mapX: number, mapY: number): SelectableEntity[] {
     const entities: SelectableEntity[] = [];
 
-    const clickedStationIndex = this.findStationAt(mapX, mapY);
+    const clickedStationIndex = this.findNearestStationAt(mapX, mapY);
     if (clickedStationIndex !== null) {
       entities.push({ kind: "station", index: clickedStationIndex });
     }
 
-    const matchingNebulaIndices = this.findNebulaIndicesAt(mapX, mapY);
+    const matchingNebulaIndices = this.findOverlappingNebulaIndicesAt(mapX, mapY);
     for (const nebulaIndex of matchingNebulaIndices) {
       entities.push({ kind: "nebula", index: nebulaIndex });
     }
 
-    const clickedZoneIndex = this.findZoneAt(mapX, mapY);
+    const clickedZoneIndex = this.findNearestZoneAt(mapX, mapY);
     if (clickedZoneIndex !== null) {
       entities.push({ kind: "zone", index: clickedZoneIndex });
     }
@@ -313,15 +306,15 @@ export class MapEditorController {
     const sameArea = Math.abs(mapX - this.lastClickX) < 20 && Math.abs(mapY - this.lastClickY) < 20;
     const sameStack =
       sameArea &&
-      this.entityClickStack.length === entities.length &&
-      this.entityClickStack.every(
+      this.entitiesAtLastClick.length === entities.length &&
+      this.entitiesAtLastClick.every(
         (entity, index) => entity.kind === entities[index].kind && entity.index === entities[index].index,
       );
 
     if (sameStack) {
       this.entityClickIndex = (this.entityClickIndex + 1) % entities.length;
     } else {
-      this.entityClickStack = entities;
+      this.entitiesAtLastClick = entities;
       this.entityClickIndex = 0;
     }
 
@@ -338,28 +331,23 @@ export class MapEditorController {
 
     const selectionTarget = this.getSelectionTargetForEntity(entity);
     if (selectionTarget) {
-      // Editor selections are tooling, not gameplay — suppress the station/zone
-      // announcement that enterSelected() would otherwise trigger.
-      setAnnouncementsMuted(true);
-      try {
-        this.scene.selection.select(selectionTarget);
-      } finally {
-        setAnnouncementsMuted(false);
-      }
+      this.scene.selection.select(selectionTarget);
     }
 
     this.updateNebulaSelectionOutline();
   }
 
   private getSelectionTargetForEntity(entity: SelectableEntity): SelectionTarget | null {
-    if (entity.kind === "station") return this.scene.stationBundles[entity.index].selectionTarget;
+    if (entity.kind === "station") {
+      return [...this.scene.stationBundleByStation.values()][entity.index].selectionTarget;
+    }
     if (entity.kind === "zone") return this.scene.stationZoneSelectionTargets[entity.index];
     return null;
   }
 
   private clearEntitySelection() {
     this.selectedEntity = null;
-    this.entityClickStack = [];
+    this.entitiesAtLastClick = [];
     this.entityClickIndex = 0;
     this.updateNebulaSelectionOutline();
   }
@@ -371,7 +359,7 @@ export class MapEditorController {
       return;
     }
 
-    const image = this.scene.nebulaImages[selectedNebulaIndex];
+    const image = this.scene.background.nebulaImages[selectedNebulaIndex];
     this.nebulaSelectionOutline
       .setPosition(image.x, image.y)
       .setSize(image.displayWidth + 16, image.displayHeight + 16)
@@ -379,22 +367,22 @@ export class MapEditorController {
       .setVisible(true);
   }
 
-  private formatStationLabel(stationIndex: number): string {
+  private formatStationStatusText(stationIndex: number): string {
     const station = this.scene.stations[stationIndex];
     return `${station.name ?? station.id} (${Math.round(station.x)}, ${Math.round(station.y)})`;
   }
 
-  private formatZoneLabel(zoneIndex: number): string {
+  private formatZoneStatusText(zoneIndex: number): string {
     const zoneVisualBundle = this.scene.stationZoneVisualBundles[zoneIndex];
     return `${zoneVisualBundle.zone.name} (${Math.round(zoneVisualBundle.zone.x)}, ${Math.round(zoneVisualBundle.zone.y)})`;
   }
 
-  private formatNebulaLabel(nebulaIndex: number): string {
-    const image = this.scene.nebulaImages[nebulaIndex];
+  private formatNebulaStatusText(nebulaIndex: number): string {
+    const image = this.scene.background.nebulaImages[nebulaIndex];
     return `${image.texture.key} (${Math.round(image.x)}, ${Math.round(image.y)})`;
   }
 
-  private findStationAt(mapX: number, mapY: number): number | null {
+  private findNearestStationAt(mapX: number, mapY: number): number | null {
     let nearestStationIndex: number | null = null;
     let nearestDistance = Number.POSITIVE_INFINITY;
 
@@ -402,7 +390,7 @@ export class MapEditorController {
       if (!this.isPointerOverStation(stationIndex, mapX, mapY)) continue;
 
       const station = this.scene.stations[stationIndex];
-      const distance = pointerDistanceTo(station.x, station.y, mapX, mapY);
+      const distance = Math.hypot(mapX - station.x, mapY - station.y);
       if (distance < nearestDistance) {
         nearestDistance = distance;
         nearestStationIndex = stationIndex;
@@ -412,13 +400,13 @@ export class MapEditorController {
     return nearestStationIndex;
   }
 
-  private findZoneAt(mapX: number, mapY: number): number | null {
+  private findNearestZoneAt(mapX: number, mapY: number): number | null {
     let nearestZoneIndex: number | null = null;
     let nearestDistance = Number.POSITIVE_INFINITY;
 
     for (let zoneIndex = 0; zoneIndex < this.scene.stationZoneVisualBundles.length; zoneIndex++) {
       const zone = this.scene.stationZoneVisualBundles[zoneIndex].zone;
-      const distance = pointerDistanceTo(zone.x, zone.y, mapX, mapY);
+      const distance = Math.hypot(mapX - zone.x, mapY - zone.y);
       if (distance <= ZONE_CLICK_RADIUS && distance < nearestDistance) {
         nearestDistance = distance;
         nearestZoneIndex = zoneIndex;
@@ -430,19 +418,19 @@ export class MapEditorController {
 
   private isPointerOverZone(zoneIndex: number, mapX: number, mapY: number): boolean {
     const zone = this.scene.stationZoneVisualBundles[zoneIndex].zone;
-    return pointerDistanceTo(zone.x, zone.y, mapX, mapY) <= ZONE_CLICK_RADIUS;
+    return Math.hypot(mapX - zone.x, mapY - zone.y) <= ZONE_CLICK_RADIUS;
   }
 
   private isPointerOverStation(stationIndex: number, mapX: number, mapY: number): boolean {
     const station = this.scene.stations[stationIndex];
     const stationRadius = getStationBodyRadius(station) + 12;
-    return pointerDistanceTo(station.x, station.y, mapX, mapY) <= stationRadius;
+    return Math.hypot(mapX - station.x, mapY - station.y) <= stationRadius;
   }
 
-  private findNebulaIndicesAt(mapX: number, mapY: number): number[] {
+  private findOverlappingNebulaIndicesAt(mapX: number, mapY: number): number[] {
     const matchingNebulaIndices: number[] = [];
 
-    for (let nebulaIndex = 0; nebulaIndex < this.scene.nebulaImages.length; nebulaIndex++) {
+    for (let nebulaIndex = 0; nebulaIndex < this.scene.background.nebulaImages.length; nebulaIndex++) {
       if (this.isPointerOverNebula(nebulaIndex, mapX, mapY)) {
         matchingNebulaIndices.push(nebulaIndex);
       }
@@ -452,12 +440,20 @@ export class MapEditorController {
   }
 
   private isPointerOverNebula(nebulaIndex: number, mapX: number, mapY: number): boolean {
-    const image = this.scene.nebulaImages[nebulaIndex];
+    const image = this.scene.background.nebulaImages[nebulaIndex];
+    return this.pointerWithinRotatedNebula(image, mapX, mapY);
+  }
+
+  private pointerWithinRotatedNebula(
+    image: Phaser.GameObjects.Image,
+    pointerX: number,
+    pointerY: number,
+  ): boolean {
     const radians = Phaser.Math.DegToRad(-image.angle);
     const cosine = Math.cos(radians);
     const sine = Math.sin(radians);
-    const deltaX = mapX - image.x;
-    const deltaY = mapY - image.y;
+    const deltaX = pointerX - image.x;
+    const deltaY = pointerY - image.y;
     const localX = deltaX * cosine - deltaY * sine;
     const localY = deltaX * sine + deltaY * cosine;
     return Math.abs(localX) <= image.displayWidth / 2 && Math.abs(localY) <= image.displayHeight / 2;

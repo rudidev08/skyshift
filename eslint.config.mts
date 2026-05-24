@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 import { defineConfig, globalIgnores } from "eslint/config";
+import type { Linter } from "eslint";
 
 const browserTypeScriptFiles = ["src/**/*.{ts,tsx,mts,cts}", "data/**/*.{ts,tsx,mts,cts}"];
 
@@ -17,6 +18,24 @@ const nodeJavaScriptFiles = ["dev/**/*.{js,mjs,cjs}"];
 const repositoryTypeScriptFiles = [...browserTypeScriptFiles, ...nodeTypeScriptFiles];
 
 const repositoryLintFiles = [...repositoryTypeScriptFiles, ...nodeJavaScriptFiles];
+
+// Baseline shared by every TypeScript block (browser, node tooling, sim).
+// DOM-assertion patterns and console-driven dev/diagnostic output are intentional
+// throughout the repo; underscore-prefixed unused vars are reserved for Phaser/DOM
+// callback placeholder args; type-imports stay advisory rather than blocking.
+const sharedRepoRules: Linter.RulesRecord = {
+  "@typescript-eslint/no-non-null-assertion": "off",
+  "@typescript-eslint/consistent-type-imports": "warn",
+  "@typescript-eslint/no-unused-vars": [
+    "error",
+    {
+      argsIgnorePattern: "^_",
+      varsIgnorePattern: "^_",
+      caughtErrorsIgnorePattern: "^_",
+    },
+  ],
+  "no-console": "off",
+};
 
 export default defineConfig(
   // Keep repo-wide ignores limited to generated, vendored, or local-only output.
@@ -58,28 +77,7 @@ export default defineConfig(
       },
     },
     rules: {
-      // DOM lookup patterns in this codebase intentionally assert presence after
-      // grabbing fixed HUD elements from index.html.
-      "@typescript-eslint/no-non-null-assertion": "off",
-
-      // Type-only imports keep emitted code cleaner and make intent obvious in
-      // larger simulation/render files, but this should stay advisory for now.
-      "@typescript-eslint/consistent-type-imports": "warn",
-
-      // Phaser callbacks and DOM handlers often receive unused placeholder args.
-      // Underscore-prefixed names should be allowed for that case.
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        {
-          argsIgnorePattern: "^_",
-          varsIgnorePattern: "^_",
-          caughtErrorsIgnorePattern: "^_",
-        },
-      ],
-
-      // Browser game code and in-repo tooling use console intentionally for dev
-      // toggles, diagnostics, and simulation output.
-      "no-console": "off",
+      ...sharedRepoRules,
     },
   },
 
@@ -94,26 +92,7 @@ export default defineConfig(
       },
     },
     rules: {
-      // ESM Node scripts in this repo still use deliberate non-null assertions in
-      // a few file-system and data-loading paths.
-      "@typescript-eslint/no-non-null-assertion": "off",
-
-      // Keep nudging TS files toward explicit type imports without making that a
-      // blocking migration task across the dev tools folder.
-      "@typescript-eslint/consistent-type-imports": "warn",
-
-      // CLI tools also use placeholder callback args and temporary variables.
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        {
-          argsIgnorePattern: "^_",
-          varsIgnorePattern: "^_",
-          caughtErrorsIgnorePattern: "^_",
-        },
-      ],
-
-      // Console output is the primary interface for these scripts.
-      "no-console": "off",
+      ...sharedRepoRules,
     },
   },
 
@@ -131,7 +110,7 @@ export default defineConfig(
     },
   },
 
-  // Static-page smoke tests run under Node (Puppeteer driver) but pass callbacks
+  // Static-page load checks run under Node (Puppeteer driver) but pass callbacks
   // into `page.evaluate(() => ...)` that execute in the browser context. Allow
   // both global sets so DOM references inside those callbacks lint clean.
   {
@@ -184,17 +163,7 @@ export default defineConfig(
     },
     rules: {
       // Match the browser block's defaults so sim isn't accidentally stricter.
-      "@typescript-eslint/no-non-null-assertion": "off",
-      "@typescript-eslint/consistent-type-imports": "warn",
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        {
-          argsIgnorePattern: "^_",
-          varsIgnorePattern: "^_",
-          caughtErrorsIgnorePattern: "^_",
-        },
-      ],
-      "no-console": "off",
+      ...sharedRepoRules,
 
       "no-restricted-imports": [
         "error",

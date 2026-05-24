@@ -4,6 +4,7 @@
 // into the manager.
 
 import type { StationEmigration } from "./sim-station-types";
+import { clamp01 } from "./util-clamp";
 
 /** Base emigrant-ship count per station; scales by size (S=1, M=2, L=3). */
 export const EMIGRANT_SHIPS_PER_STATION_BASE = 10;
@@ -29,7 +30,6 @@ export interface EmigrationEvent {
    *  by `retireUnlaunched` if a launch budget is abandoned. */
   totalExpectedShips: number;
   destinationName: string;
-  startAt: number;
 }
 
 /** Spawn failed — drop the unlaunched budget so totalExpectedShips shrinks
@@ -41,10 +41,9 @@ export function retireUnlaunched(emigration: StationEmigration, event: Emigratio
   event.totalExpectedShips -= abandoned;
 }
 
-/** Compute current per-station emigration progress:
- *    (launched emigrants + departed homed ships) / (total emigrants + initial homed).
- *  Returns 1 if the station had nothing to send. Caller resolves homedStillDocked
- *  by walking trade ships. */
+/** Compute current per-station emigration progress toward 1.
+ *  Returns 1 if the station had nothing to send. Caller supplies homedStillDocked
+ *  by walking the station's trade ships. */
 export function computeEmigrationFraction(
   emigration: StationEmigration,
   initialHomedShipIdSet: Set<string>,
@@ -54,5 +53,5 @@ export function computeEmigrationFraction(
   if (totalRequired === 0) return 1;
   const homedDeparted = initialHomedShipIdSet.size - homedStillDocked;
   const completed = emigration.launched + homedDeparted;
-  return Math.max(0, Math.min(1, completed / totalRequired));
+  return clamp01(completed / totalRequired);
 }

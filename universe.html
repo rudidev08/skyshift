@@ -25,7 +25,6 @@
         overflow: hidden;
         background: #000;
         touch-action: none;
-        padding-bottom: 0;
       }
       #game-container {
         width: 100%;
@@ -70,8 +69,8 @@
         padding: 0;
         justify-content: center;
       }
-      /* Lore / log buttons hide by default; game.ts adds .is-available
-         whenever the selection has lore / details of that type. */
+      /* Lore / log buttons hide by default; src/ui-game-hud.ts adds
+         .is-available whenever the selection has lore / log of that type. */
       #lore-toggle,
       #log-toggle {
         display: none;
@@ -92,7 +91,7 @@
       /* Lore / log drawers — blurred cards. JS positions them below the
          id-card and toggles display: flex when open. */
       #lore-box,
-      #details-box {
+      #log-box {
         position: fixed;
         left: 8px;
         z-index: 5;
@@ -105,13 +104,11 @@
       #lore-box {
         width: 300px;
       }
-      #details-box {
+      #log-box {
         width: 340px;
       }
 
-      /* HUD bar stacks toggle row → speed rack → zoom dial bottom-left,
-         each wrapped as a labeled stack-item. The extra gap accommodates
-         the `// NN · …` annotation that sits above every group. */
+      /* Bottom-left HUD column: toggle row above the zoom dial. */
       #hud-bar {
         position: fixed;
         bottom: max(8px, var(--safe-bottom));
@@ -172,7 +169,7 @@
           </div>
         </div>
         <div class="loading-bar loading-bar--hero"></div>
-        <div class="id-type-mrz id-status-band">// standby</div>
+        <div class="section-band id-status-band">// standby</div>
       </div>
     </div>
     <div id="speed-hud" class="speed-hud" hidden>
@@ -187,7 +184,7 @@
         </button>
         <button
           id="speed-dev-20"
-          class="speed-pill speed-pill--dev"
+          class="speed-pill"
           type="button"
           data-dev-speed="20"
           title="Dev speed 20× (≈3 real min per game hour)"
@@ -197,7 +194,7 @@
         </button>
         <button
           id="speed-dev-60"
-          class="speed-pill speed-pill--dev"
+          class="speed-pill"
           type="button"
           data-dev-speed="60"
           title="Dev speed 60× (≈1 real min per game hour)"
@@ -208,20 +205,16 @@
       </div>
     </div>
     <div id="hud-bar">
-      <div id="hud-top-row" class="stack-item">
-        <div class="row gap-xs">
-          <button id="zones-toggle" class="hud-btn hud-btn-icon" title="Zones (cycle with V)"></button>
-          <button id="overview-toggle" class="hud-btn hud-btn-icon" title="Overview (cycle with V)"></button>
-        </div>
+      <div id="hud-top-row" class="row gap-xs">
+        <button id="zones-toggle" class="hud-btn hud-btn-icon" title="Zones (cycle with V)"></button>
+        <button id="overview-toggle" class="hud-btn hud-btn-icon" title="Overview (cycle with V)"></button>
       </div>
-      <div class="stack-item">
-        <div class="zoom-dial">
-          <div id="controls-toggle" class="zoom-btn" title="Toggle controls"></div>
-          <div class="zoom-group">
-            <div id="zoom-out" class="zoom-btn" title="Zoom out"></div>
-            <div id="zoom-level" class="zoom-level" title="Cycle zoom preset"></div>
-            <div id="zoom-in" class="zoom-btn" title="Zoom in"></div>
-          </div>
+      <div class="zoom-dial">
+        <div id="controls-toggle" class="zoom-btn" title="Toggle controls"></div>
+        <div class="zoom-group">
+          <div id="zoom-out" class="zoom-btn" title="Zoom out"></div>
+          <div id="zoom-level" class="zoom-level" title="Cycle zoom preset"></div>
+          <div id="zoom-in" class="zoom-btn" title="Zoom in"></div>
         </div>
       </div>
     </div>
@@ -240,7 +233,7 @@
             </div>
           </div>
           <div id="description" class="cargo-grid"></div>
-          <div id="status-band" class="id-type-mrz id-status-band" hidden></div>
+          <div id="status-band" class="section-band id-status-band" hidden></div>
         </div>
         <div id="info-rail">
           <button id="collapse-toggle" class="hud-btn hud-btn-icon" title="Collapse"></button>
@@ -257,9 +250,9 @@
       </div>
     </div>
 
-    <div id="details-box">
+    <div id="log-box">
       <div class="log-panel">
-        <div id="details-content" class="log-panel-body"></div>
+        <div id="log-content" class="log-panel-body"></div>
       </div>
     </div>
 

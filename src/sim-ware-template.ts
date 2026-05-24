@@ -1,25 +1,21 @@
 import { allWares } from "../data/wares";
 import type { WareTemplate, WareProductionInput, WareId } from "../data/ware-types";
 import { economyConfig } from "../data/economy-config";
+import { templateLookupById } from "./util-template-registry";
 
-const wareTemplatesById = new Map<WareId, WareTemplate>(allWares.map((ware) => [ware.id, ware]));
+export const getWareTemplate = templateLookupById<WareId, WareTemplate>(allWares, "ware");
 
-/** Throws on unknown id — every WareId comes from the data files, so a miss means a typo or stale reference, not a runtime case to handle. */
-export function getWareTemplate(id: WareId): WareTemplate {
-  const ware = wareTemplatesById.get(id);
-  if (!ware) throw new Error(`Unknown ware: ${id}`);
-  return ware;
-}
-
-/** Storage capacity in ticks. Read live (not cached) so editor edits to economyConfig take effect on the next station built. */
-function getStorageCapacityInTicks(): number {
+/** Reads economyConfig each call so editor edits to targetFillTimeSeconds take effect on the next station built. */
+export function getStorageCapacityInTicks(): number {
   return economyConfig.targetFillTimeSeconds / economyConfig.simulationIntervalSeconds;
 }
 
+/** Station output storage for a ware — one hour of its production output. */
 export function getWareOutputStorage(ware: WareTemplate): number {
   return ware.productionOutput * getStorageCapacityInTicks();
 }
 
+/** Station input storage for a production input — one hour of its consumption. */
 export function getWareInputStorage(input: WareProductionInput): number {
   return input.unitsPerTick * getStorageCapacityInTicks();
 }

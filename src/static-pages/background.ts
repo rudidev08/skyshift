@@ -47,12 +47,7 @@ function loadImage(name: string, onload: () => void): HTMLImageElement {
   return image;
 }
 
-/** Returned by `mountPageBackground`; call `destroy()` on page teardown to remove the resize listener. */
-export interface PageBackgroundHandle {
-  destroy(): void;
-}
-
-export function mountPageBackground(canvas: HTMLCanvasElement): PageBackgroundHandle {
+export function mountPageBackground(canvas: HTMLCanvasElement): void {
   const context = canvas.getContext("2d")!;
 
   const draw = () => drawBackground(context, farLayer, nearLayer);
@@ -67,26 +62,25 @@ export function mountPageBackground(canvas: HTMLCanvasElement): PageBackgroundHa
     offsets: STARS_NEAR_OFFSETS,
   };
 
+  setupCanvasViewportSync(canvas, context, draw);
+  draw();
+}
+
+function setupCanvasViewportSync(
+  canvas: HTMLCanvasElement,
+  context: CanvasRenderingContext2D,
+  draw: () => void,
+): void {
   function resize() {
     canvas.width = innerWidth * PIXEL_RATIO;
     canvas.height = innerHeight * PIXEL_RATIO;
     context.setTransform(PIXEL_RATIO, 0, 0, PIXEL_RATIO, 0, 0);
   }
   resize();
-
-  // draw() reads innerWidth/innerHeight, so re-resize + redraw on viewport changes.
-  const onResize = () => {
+  window.addEventListener("resize", () => {
     resize();
     draw();
-  };
-  window.addEventListener("resize", onResize);
-  draw();
-
-  return {
-    destroy() {
-      window.removeEventListener("resize", onResize);
-    },
-  };
+  });
 }
 
 function drawDarkNebula(

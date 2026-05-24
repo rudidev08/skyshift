@@ -7,16 +7,6 @@ import { allWares } from "../../data/wares";
 import type { WareId, WareProductionInput } from "../../data/ware-types";
 import { economyConfig } from "../../data/economy-config";
 
-export type EconomyFieldName =
-  | "minimumCargoFillThreshold"
-  | "cargoFillDecayPerSecond"
-  | "tradeWaitMinSeconds"
-  | "tradeWaitMaxSeconds"
-  | "groundedDelaySeconds"
-  | "optimalPickChance";
-
-export type ShipBaselineFieldName = "cargoCapacity" | "speed";
-
 export interface ShipBaseline {
   id: string;
   cargoCapacity: number;
@@ -44,7 +34,7 @@ export const baselineWares: WareBaseline[] = allWares.map((ware) => ({
   })),
 }));
 
-export const baselineEconomyConfig: Record<EconomyFieldName, number> = {
+export const baselineEconomyConfig = {
   minimumCargoFillThreshold: economyConfig.minimumCargoFillThreshold,
   cargoFillDecayPerSecond: economyConfig.cargoFillDecayPerSecond,
   tradeWaitMinSeconds: economyConfig.tradeWaitMinSeconds,
@@ -53,10 +43,8 @@ export const baselineEconomyConfig: Record<EconomyFieldName, number> = {
   optimalPickChance: economyConfig.optimalPickChance,
 };
 
+export type EconomyFieldName = keyof typeof baselineEconomyConfig;
+
 export function isEconomyFieldName(field: string | undefined): field is EconomyFieldName {
   return field !== undefined && field in baselineEconomyConfig;
-}
-
-export function isShipBaselineFieldName(field: string | undefined): field is ShipBaselineFieldName {
-  return field === "cargo" || field === "speed";
 }

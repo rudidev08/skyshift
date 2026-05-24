@@ -20,13 +20,6 @@ interface WareConsumer {
   totalMultiplier: number;
 }
 
-interface WareConsumerRecord {
-  inputWareId: WareId;
-  producedWareId: WareId;
-  currentCost: number;
-  multiplier: number;
-}
-
 interface ProductionAggregate {
   totalProductionByWareId: Map<WareId, number>;
   totalConsumptionByWareId: Map<WareId, number>;
@@ -41,30 +34,43 @@ function formatNet(net: number): string {
   return `${sign}${net.toFixed(2)}`;
 }
 
-function addWareAmount(totalsByWareId: Map<WareId, number>, wareId: WareId, amount: number): void {
-  totalsByWareId.set(wareId, (totalsByWareId.get(wareId) ?? 0) + amount);
-}
-
-function createLiveStations(): Station[] {
-  const stations = settledMap.stations.map((station) => createStation(station));
-  settledMap.seedInitialInventory?.(stations);
-  return stations;
-}
-
-function recordWareConsumer(registry: Map<WareId, WareConsumer[]>, record: WareConsumerRecord): void {
-  if (!registry.has(record.inputWareId)) registry.set(record.inputWareId, []);
-  const consumers = registry.get(record.inputWareId)!;
-  let existingConsumer = consumers.find((consumer) => consumer.producingWareId === record.producedWareId);
-  if (!existingConsumer) {
-    existingConsumer = {
-      label: `→ ${record.producedWareId}`,
-      producingWareId: record.producedWareId,
-      currentCost: record.currentCost,
-      totalMultiplier: 0,
-    };
-    consumers.push(existingConsumer);
+function addStationRatesToTotals(
+  station: Station,
+  totalProductionByWareId: Map<WareId, number>,
+  totalConsumptionByWareId: Map<WareId, number>,
+): void {
+  const stationRates = getStationRates(station);
+  for (const [wareId, amount] of stationRates.production) {
+    totalProductionByWareId.set(wareId, (totalProductionByWareId.get(wareId) ?? 0) + amount);
   }
-  existingConsumer.totalMultiplier += record.multiplier;
+  for (const [wareId, amount] of stationRates.consumption) {
+    totalConsumptionByWareId.set(wareId, (totalConsumptionByWareId.get(wareId) ?? 0) + amount);
+  }
+}
+
+function addProductionInputsToConsumerIndex(
+  station: Station,
+  wareConsumersByInputWareId: Map<WareId, WareConsumer[]>,
+): void {
+  for (const producedWareId of station.stationType.produces) {
+    const producedWare = getWareTemplate(producedWareId);
+    for (const productionInput of producedWare.productionInputs) {
+      const inputWareId = productionInput.wareId;
+      if (!wareConsumersByInputWareId.has(inputWareId)) wareConsumersByInputWareId.set(inputWareId, []);
+      const consumers = wareConsumersByInputWareId.get(inputWareId)!;
+      let existingConsumer = consumers.find((consumer) => consumer.producingWareId === producedWareId);
+      if (!existingConsumer) {
+        existingConsumer = {
+          label: `→ ${producedWareId}`,
+          producingWareId: producedWareId,
+          currentCost: productionInput.unitsPerTick,
+          totalMultiplier: 0,
+        };
+        consumers.push(existingConsumer);
+      }
+      existingConsumer.totalMultiplier += station.sizeMultiplier;
+    }
+  }
 }
 
 function aggregateProductionAndConsumption(stations: Station[]): ProductionAggregate {
@@ -74,41 +80,10 @@ function aggregateProductionAndConsumption(stations: Station[]): ProductionAggre
 
   for (const station of stations) {
     addStationRatesToTotals(station, totalProductionByWareId, totalConsumptionByWareId);
-    addStationToWareConsumerRegistry(station, wareConsumersByInputWareId);
+    addProductionInputsToConsumerIndex(station, wareConsumersByInputWareId);
   }
 
   return { totalProductionByWareId, totalConsumptionByWareId, wareConsumersByInputWareId };
-}
-
-function addStationRatesToTotals(
-  station: Station,
-  totalProductionByWareId: Map<WareId, number>,
-  totalConsumptionByWareId: Map<WareId, number>,
-): void {
-  const stationRates = getStationRates(station);
-  for (const [wareId, amount] of stationRates.production) {
-    addWareAmount(totalProductionByWareId, wareId, amount);
-  }
-  for (const [wareId, amount] of stationRates.consumption) {
-    addWareAmount(totalConsumptionByWareId, wareId, amount);
-  }
-}
-
-function addStationToWareConsumerRegistry(
-  station: Station,
-  wareConsumersByInputWareId: Map<WareId, WareConsumer[]>,
-): void {
-  for (const producedWareId of station.stationType.produces) {
-    const producedWare = getWareTemplate(producedWareId);
-    for (const productionInput of producedWare.productionInputs) {
-      recordWareConsumer(wareConsumersByInputWareId, {
-        inputWareId: productionInput.wareId,
-        producedWareId,
-        currentCost: productionInput.unitsPerTick,
-        multiplier: station.sizeMultiplier,
-      });
-    }
-  }
 }
 
 interface BruteForceResult {
@@ -156,28 +131,37 @@ function findFactorsThatDivideEvenly(produced: number, currentFactor: number): n
   return nearbyFactors;
 }
 
+const sizesInAscendingOrder: StationSize[] = ["S", "M", "L"];
+
+function findSizeCombinationSummingTo(
+  remaining: number,
+  target: number,
+  chosen: StationSize[],
+): string | null {
+  if (remaining === 0) {
+    return Math.abs(target) < 0.001 ? chosen.join("+") : null;
+  }
+  for (const size of sizesInAscendingOrder) {
+    const result = findSizeCombinationSummingTo(
+      remaining - 1,
+      target - sizeMultiplierBySize[size],
+      [...chosen, size],
+    );
+    if (result !== null) return result;
+  }
+  return null;
+}
+
 function describeFactorAsStationSizeCombination(factor: number): string {
-  const combinations: string[] = [];
   const maximumStationCount = Math.max(1, Math.ceil(factor));
 
   // Try fewest-stations combinations first — a 1-station "L" reads better in
   // suggestions than the equivalent "S+S+S".
   for (let stationCount = 1; stationCount <= maximumStationCount; stationCount++) {
-    const sizes: StationSize[] = ["S", "M", "L"];
-    const enumerateSizesSummingTo = (remaining: number, target: number, chosen: string[]): void => {
-      if (remaining === 0) {
-        if (Math.abs(target) < 0.001) combinations.push(chosen.join("+"));
-        return;
-      }
-      for (const size of sizes) {
-        enumerateSizesSummingTo(remaining - 1, target - sizeMultiplierBySize[size], [...chosen, size]);
-      }
-    };
-    enumerateSizesSummingTo(stationCount, factor, []);
-    if (combinations.length > 0) break;
+    const combination = findSizeCombinationSummingTo(stationCount, factor, []);
+    if (combination !== null) return combination;
   }
-
-  return combinations.length > 0 ? combinations[0] : `factor ${factor}`;
+  return `factor ${factor}`;
 }
 
 interface SolvedCostEntry {
@@ -405,19 +389,24 @@ function printMultiConsumerResult(
   printMultiConsumerSuggestions(ware.id, produced, consumers);
 }
 
-function printMultiConsumerSuggestions(wareId: WareId, produced: number, consumers: WareConsumer[]): void {
-  console.log(`      ─ Suggestions to fix ${wareId}:`);
+type IntegerSplitProduction = { testProduction: number; integerCosts: number[] };
 
-  // Multi-consumer fallback — nudge total production by ±3 looking for a
-  // value where every consumer's proportional share lands on an integer.
+// Multi-consumer fallback — nudge total production by ±3 looking for a value
+// where every consumer's proportional share lands on an integer.
+function findIntegerSplitProductionsNearby(
+  produced: number,
+  consumers: WareConsumer[],
+): IntegerSplitProduction[] {
+  const totalConsumption = consumers.reduce(
+    (sum, consumer) => sum + consumer.currentCost * consumer.totalMultiplier,
+    0,
+  );
+  const results: IntegerSplitProduction[] = [];
+
   for (let delta = -3; delta <= 3; delta++) {
     const testProduction = produced + delta;
     if (testProduction <= 0 || testProduction === produced) continue;
 
-    const totalConsumption = consumers.reduce(
-      (sum, consumer) => sum + consumer.currentCost * consumer.totalMultiplier,
-      0,
-    );
     let allInteger = true;
     const testCosts: number[] = [];
     for (const consumer of consumers) {
@@ -427,11 +416,19 @@ function printMultiConsumerSuggestions(wareId: WareId, produced: number, consume
       if (Math.abs(testCost - Math.round(testCost)) > 0.001) allInteger = false;
     }
     if (allInteger) {
-      const costString = consumers
-        .map((consumer, index) => `${consumer.producingWareId} cost ${Math.round(testCosts[index])}`)
-        .join(", ");
-      console.log(`      • Change ${wareId} total production to ${testProduction} → [${costString}]`);
+      results.push({ testProduction, integerCosts: testCosts.map(Math.round) });
     }
+  }
+  return results;
+}
+
+function printMultiConsumerSuggestions(wareId: WareId, produced: number, consumers: WareConsumer[]): void {
+  console.log(`      ─ Suggestions to fix ${wareId}:`);
+  for (const { testProduction, integerCosts } of findIntegerSplitProductionsNearby(produced, consumers)) {
+    const costString = consumers
+      .map((consumer, index) => `${consumer.producingWareId} cost ${integerCosts[index]}`)
+      .join(", ");
+    console.log(`      • Change ${wareId} total production to ${testProduction} → [${costString}]`);
   }
 }
 
@@ -524,7 +521,8 @@ function analyzeAllWares(aggregate: ProductionAggregate): {
 }
 
 function runBalanceSolver(): void {
-  const liveStations = createLiveStations();
+  const liveStations = settledMap.stations.map((station) => createStation(station));
+  settledMap.seedInitialInventory?.(liveStations);
   const aggregate = aggregateProductionAndConsumption(liveStations);
   printPreamble();
   const { solvedCostByProducerInputPair, hasIssues } = analyzeAllWares(aggregate);

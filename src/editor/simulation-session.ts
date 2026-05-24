@@ -1,6 +1,6 @@
 import type { WareId } from "../../data/ware-types";
 
-export interface SlotResult {
+export interface StationSlotResult {
   minPercent: number;
   maxPercent: number;
   finalPercent: number;
@@ -10,7 +10,7 @@ export interface SlotResult {
  *  (status text, cache invalidation), so the run/cancel/stale/clear lifecycle is one handle. */
 export class EditorSimulationSession {
   /** Drives the station-table min/max/final columns. */
-  lastSlotRangesByStationId: Map<string, SlotResult[]> | null = null;
+  lastSlotRangesByStationId: Map<string, StationSlotResult[]> | null = null;
   /** Last fleet-transport approximation (wares per row per hour), keyed
    *  by `${stationId}:${shipId}`. Rendered into the fleet summary table. */
   lastFleetTransportByRow: Map<string, Map<WareId, number>> | null = null;
@@ -22,15 +22,15 @@ export class EditorSimulationSession {
   /** True once any sim run has completed — gates the "results stale" banner. */
   hasBeenRun = false;
 
-  private pendingTimeout: number | null = null;
+  private pendingRunTimeoutId: number | null = null;
 
   /** Cancel a queued run and bump the generation so any in-flight async run
    *  drops its result instead of writing back. */
   cancelPending(): void {
     this.runGeneration++;
-    if (this.pendingTimeout !== null) {
-      window.clearTimeout(this.pendingTimeout);
-      this.pendingTimeout = null;
+    if (this.pendingRunTimeoutId !== null) {
+      window.clearTimeout(this.pendingRunTimeoutId);
+      this.pendingRunTimeoutId = null;
     }
   }
 
@@ -60,33 +60,26 @@ export class EditorSimulationSession {
       this.setStatus("");
       return;
     }
-    this.setStaleStatus("Results stale — re-run simulation");
+    this.setStatus("Results stale — re-run simulation", "sim-stale");
   }
 
   /** Update the status text beside the Run button. Does nothing when the DOM
    *  isn't present (e.g. map tab active). */
-  setStatus(text: string): void {
+  setStatus(text: string, className: string = ""): void {
     const statusElement = document.getElementById("simulation-status");
     if (!statusElement) return;
     statusElement.textContent = text;
-    statusElement.className = "";
-  }
-
-  private setStaleStatus(text: string): void {
-    const statusElement = document.getElementById("simulation-status");
-    if (!statusElement) return;
-    statusElement.textContent = text;
-    statusElement.className = "sim-stale";
+    statusElement.className = className;
   }
 
   /** Run `task` after a one-frame delay so the "Running..." status paints
-   *  before the heavy sim work blocks the main thread. Caller passes the
-   *  `runGeneration` it captured before calling, and `task` re-checks it
-   *  against `session.runGeneration` after each await to drop stale runs. */
-  scheduleRun(task: () => void, generation: number): void {
-    this.pendingTimeout = window.setTimeout(() => {
-      this.pendingTimeout = null;
-      if (generation !== this.runGeneration) return;
+   *  before the heavy sim work blocks the main thread. Captures `runGeneration`
+   *  at schedule time and drops the run if a later `cancelPending` bumped it. */
+  scheduleRun(task: () => void): void {
+    const startGeneration = this.runGeneration;
+    this.pendingRunTimeoutId = window.setTimeout(() => {
+      this.pendingRunTimeoutId = null;
+      if (startGeneration !== this.runGeneration) return;
       task();
     }, 16);
   }

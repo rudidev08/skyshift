@@ -2,18 +2,18 @@ import {
   saveToManualSlot,
   readSlot,
   exportToFile,
-  readFile,
-  type ValidationResult,
+  readSnapshotFile,
 } from "./ui-savegame-manager";
+import type { ValidationResult } from "./ui-snapshot-validator";
 import { type GameSnapshot } from "./sim-save-types";
 import type { Game } from "./game";
 import { X, Volume2, VolumeX } from "lucide-static";
 import { morseBarGradient } from "./render-morse-bar";
 import { enableAudio, disableAudio, isAudioEnabled } from "./audio-announcer";
 import { savePreference } from "./storage-preferences";
-import type { GridMode } from "./phaser/sector-grid";
+import type { SectorGridMode } from "./sector-grid-mode";
 import { acquireScopedPause } from "./phaser/auto-release-pause";
-import { shieldDomSurfaceFromPhaserInput, type BindEventWithCleanupFunction } from "./ui-dom-input-shield";
+import { shieldDomSurfaceFromPhaserInput } from "./ui-dom-input-shield";
 import { showToast } from "./ui-toast";
 import { SlotSelector } from "./ui-slot-selector";
 import { type SlotSummary } from "./storage-save-slots";
@@ -23,10 +23,9 @@ export interface SettingsHandle {
   close(): void;
   isOpen(): boolean;
   /** Safe to call more than once. */
-  dispose(): void;
-  /** Stop pointer/wheel events inside the panel from leaking into Phaser.
-   *  Caller-owned bindEventWithCleanup pairs each listener with the caller's cleanup. */
-  shieldFromPhaserInput(bindEventWithCleanup: BindEventWithCleanupFunction): void;
+  destroy(): void;
+  /** Returns a teardown that stops pointer/wheel events inside the panel from leaking into Phaser; caller pushes it onto its own destroy-callback list. */
+  shieldFromPhaserInput(): () => void;
 }
 
 export function createSettingsPanel(
@@ -42,46 +41,40 @@ export function createSettingsPanel(
     autoPause.release();
   };
 
-  const applyLoadResult = createLoadResultApplier({
-    close: () => close(),
-    open: () => open(),
-    remountWithSnapshot,
-  });
-
-  setupOverlayDismiss(overlay, close);
-  const { slotSelector, refreshSlots } = setupSlotControls({ overlay, getScene, applyLoadResult });
-  setupAudioControls(overlay);
-  const refreshGridModeButtonsFromScene = setupGridControls(overlay, getScene);
-  setupImportExportControls({ overlay, getScene, applyLoadResult });
-
   const open = () => {
     overlay.classList.remove("hidden");
     autoPause.acquireIfNeeded();
-    refreshSlots();
+    slotSelector.refresh();
     refreshGridModeButtonsFromScene(getScene());
   };
+
+  const applyLoadResult = createLoadResultApplier({ close, open, remountWithSnapshot });
+
+  setupOverlayDismiss(overlay, close);
+  const { slotSelector } = setupSlotControls({ overlay, getScene, applyLoadResult });
+  setupAudioControls(overlay);
+  const refreshGridModeButtonsFromScene = setupGridControls(overlay, getScene);
+  setupImportExportControls({ overlay, getScene, applyLoadResult });
 
   const isOpen = () => !overlay.classList.contains("hidden");
 
   document.body.appendChild(overlay);
 
-  let disposed = false;
-  const dispose = () => {
-    if (disposed) return;
-    disposed = true;
+  let destroyed = false;
+  const destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
     close();
     overlay.remove();
   };
 
-  const shieldFromPhaserInput = (bindEventWithCleanup: BindEventWithCleanupFunction) => {
-    shieldDomSurfaceFromPhaserInput(bindEventWithCleanup, overlay);
-  };
+  const shieldFromPhaserInput = () => shieldDomSurfaceFromPhaserInput(overlay);
 
   return {
     open,
     close,
     isOpen,
-    dispose,
+    destroy,
     shieldFromPhaserInput,
   };
 }
@@ -101,7 +94,7 @@ function createAutoPause(): { acquireIfNeeded: () => void; release: () => void }
   };
 }
 
-function createLoadResultApplier(deps: {
+function createLoadResultApplier(dependencies: {
   close: () => void;
   open: () => void;
   remountWithSnapshot: (snapshot: GameSnapshot) => void;
@@ -111,13 +104,13 @@ function createLoadResultApplier(deps: {
       showToast(result.message);
       return;
     }
-    deps.close();
+    dependencies.close();
     try {
-      deps.remountWithSnapshot(result.snapshot);
+      dependencies.remountWithSnapshot(result.snapshot);
     } catch (error) {
       // Load failed after close — reopen (re-pauses) so the user sees the
       // error toast and can try another slot.
-      deps.open();
+      dependencies.open();
       showToast(`Load failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
@@ -190,7 +183,6 @@ interface SlotControlsDependencies {
 
 function setupSlotControls(dependencies: SlotControlsDependencies): {
   slotSelector: SlotSelector;
-  refreshSlots: () => void;
 } {
   const { overlay, getScene, applyLoadResult } = dependencies;
   const slotSelector = new SlotSelector({
@@ -215,7 +207,7 @@ function setupSlotControls(dependencies: SlotControlsDependencies): {
     },
     onLoadResult: applyLoadResult,
   });
-  return { slotSelector, refreshSlots: () => slotSelector.refresh() };
+  return { slotSelector };
 }
 
 function setupAudioControls(overlay: HTMLElement): void {
@@ -227,10 +219,10 @@ function setupAudioControls(overlay: HTMLElement): void {
     audioButton.setAttribute("aria-pressed", String(enabled));
   };
   audioButton.addEventListener("click", () => {
-    const next = !isAudioEnabled();
-    if (next) enableAudio();
+    const audioWillBeEnabled = !isAudioEnabled();
+    if (audioWillBeEnabled) enableAudio();
     else disableAudio();
-    savePreference("audioEnabled", String(next));
+    savePreference("audioEnabled", String(audioWillBeEnabled));
     refreshAudioButton();
   });
   refreshAudioButton();
@@ -251,7 +243,7 @@ function setupGridControls(overlay: HTMLElement, getScene: () => Game | null): (
   }
   for (const button of gridModeButtons) {
     button.addEventListener("click", () => {
-      const mode = button.dataset.gridMode as GridMode | undefined;
+      const mode = button.dataset.gridMode as SectorGridMode | undefined;
       if (!mode) return;
       const scene = getScene();
       if (!scene || !scene.sectorGrid) return;
@@ -287,7 +279,7 @@ function setupImportExportControls(dependencies: ImportExportDependencies): void
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       if (!file) return;
-      const result = await readFile(file);
+      const result = await readSnapshotFile(file);
       applyLoadResult(result);
     });
     input.click();

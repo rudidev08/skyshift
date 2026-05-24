@@ -210,7 +210,7 @@ export function mountSectorAnimation(canvas: HTMLCanvasElement, scene: SectorSce
 
   function drawNebulaPass(width: number, height: number): void {
     for (const { nebula, image } of nebulas) {
-      drawNebula(context, { nebula, image, canvasWidth: width, canvasHeight: height });
+      drawNebula(context, nebula, image, width, height);
     }
   }
 

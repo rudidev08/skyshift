@@ -14,7 +14,7 @@ import type {
   StationEmigrationSnapshot,
   StationGenerationalShipBuildSnapshot,
 } from "./sim-save-types";
-import { shortNameBySize, sizeMultiplierBySize } from "../data/stations";
+import { sizeMultiplierBySize } from "../data/stations";
 import { getStationTypeTemplate } from "./sim-station-template";
 import { getWareTemplate, getWareOutputStorage, getWareInputStorage, sortWares } from "./sim-ware-template";
 import { getNationById } from "./sim-nation";
@@ -22,17 +22,15 @@ import { getNationById } from "./sim-nation";
 export type { InventorySlot, Station };
 
 /** Shared final step of `createStation`, `stationFromSnapshot`, and the
- *  station-manager rebuild path — keeps the inventoryByWareId index, sizeMultiplier,
- *  and default typeAndSizeLabel logic in one place. */
-export function assembleStation(
+ *  station-manager rebuild path — keeps the inventoryByWareId index and
+ *  sizeMultiplier logic in one place. */
+export function finalizeStation(
   placement: PlacedStation,
   stationType: StationTypeTemplate,
   inventory: InventorySlot[],
-  typeAndSizeLabel?: string,
 ): Station {
   const size = placement.size;
-  const inventoryByWareId = new Map<WareId, InventorySlot>();
-  for (const slot of inventory) inventoryByWareId.set(slot.ware.id, slot);
+  const inventoryByWareId = indexInventoryByWareId(inventory);
   return {
     id: placement.id,
     name: placement.name ?? placement.id,
@@ -49,8 +47,6 @@ export function assembleStation(
     inventoryByWareId,
     secondsSinceLastTick: 0,
     didProduceLastTick: false,
-    typeAndSizeLabel:
-      typeAndSizeLabel ?? `${shortNameBySize[size]} ${placement.nation.codeName} ${stationType.name}`,
     emigrationEvent: null,
     generationalShipBuild: null,
   };
@@ -109,9 +105,6 @@ export function createInventorySlot(ware: WareTemplate, current: number, max: nu
   return { ware, current, max, reservedIncoming: 0, reservedOutgoing: 0 };
 }
 
-// Encapsulation boundary for Station inventory. Callers resolve slots through
-// these; per-slot field mutation via the returned reference is still allowed.
-
 /** Resolve a slot by ware id; undefined if the station doesn't carry it. */
 export function getInventorySlot(station: Station, wareId: WareId): InventorySlot | undefined {
   return station.inventoryByWareId.get(wareId);
@@ -155,9 +148,15 @@ export function releaseOutgoing(station: Station, wareId: WareId, amount: number
  *  building→producing flip when swapping in the canonical inventory. */
 export function replaceStationInventoryAndIndex(station: Station, inventory: InventorySlot[]): void {
   station.inventory = inventory;
-  const byWareId = new Map<WareId, InventorySlot>();
-  for (const slot of inventory) byWareId.set(slot.ware.id, slot);
-  station.inventoryByWareId = byWareId;
+  station.inventoryByWareId = indexInventoryByWareId(inventory);
+}
+
+/** Build the wareId→slot lookup the runtime reads inventory by, always derived
+ *  from the slot array so the index and the array can't drift apart. */
+function indexInventoryByWareId(inventory: InventorySlot[]): Map<WareId, InventorySlot> {
+  const inventoryByWareId = new Map<WareId, InventorySlot>();
+  for (const slot of inventory) inventoryByWareId.set(slot.ware.id, slot);
+  return inventoryByWareId;
 }
 
 /** Append the production-output slot for `ware` unless it's a sink-with-inputs
@@ -175,7 +174,6 @@ function pushOutputSlotIfProducing(
   inventory.push(createInventorySlot(ware, Math.floor(max * starterFillRatio), max));
 }
 
-/** Append one input slot per ingredient on `ware.productionInputs`. */
 function pushInputSlots(
   inventory: InventorySlot[],
   ware: WareTemplate,
@@ -204,13 +202,20 @@ export function createStation(placement: PlacedStation, starterFillRatio: number
   // Match canonical `allWares` order so display sites don't need to re-sort.
   inventory.sort((leftSlot, rightSlot) => sortWares(leftSlot.ware, rightSlot.ware));
 
-  return assembleStation(placement, stationType, inventory);
+  return finalizeStation(placement, stationType, inventory);
 }
 
 function stationBuildToSnapshot(build: StationBuild): StationBuildSnapshot {
   return {
     waresRequired: { ...build.waresRequired },
     contractingNationId: build.contractingNationId,
+  };
+}
+
+function stationBuildFromSnapshot(snapshot: StationBuildSnapshot): StationBuild {
+  return {
+    waresRequired: { ...snapshot.waresRequired },
+    contractingNationId: snapshot.contractingNationId,
   };
 }
 
@@ -241,7 +246,7 @@ function emigrationToSnapshot(emigration: StationEmigration): StationEmigrationS
   return {
     eventId: emigration.eventId,
     destinationName: emigration.destinationName,
-    initialHomedShipIds: [...emigration.initialHomedShipIds],
+    initialHomedShipIds: [...emigration.initialHomedShipIdSet],
     totalEmigrants: emigration.totalEmigrants,
     launched: emigration.launched,
     secondsUntilNextLaunch: emigration.secondsUntilNextLaunch,
@@ -249,12 +254,10 @@ function emigrationToSnapshot(emigration: StationEmigration): StationEmigrationS
 }
 
 function emigrationFromSnapshot(snapshot: StationEmigrationSnapshot): StationEmigration {
-  const initialHomedShipIds = [...snapshot.initialHomedShipIds];
   return {
     eventId: snapshot.eventId,
     destinationName: snapshot.destinationName,
-    initialHomedShipIds,
-    initialHomedShipIdSet: new Set(initialHomedShipIds),
+    initialHomedShipIdSet: new Set(snapshot.initialHomedShipIds),
     totalEmigrants: snapshot.totalEmigrants,
     launched: snapshot.launched,
     secondsUntilNextLaunch: snapshot.secondsUntilNextLaunch,
@@ -300,22 +303,17 @@ function slotToSnapshot(slot: InventorySlot): InventorySlotSnapshot {
  *  is in flight. */
 function stationFromBuildingSnapshot(snapshot: StationSnapshot, placement: PlacedStation): Station {
   const stationType = getStationTypeTemplate(snapshot.typeId);
-  const required = snapshot.build!.waresRequired;
+  const waresRequired = snapshot.build!.waresRequired;
   const inventory: InventorySlot[] = snapshot.inventory.map((slotSnapshot) => {
     // Validator guarantees slotSnapshot.wareId is "provisions" or "hulls"
     // here; cast keeps the types honest.
-    const max = required[slotSnapshot.wareId as "provisions" | "hulls"];
+    const max = waresRequired[slotSnapshot.wareId as "provisions" | "hulls"];
     const slot = createInventorySlot(getWareTemplate(slotSnapshot.wareId), slotSnapshot.current, max);
     slot.reservedIncoming = slotSnapshot.reservedIncoming;
     slot.reservedOutgoing = slotSnapshot.reservedOutgoing;
     return slot;
   });
-  return assembleStation(
-    placement,
-    stationType,
-    inventory,
-    `Building ${stationType.name} (${snapshot.size})`,
-  );
+  return finalizeStation(placement, stationType, inventory);
 }
 
 /** Restore a station whose state is producing / emigrating: rebuild
@@ -350,12 +348,7 @@ export function stationFromSnapshot(snapshot: StationSnapshot): Station {
     stationTypeId: snapshot.typeId,
     size: snapshot.size,
     state: snapshot.state,
-    build: snapshot.build
-      ? {
-          waresRequired: { ...snapshot.build.waresRequired },
-          contractingNationId: snapshot.build.contractingNationId,
-        }
-      : undefined,
+    build: snapshot.build ? stationBuildFromSnapshot(snapshot.build) : undefined,
     zoneId: snapshot.zoneId,
   };
 

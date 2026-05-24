@@ -9,10 +9,20 @@ import type { TradeReservation } from "./sim-trade-types";
 import { reserveIncoming, reserveOutgoing, releaseIncoming, releaseOutgoing } from "./sim-station";
 import { type TradeShip } from "./sim-trade-types";
 
-export function addReservation(ship: TradeShip, reservation: TradeReservation) {
+function reserveSlot(reservation: TradeReservation): void {
   if (reservation.cargoDirection === "incoming")
     reserveIncoming(reservation.station, reservation.wareId, reservation.amount);
   else reserveOutgoing(reservation.station, reservation.wareId, reservation.amount);
+}
+
+function releaseSlot(reservation: TradeReservation): void {
+  if (reservation.cargoDirection === "incoming")
+    releaseIncoming(reservation.station, reservation.wareId, reservation.amount);
+  else releaseOutgoing(reservation.station, reservation.wareId, reservation.amount);
+}
+
+export function addReservation(ship: TradeShip, reservation: TradeReservation) {
+  reserveSlot(reservation);
   ship.reservations.push({ ...reservation });
 }
 
@@ -22,9 +32,7 @@ export function addReservation(ship: TradeShip, reservation: TradeReservation) {
  *  clearReservations at trip-end releases the rest if the ship never finishes
  *  the leg. */
 export function fulfillReservation(ship: TradeShip, reservation: TradeReservation) {
-  if (reservation.cargoDirection === "incoming")
-    releaseIncoming(reservation.station, reservation.wareId, reservation.amount);
-  else releaseOutgoing(reservation.station, reservation.wareId, reservation.amount);
+  releaseSlot(reservation);
 
   let remaining = reservation.amount;
   for (const existing of ship.reservations) {
@@ -55,11 +63,6 @@ function removeSettledReservations(ship: TradeShip): void {
  *  so releasing decrements the orphan's slot counter — harmless since nothing
  *  observes the demolished station's slots anymore. */
 export function clearReservations(ship: TradeShip): void {
-  for (const reservation of ship.reservations) {
-    if (reservation.amount <= 0) continue;
-    if (reservation.cargoDirection === "incoming")
-      releaseIncoming(reservation.station, reservation.wareId, reservation.amount);
-    else releaseOutgoing(reservation.station, reservation.wareId, reservation.amount);
-  }
+  for (const reservation of ship.reservations) releaseSlot(reservation);
   ship.reservations.length = 0;
 }

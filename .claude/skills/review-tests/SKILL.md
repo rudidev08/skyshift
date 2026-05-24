@@ -1,6 +1,6 @@
 ---
 name: review-tests
-description: "[lav] Mutation-test specified tests via sequential subagents — apply logic mutations to source, strengthen tests against survivors (or fix bugs the mutations expose), propose pruning candidates"
+description: "[rp] Mutation-test specified tests via sequential subagents — apply logic mutations to source, strengthen tests against survivors (or fix bugs the mutations expose), propose pruning candidates"
 ---
 
 # Review Tests (Mutation Testing)
@@ -26,7 +26,7 @@ Don't expect Run #N to find zero survivors. Expect it to find FEWER survivors th
 
 `$ARGUMENTS`
 
-If `$ARGUMENTS` is empty, ask the user which tests to mutate (named files, a directory, or "all"). Don't pick autonomously — the budget is dozens of mutants total, not hundreds.
+If `$ARGUMENTS` is empty, ask the user which tests to mutate (named files, a directory, or "all"). Don't pick autonomously — the budget is dozens of mutants, not hundreds.
 
 ## Workflow
 
@@ -49,7 +49,7 @@ If `$ARGUMENTS` is empty, ask the user which tests to mutate (named files, a dir
    e. Print the mapping (`Domain N: <test files> → <source files> (~N LOC)`) for user sanity-check before dispatch.
    f. Agent count is fallout from steps 2c–2d, not a target. Sane range 3–10. Below 3 → likely over-merged (split the largest domain); above 10 → likely over-split (fold the smallest into a sibling).
 
-3. **Dispatch subagents sequentially** using the prompt template below. One agent at a time in the main checkout — no `isolation: "worktree"`. After each agent finishes, integrate its findings (step 4) before launching the next. Sequential is the trade-off for working in the main checkout: agents can't clobber each other's source-file mutations, and the agents see the work branch's actual HEAD (including any pre-existing uncommitted state committed in step 0.5).
+3. **Dispatch subagents sequentially** using the prompt template below. One agent at a time in the main checkout — no `isolation: "worktree"`. After each agent finishes, integrate its findings (step 4) before launching the next. Sequential is the trade-off for working in the main checkout: agents can't clobber each other's source-file mutations, and the agents see the work branch's HEAD (including any pre-existing uncommitted state committed in step 0.5).
 
    Why not parallel: parallel agents would all be writing to the same files at once, which corrupts test runs (`agent A mid-mutation on sim-station.ts` poisons `agent B`'s test that imports it transitively). Worktree isolation would fix that but is blocked by user policy in many setups. Sequential is the safe default. Wall time is ~N× longer for N agents; the user can opt into worktree-parallel mode explicitly if they want it.
 
@@ -136,11 +136,11 @@ Classify each candidate:
 
 **If pruning empties a test file**, delete the file too. An empty test file (or one reduced to a single trivial smoke-check) is itself a pruning candidate — surface it during the user walk-through and remove it on approval.
 
-**Approval cadence when walking candidates with the user.** Batch all **Safe-delete** candidates into one user-confirmation (they're explicitly proven safe — sibling test catches the same mutants). Walk **Review** candidates **one-by-one** — each is a judgment call by definition; the user weighs each. Don't intermix the two tiers in a single batch.
+**Approval cadence when walking candidates:** see Workflow step 7.
 
 ## Agent prompt template
 
-Send this to each subagent. Replace `<test files>` with the assigned test file path(s), `<source files>` with the exclusive source files, and `<other agents>` with the count of other agents that will run before or after this one. **If the project has `dev/coding/testing.md`, append its contents to the Project conventions section at the bottom of this template before sending.**
+Send this to each subagent. Replace `<test files>` with the assigned test file path(s), `<source files>` with the exclusive source files, and `<other agents>` with the count of other agents that will run before or after this one. **If the project has `dev/code-rules/testing.md`, append its contents to the Project conventions section at the bottom of this template before sending.**
 
 ```
 You are doing **mutation testing** on the <domain name> code.
@@ -259,11 +259,11 @@ If you have **zero survivors**, report it honestly. Don't manufacture findings.
 
 ## Project conventions
 
-<The orchestrator inserts the "Project conventions to add to each agent prompt" section from `dev/coding/testing.md` (project root) here, if it exists. Otherwise this section is empty and the agent relies on the user-global coding rules already loaded via CLAUDE.md.>
+<The orchestrator inserts the "Project conventions to add to each agent prompt" section from `dev/code-rules/testing.md` (project root) here, if it exists. Otherwise this section is empty and the agent relies on the user-global coding rules already loaded via CLAUDE.md.>
 
 ## Per-domain gotchas
 
-<The orchestrator inserts the matching bullet from `dev/coding/testing.md` § "Per-domain gotchas" here based on the assigned domain. If the project has no `dev/coding/testing.md`, or no bullet matches the domain, this section is empty.>
+<The orchestrator inserts the matching bullet from `dev/code-rules/testing.md` § "Per-domain gotchas" here based on the assigned domain. If the project has no `dev/code-rules/testing.md`, or no bullet matches the domain, this section is empty.>
 ```
 
 ## Why exclusive source-file ownership
@@ -298,4 +298,4 @@ If the user explicitly opts into parallel-worktree mode (e.g. "use worktrees, I'
 
 ## Per-domain gotchas (orchestrator instructions)
 
-If the project has `dev/coding/testing.md` with a "Per-domain gotchas" section, the orchestrator matches each domain to a bullet at dispatch time and splices the matching bullet into the agent prompt's `<Per-domain gotchas>` placeholder. Each bullet typically names which clusters are dense, where survivors concentrate, which file types stub the DOM, etc. Domains that don't match any bullet leave the placeholder empty.
+If the project has `dev/code-rules/testing.md` with a "Per-domain gotchas" section, the orchestrator matches each domain to a bullet at dispatch time and splices the matching bullet into the agent prompt's `<Per-domain gotchas>` placeholder. Each bullet typically names which clusters are dense, where survivors concentrate, which file types stub the DOM, etc. Domains that don't match any bullet leave the placeholder empty.

@@ -1,21 +1,7 @@
 import { test, assertEqual, assertNotUndefined } from "./test-utils.ts";
 import { createStation, getInventorySlot } from "../sim-station.ts";
 import { getStationWareLevelHealth } from "../sim-station-health.ts";
-import type { PlacedStation, StationSize, StationTypeId } from "../../data/station-types.ts";
-import type { Station } from "../sim-station-types.ts";
-import { makePlacedStation } from "./factories.ts";
-
-function makePlacedStationWithType(
-  stationTypeId: StationTypeId,
-  size: StationSize = "S",
-): PlacedStation {
-  return makePlacedStation({
-    name: "TestStation",
-    stationTypeId,
-    size,
-    nation: { codeName: "TST", name: "Testers", color: "#fff" } as Station["nation"],
-  });
-}
+import { makePlacedStationWithType } from "./factories.ts";
 
 test("getStationWareLevelHealth: ok when all inputs above 25%", () => {
   // water-processing consumes ice. createStation seeds slots at 50% fill.

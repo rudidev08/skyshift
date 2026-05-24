@@ -12,7 +12,7 @@ import type { Selection } from "../phaser/selection-input.ts";
 // starfield — so dark nebulas visibly dimmed stations parked under them.
 
 /** Chainable Phaser game-object stub that records the last `setDepth` value. */
-function makeDepthStub() {
+function makePhaserObjectStub() {
   const stub = {
     depth: 0,
     setDepth(value: number) {
@@ -75,9 +75,9 @@ function makeFakeScene(): Scene {
       remove() {},
     },
     add: {
-      image: () => makeDepthStub(),
-      text: () => makeDepthStub(),
-      graphics: () => makeDepthStub(),
+      image: () => makePhaserObjectStub(),
+      text: () => makePhaserObjectStub(),
+      graphics: () => makePhaserObjectStub(),
     },
   } as unknown as Scene;
 }

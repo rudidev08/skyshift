@@ -1,8 +1,8 @@
-const padTwoDigits = (value: number) => String(value).padStart(2, "0");
+import { padToTwoDigits } from "./util-pad";
 
 export function formatLocalDateTime(date: Date): { date: string; time: string } {
   return {
-    date: `${date.getFullYear()}-${padTwoDigits(date.getMonth() + 1)}-${padTwoDigits(date.getDate())}`,
-    time: `${padTwoDigits(date.getHours())}:${padTwoDigits(date.getMinutes())}`,
+    date: `${date.getFullYear()}-${padToTwoDigits(date.getMonth() + 1)}-${padToTwoDigits(date.getDate())}`,
+    time: `${padToTwoDigits(date.getHours())}:${padToTwoDigits(date.getMinutes())}`,
   };
 }

@@ -17,44 +17,23 @@ import type { GameMap } from "../sim-map-types";
 import { map } from "../../data/map";
 import { getPresetById } from "../util-map-preset";
 import type { EmigrationIntensity } from "../sim-emigration-types";
-import type { TimelapseFrame, TimelapseStation } from "../sim-timelapse-state";
+import { toTimelapseStation, type TimelapseFrame } from "../sim-timelapse-state";
+import type { StationHistory } from "../sim-station-history";
 import { captureDiagnosticsFrame, type DiagnosticsFrame } from "./timelapse-diagnostics";
 
 /** Resolves a preset by id and builds its `GameMap` with `simulationWarmupSeconds: 0`
  *  so the timelapse preview/run starts from the initial state, not pre-ticked.
  *  Returns null when the id doesn't resolve. */
-export function buildPresetMap(presetId: string): GameMap | null {
+export function createTimelapseMapForPresetId(presetId: string): GameMap | null {
   const preset = getPresetById(presetId);
   if (!preset) return null;
   return createMapFromTemplate(map, { ...preset, simulationWarmupSeconds: 0 });
 }
 
 /** Read the simulation's current station list into a render-only `TimelapseFrame`. */
-export function captureFrame(simulation: Simulation, simSeconds: number): TimelapseFrame {
-  const stations: TimelapseStation[] = [];
-  for (const station of simulation.stations) {
-    stations.push({
-      id: station.id,
-      position: { x: station.x, y: station.y },
-      nationId: station.nation.id,
-      typeId: station.stationType.id,
-      state: station.state === "building" ? "construction" : "operational",
-    });
-  }
-  return { simSeconds, stations };
+export function captureTimelapseFrame(simulation: Simulation, simTimeSeconds: number): TimelapseFrame {
+  return { simTimeSeconds, stations: simulation.stations.map(toTimelapseStation) };
 }
-
-// Per src/game-loop.ts — slow tick fires every ~5 sim-seconds with the accumulated delta.
-const SLOW_SIMULATION_TICK_INTERVAL_SECONDS = 5;
-
-// Frame capture cadence — matches the smallest step button (1 sim-hour).
-const FRAME_INTERVAL_SECONDS = 60 * 60;
-
-// Sim-seconds budget per chunk — ~100 keeps each chunk well under 16ms wall time so the UI stays responsive.
-const CHUNK_INTERVAL_SECONDS = 100;
-
-// ms between chunks. 0 = next macrotask; lets paint + event handlers run between work bursts.
-const CHUNK_GAP_MS = 0;
 
 export interface TimelapseRunCallbacks {
   /** Called for every captured frame, including frame 0. */
@@ -70,13 +49,19 @@ export interface TimelapseRunCallbacks {
   onComplete: () => void;
 }
 
-/** Cancels the run, stops further callbacks, and disposes the underlying simulation. Safe to call more than once. */
-export type CancelTimelapseRun = () => void;
+export interface TimelapseRunHandle {
+  /** Cancels the run, stops further callbacks, and destroys the underlying simulation. Safe to call more than once. */
+  cancel: () => void;
+  /** Lifecycle events recorded by the simulation's station-manager observers
+   *  while the run is in flight — tab passes this through to the timelapse
+   *  control instead of rebuilding history from captured frames each refresh. */
+  stationHistory: StationHistory;
+}
 
 /** Timelapse-only widening of `EmigrationIntensity` with a "none" sentinel that
  *  disables auto-trigger entirely (mode → manual). The base `EmigrationIntensity`
- *  union has no zero-fraction value because it represents the strength of
- *  an event that *is* firing; "none" means "don't fire at all". */
+ *  union has no zero-fraction value because every value is the strength of
+ *  a firing event; the "none" sentinel covers not firing at all. */
 export type TimelapseEmigrationSetting = "none" | EmigrationIntensity;
 
 export interface TimelapseRunOptions {
@@ -88,73 +73,85 @@ export interface TimelapseRunOptions {
   emigrationIntensity: TimelapseEmigrationSetting;
 }
 
-/** Builds and disposes a transient `Simulation` to capture frame 0 (post-init,
+/** Builds and destroys a transient `Simulation` to capture frame 0 (post-init,
  *  including any nation-level builds started by `startInitialStationBuilds`).
  *  Used by the tab to render a preview of the selected preset before the user
  *  presses Run. Returns null if the preset id doesn't resolve. */
 export function capturePresetInitialFrame(presetId: string): TimelapseFrame | null {
-  const map = buildPresetMap(presetId);
-  if (!map) return null;
-  const simulation = createSimulation(map);
+  const presetMap = createTimelapseMapForPresetId(presetId);
+  if (!presetMap) return null;
+  const simulation = createSimulation(presetMap);
   try {
-    return captureFrame(simulation, 0);
+    return captureTimelapseFrame(simulation, 0);
   } finally {
-    simulation.dispose();
+    simulation.destroy();
   }
 }
 
-/** Starts a timelapse run for the given preset + duration. Returns a cancel handle that the caller invokes on tab switch or restart. */
+// 1 sim-hour per captured frame — matches the smallest step button in the UI.
+const FRAME_INTERVAL_SECONDS = 60 * 60;
+
+// ~100 sim-seconds per chunk keeps each chunk well under 16ms wall time so the UI stays responsive.
+const CHUNK_INTERVAL_SECONDS = 100;
+
+// ms between chunks. 0 = next macrotask; lets paint + event handlers run between work bursts.
+const CHUNK_GAP_MS = 0;
+
+/** Returns a run handle the caller must `cancel()` on tab switch or restart to
+ *  stop callbacks and free the simulation. The handle also exposes the
+ *  observer-driven `stationHistory` so the tab can render it without rebuilding
+ *  history from captured frames. */
 export function startTimelapseRun(
   options: TimelapseRunOptions,
   callbacks: TimelapseRunCallbacks,
-): CancelTimelapseRun {
+): TimelapseRunHandle {
   const { presetId, durationSeconds, emigrationIntensity } = options;
-  const map = buildPresetMap(presetId);
-  if (!map) throw new Error(`unknown preset: ${presetId}`);
+  const presetMap = createTimelapseMapForPresetId(presetId);
+  if (!presetMap) throw new Error(`unknown preset: ${presetId}`);
 
-  const simulation = createSimulation(map);
+  const simulation = createSimulation(presetMap);
   if (emigrationIntensity === "none") {
     simulation.emigrationManager.setMode("manual");
   } else {
     simulation.emigrationManager.setIntensity(emigrationIntensity);
   }
 
-  const tickInterval = economyConfig.simulationIntervalSeconds;
-  const totalTicks = Math.ceil(durationSeconds / tickInterval);
-  const ticksPerFrame = Math.round(FRAME_INTERVAL_SECONDS / tickInterval);
-  const ticksPerChunk = Math.max(1, Math.round(CHUNK_INTERVAL_SECONDS / tickInterval));
+  const tickIntervalSeconds = economyConfig.simulationIntervalSeconds;
+  const totalTicks = Math.ceil(durationSeconds / tickIntervalSeconds);
+  const ticksPerFrame = Math.round(FRAME_INTERVAL_SECONDS / tickIntervalSeconds);
+  const ticksPerChunk = Math.max(1, Math.round(CHUNK_INTERVAL_SECONDS / tickIntervalSeconds));
 
   let cancelled = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   let ticksElapsed = 0;
-  let slowSimulationAccumulator = 0;
+  let secondsSinceLastSlowSimulationTick = 0;
 
   // Frame 0 = preset state before any tick.
-  callbacks.onFrameCaptured(captureFrame(simulation, 0));
+  callbacks.onFrameCaptured(captureTimelapseFrame(simulation, 0));
   callbacks.onDiagnosticsFrameCaptured(captureDiagnosticsFrame(simulation, 0));
 
-  function advanceTicksUntilTarget(targetTick: number) {
+  function runTicksUntilTarget(targetTick: number) {
     while (ticksElapsed < targetTick) {
-      simulation.tick(tickInterval);
+      simulation.tick(tickIntervalSeconds);
       ticksElapsed++;
-      slowSimulationAccumulator += tickInterval;
-      if (slowSimulationAccumulator >= SLOW_SIMULATION_TICK_INTERVAL_SECONDS) {
-        simulation.slowSimulationTick(slowSimulationAccumulator);
-        slowSimulationAccumulator = 0;
+      secondsSinceLastSlowSimulationTick += tickIntervalSeconds;
+      if (secondsSinceLastSlowSimulationTick >= economyConfig.slowSimulationTickIntervalSeconds) {
+        simulation.slowSimulationTick(secondsSinceLastSlowSimulationTick);
+        secondsSinceLastSlowSimulationTick = 0;
       }
       if (ticksElapsed % ticksPerFrame === 0) {
-        const simSeconds = ticksElapsed * tickInterval;
-        callbacks.onFrameCaptured(captureFrame(simulation, simSeconds));
-        callbacks.onDiagnosticsFrameCaptured(captureDiagnosticsFrame(simulation, simSeconds));
+        const simTimeSeconds = ticksElapsed * tickIntervalSeconds;
+        callbacks.onFrameCaptured(captureTimelapseFrame(simulation, simTimeSeconds));
+        callbacks.onDiagnosticsFrameCaptured(captureDiagnosticsFrame(simulation, simTimeSeconds));
       }
     }
   }
 
   function runNextChunk() {
     if (cancelled) return;
-    advanceTicksUntilTarget(Math.min(ticksElapsed + ticksPerChunk, totalTicks));
+    runTicksUntilTarget(Math.min(ticksElapsed + ticksPerChunk, totalTicks));
     callbacks.onProgress(ticksElapsed / totalTicks);
-    callbacks.onLivePreview(captureFrame(simulation, ticksElapsed * tickInterval));
+    callbacks.onLivePreview(captureTimelapseFrame(simulation, ticksElapsed * tickIntervalSeconds));
     if (ticksElapsed < totalTicks) {
       timeoutHandle = setTimeout(runNextChunk, CHUNK_GAP_MS);
     } else {
@@ -164,10 +161,13 @@ export function startTimelapseRun(
 
   timeoutHandle = setTimeout(runNextChunk, CHUNK_GAP_MS);
 
-  return () => {
-    if (cancelled) return;
-    cancelled = true;
-    if (timeoutHandle !== null) clearTimeout(timeoutHandle);
-    simulation.dispose();
+  return {
+    cancel: () => {
+      if (cancelled) return;
+      cancelled = true;
+      if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+      simulation.destroy();
+    },
+    stationHistory: simulation.stationHistory,
   };
 }

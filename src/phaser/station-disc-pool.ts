@@ -52,7 +52,7 @@ export class StationDiscPool {
     this.sweepAbsentEntries(drawGeneration);
   }
 
-  /** Disposes every visual the pool owns. Call from scene shutdown. */
+  /** Destroys every visual the pool owns. Call from scene shutdown. */
   destroy(): void {
     for (const entry of this.visualByStationId.values()) {
       entry.disc.destroy();

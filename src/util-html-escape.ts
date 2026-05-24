@@ -7,5 +7,5 @@ const htmlEscapesByCharacter: Record<string, string> = {
 };
 
 export function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (character) => htmlEscapesByCharacter[character] ?? character);
+  return text.replace(/[&<>"']/g, (character) => htmlEscapesByCharacter[character]);
 }

@@ -4,22 +4,14 @@ import { findRoundTradeTrip, effectiveFillPercent } from "../sim-trade-decision.
 import { createSimulation } from "../sim-lifecycle.ts";
 import { createMapFromTemplate } from "../sim-map-create.ts";
 import { getShipTypeTemplate } from "../sim-ship-template.ts";
-import { map as settledUniverse } from "../../data/map.ts";
-import { settledPreset } from "../../data/map-preset-settled.ts";
+import { createSettledSimulation } from "./sim-test-fixtures.ts";
 import type { MapTemplate, MapPreset } from "../../data/map-types.ts";
 
 // `ignoreCargoCompatibility` makes every dockable station spawn its full
-// roster so findTrip has plenty of candidates. Each test builds a fresh
-// simulation so disposal and per-ship mutations stay self-contained.
+// roster so findRoundTradeTrip has plenty of candidates. Each test builds a
+// fresh simulation so destroy and per-ship mutations stay self-contained.
 
-function createSettledSimulation(extraOptions: Parameters<typeof createSimulation>[1] = {}) {
-  return createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
-    ignoreCargoCompatibility: true,
-    ...extraOptions,
-  });
-}
-
-test("findTrip returns a 1-or-2-leg Trip for a freshly-initialized ship with routes available", () => {
+test("findRoundTradeTrip returns a 1-or-2-leg Trip for a freshly-initialized ship with routes available", () => {
   const simulation = createSettledSimulation();
   const ships = simulation.tradeManager.tradeShips;
   assertTrue(ships.length > 0, "simulation produced ships");
@@ -43,10 +35,10 @@ test("findTrip returns a 1-or-2-leg Trip for a freshly-initialized ship with rou
     }
   }
   assertTrue(foundTrip, "at least one ship found a trip");
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
-test("findTrip picks destinations with the right fill direction (sell to lower-fill, buy from higher-fill)", () => {
+test("findRoundTradeTrip picks destinations with the right fill direction (sell to lower-fill, buy from higher-fill)", () => {
   // Pin pickDestinationStation's fill-direction filter:
   //   isSell ? fill < homeFill : fill > homeFill
   // Swapping the comparators would route sell trips to fuller-than-home
@@ -78,10 +70,10 @@ test("findTrip picks destinations with the right fill direction (sell to lower-f
     0,
     "every primary leg flows from higher-fill source to lower-fill destination",
   );
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
-test("findTrip returns null when the ship's home station has no deliverable cargo", () => {
+test("findRoundTradeTrip returns null when the ship's home station has no deliverable cargo", () => {
   const simulation = createSettledSimulation();
   const ship = simulation.tradeManager.tradeShips[0];
   const homeStation = simulation.stationManager.getStation(ship.homeStationId);
@@ -96,11 +88,11 @@ test("findTrip returns null when the ship's home station has no deliverable carg
     findRoundTradeTrip(ship, simulation.tradeManager) === null,
     "no trade when home is drained and fully reserved",
   );
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("overview ware and route lists reflect spawned fleet cargo capacity", () => {
-  const simulation = createSettledSimulation({ initialStaggerDurationSeconds: 0 });
+  const simulation = createSettledSimulation();
 
   // startInitialStationBuilds places one build site per building nation at game start, and build
   // sites spawn trader ships — provisions/hulls appear in the overlay
@@ -138,7 +130,7 @@ test("overview ware and route lists reflect spawned fleet cargo capacity", () =>
     "overlay should keep mixed-fleet routes — only the consumer's ship can carry signal",
   );
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("maps with no cargo-compatible producer-consumer wares keep overview route data empty", () => {
@@ -196,5 +188,5 @@ test("maps with no cargo-compatible producer-consumer wares keep overview route 
     "overview should tolerate an empty route list",
   );
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });

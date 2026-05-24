@@ -9,10 +9,11 @@ import { test, assertEqual, assertTrue } from "./test-utils.ts";
 import { createStation, getInventorySlot } from "../sim-station.ts";
 import { TradeManager } from "../sim-trade-manager.ts";
 import { type TradeShip } from "../sim-trade-types.ts";
-import { processDepositAction } from "../sim-trade-queue.ts";
+import { applyDepositAction } from "../sim-trade-queue.ts";
 import type { Ship } from "../sim-ships.ts";
 import type { Station } from "../sim-station-types.ts";
 import { makePlacedStation } from "./factories.ts";
+import { loadShipCargo, totalActivity } from "./trade-test-fixtures.ts";
 
 interface RouteStatsObserverFixture {
   manager: TradeManager;
@@ -69,7 +70,7 @@ function makeRouteStatsObserverFixture(idPrefix: string): RouteStatsObserverFixt
     targetStationId: producer.id,
     tradeDirection: "buy",
     lastFlightHeadingRadians: null,
-    idleSinceTradeTime: 0,
+    idleSinceTradeTimeSeconds: 0,
     homeStationId: homeStation.id,
     orbitingShipId: orbitingShip.id,
   };
@@ -80,8 +81,8 @@ function makeRouteStatsObserverFixture(idPrefix: string): RouteStatsObserverFixt
 function depositWaterAtHome(fixture: RouteStatsObserverFixture): void {
   const homeWaterSlot = getInventorySlot(fixture.homeStation, "water")!;
   homeWaterSlot.current = 0;
-  fixture.tradeShip.cargoAmountByWareId = new Map([[homeWaterSlot.ware.id, 500]]);
-  processDepositAction(
+  loadShipCargo(fixture.tradeShip, homeWaterSlot.ware.id, 500);
+  applyDepositAction(
     fixture.tradeShip,
     {
       type: "cargo-deposit",
@@ -125,27 +126,27 @@ test("deposit route stats record the pickup station as the source for buy delive
   // fillFraction is amount / cargoCapacity. Trader capacity is 2500, deposit
   // is 500 water → 0.2. Pinning this catches a `/` → `*` mutation in the
   // event-builder that would silently inflate per-route activity totals.
-  assertEqual(tradedRoutes[0].totalActivity, 0.2, "totalActivity matches amount / capacity");
+  assertEqual(totalActivity(tradedRoutes[0]), 0.2, "route activity matches amount / capacity");
 
-  fixture.manager.dispose();
+  fixture.manager.destroy();
 });
 
-test("delivery event records its time as the manager's current tradeTime, not zero", () => {
-  // Pin the recordDelivery event's `time` field to manager.tradeTime. A mutation
-  // that hard-codes time=0 would silently break window queries — windows like
-  // "last hour" rely on event.time matching live tradeTime so old events fall
-  // outside the cutoff. Verify by recording at tradeTime=200, then querying a
-  // window that includes [now-150 .. now] and confirming the delivery is in.
+test("delivery event records its timeSeconds as the manager's current tradeTimeSeconds, not zero", () => {
+  // Pin the recordDelivery event's `timeSeconds` field to manager.tradeTimeSeconds. A
+  // mutation that hard-codes timeSeconds=0 would silently break window queries — windows
+  // like "last hour" rely on event.timeSeconds matching live tradeTimeSeconds so old
+  // events fall outside the cutoff. Verify by recording at tradeTimeSeconds=200, then
+  // querying a window that includes [now-150 .. now] and confirming the delivery is in.
   const fixture = makeRouteStatsObserverFixture("TIME");
   fixture.manager.advanceTradeTime(200);
   depositWaterAtHome(fixture);
 
-  // Window covers tradeTime ∈ [50, 200]. With time: tradeTime=200 the delivery
-  // is included; with time: 0 the cutoff (50) excludes it.
+  // Window covers tradeTimeSeconds ∈ [50, 200]. With timeSeconds: tradeTimeSeconds=200 the
+  // delivery is included; with timeSeconds: 0 the cutoff (50) excludes it.
   const deliveriesInWindow = fixture.manager.tradeRouteStats.getRouteStatsInWindow(200, 150);
   assertEqual(deliveriesInWindow.length, 1, "delivery falls inside the [now-150, now] window");
 
-  fixture.manager.dispose();
+  fixture.manager.destroy();
 });
 
 test("traded-route cache refreshes after 30 game seconds instead of wall-clock polling", () => {
@@ -168,9 +169,11 @@ test("traded-route cache refreshes after 30 game seconds instead of wall-clock p
 
   const refreshed = fixture.manager.getTradedRoutes(economyConfig.tradeRouteCacheRefreshSeconds, Infinity);
   assertTrue(refreshed !== first, "cache should refresh at the configured game-time window");
-  assertEqual(refreshed[0].totalDeliveries, 2, "refreshed stats should include the later delivery");
+  // Two 500-water deposits at 2500 capacity → 0.2 activity each. The refreshed
+  // result must include the later delivery (0.4 total), not just the first (0.2).
+  assertEqual(totalActivity(refreshed[0]), 0.4, "refreshed stats should include the later delivery");
 
-  fixture.manager.dispose();
+  fixture.manager.destroy();
 });
 
 test("recordRouteDeliveryFromTransfer ignores transfers whose ship is no longer registered", () => {
@@ -194,7 +197,7 @@ test("recordRouteDeliveryFromTransfer ignores transfers whose ship is no longer 
   const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
   assertEqual(tradedRoutes.length, 0, "orphan transfer is ignored by route stats");
 
-  fixture.manager.dispose();
+  fixture.manager.destroy();
 });
 
 test("recordRouteDeliveryFromTransfer skips transfers with no targetStationId (idle ship at home)", () => {
@@ -211,7 +214,7 @@ test("recordRouteDeliveryFromTransfer skips transfers with no targetStationId (i
   const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
   assertEqual(tradedRoutes.length, 0, "transfer with null fromStationId records no route");
 
-  fixture.manager.dispose();
+  fixture.manager.destroy();
 });
 
 test("recordRouteDeliveryFromTransfer skips transfers where fromStationId === toStationId (home-to-home)", () => {
@@ -225,12 +228,12 @@ test("recordRouteDeliveryFromTransfer skips transfers where fromStationId === to
   const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
   assertEqual(tradedRoutes.length, 0, "transfer where from === to records no route");
 
-  fixture.manager.dispose();
+  fixture.manager.destroy();
 });
 
 test("recordRouteDeliveryFromTransfer skips deliveries whose consumer station is emigrating", () => {
   // Fire the transfer observer directly (like the ORPHAN / NO-TARGET /
-  // SELF-LOOP tests). depositWaterAtHome → processDepositAction has its own
+  // SELF-LOOP tests). depositWaterAtHome → applyDepositAction has its own
   // emigrating short-circuit that would mask this guard, so go straight to the
   // observer. Pin: consumer (toStation) state === "emigrating" → not recorded.
   const fixture = makeRouteStatsObserverFixture("EMIG-CONSUMER");
@@ -241,7 +244,7 @@ test("recordRouteDeliveryFromTransfer skips deliveries whose consumer station is
   const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
   assertEqual(tradedRoutes.length, 0, "delivery to an emigrating consumer is not recorded");
 
-  fixture.manager.dispose();
+  fixture.manager.destroy();
 });
 
 test("recordRouteDeliveryFromTransfer skips deliveries whose producer station is emigrating", () => {
@@ -255,7 +258,7 @@ test("recordRouteDeliveryFromTransfer skips deliveries whose producer station is
   const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
   assertEqual(tradedRoutes.length, 0, "delivery from an emigrating producer is not recorded");
 
-  fixture.manager.dispose();
+  fixture.manager.destroy();
 });
 
 test("recordRouteDeliveryFromTransfer skips deliveries whose producer station was already removed", () => {
@@ -271,7 +274,7 @@ test("recordRouteDeliveryFromTransfer skips deliveries whose producer station wa
   const tradedRoutes = fixture.manager.getTradedRoutes(0, Infinity);
   assertEqual(tradedRoutes.length, 0, "delivery from an unresolvable producer is not recorded");
 
-  fixture.manager.dispose();
+  fixture.manager.destroy();
 });
 
 test("two TradeManagers record route stats independently — observer captures its own shipResolver", () => {
@@ -283,16 +286,8 @@ test("two TradeManagers record route stats independently — observer captures i
   const managerBFixture = makeRouteStatsObserverFixture("ISO-B");
 
   // Fire one deposit on each manager.
-  processDepositAction(
-    managerAFixture.tradeShip,
-    { type: "cargo-deposit", station: managerAFixture.homeStation, wareId: "water", amount: 500 },
-    managerAFixture.manager,
-  );
-  processDepositAction(
-    managerBFixture.tradeShip,
-    { type: "cargo-deposit", station: managerBFixture.homeStation, wareId: "water", amount: 500 },
-    managerBFixture.manager,
-  );
+  depositWaterAtHome(managerAFixture);
+  depositWaterAtHome(managerBFixture);
 
   const aRoutes = managerAFixture.manager.getTradedRoutes(0, Infinity);
   const bRoutes = managerBFixture.manager.getTradedRoutes(0, Infinity);
@@ -310,15 +305,15 @@ test("two TradeManagers record route stats independently — observer captures i
     "B's route is producer-B → home-B",
   );
 
-  managerAFixture.manager.dispose();
-  managerBFixture.manager.dispose();
+  managerAFixture.manager.destroy();
+  managerBFixture.manager.destroy();
 });
 
 test("clearTradeRouteHistory wipes recorded routes and the per-window cache", () => {
   // The overview polls getTradedRoutes(now, window) every 500ms; that result
-  // is cached in routesCacheByWindow with a game-time TTL. Clearing only the
-  // event store would still return the stale cached window. Pin both: query a
-  // window first (populates the cache), clear, re-query at the same `now`.
+  // is cached in routesCacheByWindow and refreshed after a game-time interval.
+  // Clearing only the event store would still return the stale cached window.
+  // Pin both: query a window first (populates the cache), clear, re-query at the same `now`.
   const fixture = makeRouteStatsObserverFixture("CLEAR");
 
   depositWaterAtHome(fixture);
@@ -332,5 +327,5 @@ test("clearTradeRouteHistory wipes recorded routes and the per-window cache", ()
     "no routes after clear (event store + window cache both wiped)",
   );
 
-  fixture.manager.dispose();
+  fixture.manager.destroy();
 });

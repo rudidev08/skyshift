@@ -18,15 +18,14 @@ const htmlEntryPoints = {
 // Both /start/:preset (fresh start with a preset) and /universe
 // (continue-latest-save) serve the same universe.html shell; game-entry
 // parses the path client-side and dispatches on it.
-const cleanUrlRouteDefinitions = [
-  { routePattern: /^\/start\/[^/]+\/?$/, templatePath: "universe.html" },
-  { routePattern: /^\/universe\/?$/, templatePath: "universe.html" },
+const cleanUrlRoutes = [
+  { routePattern: /^\/(start\/[^/]+|universe)\/?$/, templatePath: "universe.html" },
 ];
 
 export default defineConfig({
   base: "/",
   appType: "mpa",
-  plugins: [htmlRoutePlugin(cleanUrlRouteDefinitions), economyApiPlugin()],
+  plugins: [htmlRoutePlugin(cleanUrlRoutes), economyApiPlugin()],
   build: {
     chunkSizeWarningLimit: 1500,
     rollupOptions: {

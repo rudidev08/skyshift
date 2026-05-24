@@ -3,13 +3,12 @@
 // verifies the page loads, the script populates start-actions, and the
 // secondary nav links exist.
 
-import { checkPage, wait } from "./lib.mjs";
+import { checkPage } from "./page-test-helpers.mjs";
 
 await checkPage({
   name: "index",
   path: "/",
   async interact(page) {
-    await wait(500);
     const counts = await page.evaluate(() => ({
       startButtons: document.querySelectorAll("[data-role='start-actions'] button").length,
       navLinks: document.querySelectorAll(".landing-nav a").length,

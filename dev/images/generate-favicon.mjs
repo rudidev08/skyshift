@@ -20,7 +20,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
-import { renderPng } from "./_render-svg.mjs";
+import { renderPng } from "./svg-to-png.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "../..");
@@ -52,31 +52,30 @@ function encodeIco(images) {
   let payloadOffset = tableSize;
   for (let i = 0; i < images.length; i++) {
     const { width, height, data } = images[i];
-    const base = headerSize + i * entrySize;
-    // Width/height byte: 0 means 256 in the ICO spec. We only emit 16 and 32, so the ternary is defensive — never triggers.
-    header.writeUInt8(width >= 256 ? 0 : width, base + 0);
-    header.writeUInt8(height >= 256 ? 0 : height, base + 1);
-    header.writeUInt8(0, base + 2); // palette size (0 = no palette)
-    header.writeUInt8(0, base + 3); // reserved
-    header.writeUInt16LE(1, base + 4); // color planes
-    header.writeUInt16LE(32, base + 6); // bits per pixel
-    header.writeUInt32LE(data.length, base + 8);
-    header.writeUInt32LE(payloadOffset, base + 12);
+    const entryOffset = headerSize + i * entrySize;
+    header.writeUInt8(width, entryOffset + 0);
+    header.writeUInt8(height, entryOffset + 1);
+    header.writeUInt8(0, entryOffset + 2); // palette size (0 = no palette)
+    header.writeUInt8(0, entryOffset + 3); // reserved
+    header.writeUInt16LE(1, entryOffset + 4); // color planes
+    header.writeUInt16LE(32, entryOffset + 6); // bits per pixel
+    header.writeUInt32LE(data.length, entryOffset + 8);
+    header.writeUInt32LE(payloadOffset, entryOffset + 12);
     payloadOffset += data.length;
   }
 
-  return Buffer.concat([header, ...images.map((img) => img.data)]);
+  return Buffer.concat([header, ...images.map((image) => image.data)]);
 }
 
 const [png16, png32] = await Promise.all([renderPng(svgBuffer, 16), renderPng(svgBuffer, 32)]);
 
-const ico = encodeIco([
+const icoBuffer = encodeIco([
   { width: 16, height: 16, data: png16 },
   { width: 32, height: 32, data: png32 },
 ]);
 
-await fs.writeFile(icoPath, ico);
+await fs.writeFile(icoPath, icoBuffer);
 
 const rel = (p) => path.relative(root, p);
-console.log(`Wrote ${rel(icoPath)}     (${ico.length} bytes, 16×16 + 32×32)`);
+console.log(`Wrote ${rel(icoPath)}     (${icoBuffer.length} bytes, 16×16 + 32×32)`);
 console.log(`Source: ${rel(svgPath)}  (served as /favicon.svg)`);

@@ -1,10 +1,8 @@
 import { type Scene } from "phaser";
 import { isClickNotDrag } from "./pointer-input";
 
-// Maximum screen-pixel distance from a tap to consider an object a candidate.
 const SELECTION_RADIUS_PIXELS = 80;
-// Maximum screen-pixel distance between consecutive taps to treat them as cycling.
-const SIMILAR_AREA_RADIUS_PIXELS = 100;
+const SAME_TAP_AREA_RADIUS_PIXELS = 100;
 
 export interface SelectionLabel {
   /** Data URI for the ghosted outline seal behind the id-card header */
@@ -21,12 +19,26 @@ export interface SelectionLabel {
   /** Lore body text shown inside the lore drawer */
   lore: string;
   /** Whether this target has a trade debug log available */
-  hasDetails: boolean;
+  hasLog: boolean;
   /** Nation accent applied to the id-card (tints the serial code). Empty leaves the default gold. */
   accentColor: string;
   /** Status band text at the card's footer (e.g. "Flying", "Producing Metal"). Empty hides the band. */
   statusLabel: string;
 }
+
+// Shown in the HUD when nothing is selected.
+export const EMPTY_SELECTION_LABEL: SelectionLabel = {
+  iconUri: "",
+  stackLabel: "",
+  name: "",
+  serialCode: "",
+  description: "",
+  loreTypeName: "",
+  lore: "",
+  hasLog: false,
+  accentColor: "",
+  statusLabel: "",
+};
 
 export type SelectionKind = "station" | "ship" | "zone";
 
@@ -63,7 +75,7 @@ export class Selection {
   /** Restricts selection to matching kinds; null = all kinds allowed. */
   private allowedKinds: Set<SelectionKind> | null = null;
 
-  /** Last-click screen position, used to detect cycling taps in the same area. Updated on empty-area clicks too so a follow-up tap measures from the latest pointer. */
+  /** Updated on empty-area clicks too, so a follow-up tap measures from the latest pointer rather than the last successful selection. */
   private lastClickScreenX = 0;
   private lastClickScreenY = 0;
 
@@ -118,10 +130,10 @@ export class Selection {
    *  nothing's nearby or candidates exhausted. */
   private handleProximityClick(pointer: Phaser.Input.Pointer, camera: Phaser.Cameras.Scene2D.Camera) {
     if (!this.interactive) return;
-    const mapPoint = camera.getWorldPoint(pointer.upX, pointer.upY);
-    const radiusMap = SELECTION_RADIUS_PIXELS / camera.zoom;
+    const mapPosition = camera.getWorldPoint(pointer.upX, pointer.upY);
+    const radiusInMapUnits = SELECTION_RADIUS_PIXELS / camera.zoom;
 
-    const candidates = this.collectCandidatesNearPoint(mapPoint, radiusMap);
+    const candidates = this.collectCandidatesNearPoint(mapPosition, radiusInMapUnits);
 
     if (candidates.length === 0) {
       this.deselect();
@@ -134,11 +146,9 @@ export class Selection {
     this.selectFromSortedCandidates(candidates, pointer);
   }
 
-  /** Walk registered targets, keeping any that pass the kind / canSelect /
-   *  position filters and sit within `radiusMap` of `mapPoint`. */
   private collectCandidatesNearPoint(
-    mapPoint: { x: number; y: number },
-    radiusMap: number,
+    mapPosition: { x: number; y: number },
+    radiusInMapUnits: number,
   ): { target: SelectionTarget; distance: number }[] {
     const candidates: { target: SelectionTarget; distance: number }[] = [];
     for (const target of this.registeredTargets) {
@@ -147,10 +157,10 @@ export class Selection {
       const position = target.getMapPosition();
       if (!position) continue;
 
-      const deltaX = position.x - mapPoint.x;
-      const deltaY = position.y - mapPoint.y;
+      const deltaX = position.x - mapPosition.x;
+      const deltaY = position.y - mapPosition.y;
       const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-      if (distance <= radiusMap) {
+      if (distance <= radiusInMapUnits) {
         candidates.push({ target, distance });
       }
     }
@@ -166,14 +176,15 @@ export class Selection {
   ) {
     const screenDeltaX = pointer.upX - this.lastClickScreenX;
     const screenDeltaY = pointer.upY - this.lastClickScreenY;
-    const isSimilarArea =
-      Math.sqrt(screenDeltaX * screenDeltaX + screenDeltaY * screenDeltaY) < SIMILAR_AREA_RADIUS_PIXELS;
+    const isSameTapArea =
+      Math.sqrt(screenDeltaX * screenDeltaX + screenDeltaY * screenDeltaY) <
+      SAME_TAP_AREA_RADIUS_PIXELS;
 
     this.lastClickScreenX = pointer.upX;
     this.lastClickScreenY = pointer.upY;
 
     const nearest = candidates[0];
-    if (isSimilarArea && this.selectedTarget !== null && nearest.target === this.selectedTarget) {
+    if (isSameTapArea && this.selectedTarget !== null && nearest.target === this.selectedTarget) {
       if (candidates.length > 1) {
         this.select(candidates[1].target);
       } else {
@@ -186,8 +197,8 @@ export class Selection {
     this.select(nearest.target);
   }
 
-  /** Per-frame: auto-deselect stale targets (e.g. a ship that just landed). */
-  pruneStaleTarget() {
+  /** Per-frame: auto-deselect a stale target (e.g. a ship that just landed). */
+  clearStaleTargetThisFrame() {
     if (this.selectedTarget && !this.selectedTarget.isActive()) {
       this.selectedTarget = null;
     }

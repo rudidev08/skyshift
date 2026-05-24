@@ -6,6 +6,7 @@
 // dynamic name claims.
 
 import type { Nation } from "./sim-nation";
+import { shuffleInPlace } from "./util-shuffle";
 
 export class NamePool {
   private readonly usedNameCounts = new Map<string, number>();
@@ -29,30 +30,25 @@ export class NamePool {
    *  predefined names that still need global tracking so dynamic names won't
    *  conflict. */
   claimName(baseName: string, nation?: Nation): string {
-    const count = this.usedNameCounts.get(baseName) ?? 0;
-    this.usedNameCounts.set(baseName, count + 1);
+    const priorClaimCount = this.usedNameCounts.get(baseName) ?? 0;
+    this.usedNameCounts.set(baseName, priorClaimCount + 1);
 
     // Remember the original claimant for later suffix flavor.
-    if (count === 0 && nation) this.nameNation.set(baseName, nation);
+    if (priorClaimCount === 0 && nation) this.nameNation.set(baseName, nation);
 
-    if (count === 0) return baseName;
+    if (priorClaimCount === 0) return baseName;
 
-    const owner = nation ?? this.nameNation.get(baseName);
-    const suffixes = owner?.nameSuffixes ?? [];
-    const suffixIndex = count - 1;
-    const suffix = suffixIndex < suffixes.length ? suffixes[suffixIndex] : String(count + 1);
+    const suffixNation = nation ?? this.nameNation.get(baseName);
+    const suffixes = suffixNation?.nameSuffixes ?? [];
+    const suffixIndex = priorClaimCount - 1;
+    const suffix = suffixIndex < suffixes.length ? suffixes[suffixIndex] : String(priorClaimCount + 1);
     return `${baseName} ${suffix}`;
   }
 
   /** Reserve a predefined name from its nation's pool so dynamic draws
    *  don't collide. */
   reservePoolName(pool: string[], baseName: string): void {
-    let remaining = this.remainingNames.get(pool);
-    if (!remaining) {
-      remaining = [...pool];
-      shuffleNames(remaining);
-      this.remainingNames.set(pool, remaining);
-    }
+    const remaining = this.getOrCreateDrawPile(pool);
 
     const reservedNameIndex = remaining.lastIndexOf(baseName);
     if (reservedNameIndex !== -1) {
@@ -60,19 +56,25 @@ export class NamePool {
     }
   }
 
-  /** Draw a name without replacement from a shuffled copy of the pool. After exhaustion, reshuffle the pool and let claimName's suffixing handle the duplicate. */
+  /** Draw a name without replacement from the pool's draw pile. After exhaustion, reshuffles the pile and lets claimName's suffixing handle the duplicate. */
   private drawFromPool(pool: string[], nation: Nation): string {
     if (pool.length === 0) return "Unknown";
 
+    const remaining = this.getOrCreateDrawPile(pool);
+    const baseName = remaining.pop()!;
+    return this.claimName(baseName, nation);
+  }
+
+  /** Draw pile for a source pool, (re)created and shuffled when missing or
+   *  exhausted. */
+  private getOrCreateDrawPile(pool: string[]): string[] {
     let remaining = this.remainingNames.get(pool);
     if (!remaining || remaining.length === 0) {
       remaining = [...pool];
-      shuffleNames(remaining);
+      shuffleNamePoolCopy(remaining);
       this.remainingNames.set(pool, remaining);
     }
-
-    const baseName = remaining.pop()!;
-    return this.claimName(baseName, nation);
+    return remaining;
   }
 }
 
@@ -103,11 +105,6 @@ export function assignStationNames<T extends { name?: string; nation: Nation }>(
   }
 }
 
-function shuffleNames(names: string[]) {
-  // Fisher-Yates in place — callers pass a copy of the canonical pool so the
-  // order written in data/nations.ts is never mutated.
-  for (let i = names.length - 1; i > 0; i--) {
-    const swapIndex = Math.floor(Math.random() * (i + 1));
-    [names[i], names[swapIndex]] = [names[swapIndex], names[i]];
-  }
+function shuffleNamePoolCopy(names: string[]) {
+  shuffleInPlace(names);
 }

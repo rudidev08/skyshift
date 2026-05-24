@@ -9,24 +9,24 @@
 // fires the click handler directly and avoids both. The user-visible feature
 // still works in real browsers; this is a test-harness workaround.
 
-import { checkPage, wait } from "./lib.mjs";
+import { checkPage, wait } from "./page-test-helpers.mjs";
 
 const clickInPage = (page, selector) =>
-  page.evaluate((sel) => {
-    const element = document.querySelector(sel);
-    if (!element) throw new Error(`clickInPage: ${sel} not found`);
+  page.evaluate((selector) => {
+    const element = document.querySelector(selector);
+    if (!element) throw new Error(`clickInPage: ${selector} not found`);
     element.click();
   }, selector);
 
 const setSelectInPage = (page, selector, value) =>
   page.evaluate(
-    ({ sel, val }) => {
-      const select = document.querySelector(sel);
-      if (!select) throw new Error(`setSelectInPage: ${sel} not found`);
-      select.value = val;
+    ({ selector, value }) => {
+      const select = document.querySelector(selector);
+      if (!select) throw new Error(`setSelectInPage: ${selector} not found`);
+      select.value = value;
       select.dispatchEvent(new Event("change"));
     },
-    { sel: selector, val: value },
+    { selector, value },
   );
 
 await checkPage({

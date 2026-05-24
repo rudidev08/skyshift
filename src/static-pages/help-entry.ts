@@ -179,8 +179,10 @@ const scenes: Record<HelpSceneName, SectorScene> = {
   },
 };
 
+type HelpHudIconKey = "zoom" | "controls" | "speed" | "overview" | "zones" | "settings" | "log" | "lore";
+
 // Same Lucide glyphs the game injects into the HUD — keeps help in sync.
-const hudIconHtmlByKey: Record<string, string> = {
+const hudIconHtmlByKey: Record<HelpHudIconKey, string> = {
   zoom: CirclePlus + CircleMinus,
   controls: CircleChevronUp,
   speed: FastForward,
@@ -195,6 +197,10 @@ function isSceneName(name: string): name is HelpSceneName {
   return name in scenes;
 }
 
+function isHudIconKey(key: string): key is HelpHudIconKey {
+  return key in hudIconHtmlByKey;
+}
+
 function setupSceneCanvases(): void {
   for (const canvas of document.querySelectorAll<HTMLCanvasElement>("canvas[data-scene]")) {
     const name = canvas.dataset.scene ?? "";
@@ -206,8 +212,8 @@ function setupSceneCanvases(): void {
 function setupHudIcons(): void {
   for (const element of document.querySelectorAll<HTMLElement>("[data-icon]")) {
     const key = element.dataset.icon ?? "";
-    const html = hudIconHtmlByKey[key];
-    if (html) element.innerHTML = html;
+    if (!isHudIconKey(key)) continue;
+    element.innerHTML = hudIconHtmlByKey[key];
   }
 }
 

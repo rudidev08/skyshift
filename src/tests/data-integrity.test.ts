@@ -9,27 +9,29 @@ import { allNations } from "../../data/nations";
 import { allStationTypes } from "../../data/stations";
 import { allShips } from "../../data/ships";
 import { allWares, passengers } from "../../data/wares";
+import { getWareTemplate } from "../sim-ware-template";
 import { sectorEnvironmentById } from "../../data/map-sector-environments";
 import { allowedStationTypesForZone } from "../sim-map-sector-environments";
 import type { StationZone } from "../sim-station-zone-types";
 import type { Sector } from "../sim-map-types";
 import type { WareId } from "../../data/ware-types";
 import type { StationTypeId } from "../../data/station-types";
+import { makeSector } from "./factories";
 
-// Pins invariants that hold across the data files. The test runtime
+// Pins rules that must hold across the data files. The test runtime
 // loads real data, not fixtures: a typo or stale reference in `data/` should
 // fail one of these tests.
 
-// Resolve every zone through the real seed path. createStationZones derives
-// each zone's sector from its x/y and throws if a zone is outside every sector
-// or lands in one its `<sector-id>-<n>` id prefix doesn't name — so this also
-// asserts the data files stay spatially consistent.
-function buildRealRuntimeZones(): StationZone[] {
+/** Resolve every zone through the real seed path. createStationZones derives
+ *  each zone's sector from its x/y and throws if a zone is outside every sector
+ *  or lands in one its `<sector-id>-<n>` id prefix doesn't name — so this also
+ *  asserts the data files stay spatially consistent. */
+function resolveAllRuntimeZones(): StationZone[] {
   return createStationZones([...zones], createMapFromTemplate(map, presets[0]).sectors);
 }
 
 test("every zone's position resolves to the sector its id prefix names", () => {
-  const runtimeZones = buildRealRuntimeZones();
+  const runtimeZones = resolveAllRuntimeZones();
   assertEqual(runtimeZones.length, zones.length, "every zone resolved to a sector");
   for (const zone of runtimeZones) {
     const namedSectorId = zone.id.replace(/-\d+$/, "");
@@ -173,7 +175,7 @@ test("ware production graph is acyclic", () => {
 
 test("every ware consumed in production has at least one producing station type", () => {
   // Collect every wareId that appears in any other ware's productionInputs[].
-  // For each, at least one stationTemplate.produces[] must list it — otherwise
+  // For each, at least one stationType.produces[] must list it — otherwise
   // the consumer's input can never be supplied through normal play.
   const consumedWareIds = new Set<WareId>();
   for (const ware of allWares) {
@@ -212,8 +214,22 @@ test("passengers ware has no producer and no consumer", () => {
   }
 });
 
+test("no station type lists a productionOutput-0 ware in its produces", () => {
+  // Every ware a station produces must have non-zero productionOutput.
+  // A pure-sink ware (e.g. passengers) in a station's `produces` desyncs the
+  // in-canvas ⏶/⏷ arrow from the HUD id-card.
+  for (const stationType of allStationTypes) {
+    for (const wareId of stationType.produces) {
+      assertTrue(
+        getWareTemplate(wareId).productionOutput > 0,
+        `stationType "${stationType.id}" produces "${wareId}" which has productionOutput 0 (pure sink)`,
+      );
+    }
+  }
+});
+
 test("ware.productionInputs lists each wareId at most once per ware", () => {
-  // Pin the no-duplicate-input invariant. Two entries for the same input
+  // Pin the no-duplicate-input rule. Two entries for the same input
   // ware would double-bill consumption against a single inventory slot,
   // since input slots are keyed by wareId.
   for (const ware of allWares) {
@@ -231,7 +247,7 @@ test("every nation that buildsStations has at least one buildable zone on the ba
   // If a nation has no buildable zone on the base map, it can never build in
   // any preset. Verifies the cross-product of:
   // nation buildable types × allowed environments × resolved sectors/zones.
-  const runtimeZones = buildRealRuntimeZones();
+  const runtimeZones = resolveAllRuntimeZones();
   for (const nation of allNations) {
     if (!nation.buildsStations) continue;
     let hasBuildableZone = false;
@@ -303,17 +319,11 @@ test("getPresetLabel returns the preset's name and falls back to the id for unkn
 });
 
 function makeZoneWithSectorEnvironment(sectorEnvironment: Sector["environment"]): StationZone {
-  const sector = {
+  const sector = makeSector({
     id: "test-sector",
     name: "Test Sector",
-    lore: "",
-    gridX: 0,
-    gridY: 0,
     environment: sectorEnvironment,
-    x: 0,
-    y: 0,
-    size: 1000,
-  } satisfies Sector;
+  });
   return {
     id: "test-sector-1",
     sector,

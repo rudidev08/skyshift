@@ -72,13 +72,13 @@ export function setupTimeControls(scene: Scene, onSpeedChange: (scale: number) =
   // pauseSim/resumeSim/isSimPaused need a scene-bound onSpeedChange to drive the sim; capture this scene's so external callers (view modes) get the same behavior as the pause button.
   externalPauseSimCallback = onSpeedChange;
 
-  const cleanup = () => {
+  const destroy = () => {
     detachPauseAndCycle();
     detachDevModeSpeedButtons();
     externalPauseSimCallback = null;
   };
-  scene.events.once("shutdown", cleanup);
-  scene.events.once("destroy", cleanup);
+  scene.events.once("shutdown", destroy);
+  scene.events.once("destroy", destroy);
 
   return controller;
 }

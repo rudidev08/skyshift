@@ -21,6 +21,8 @@ export type WareProductionInput = {
 export type WareTemplate = {
   id: WareId;
   name: string;
+  /** One-line lore shown in lore.html and strings.html. */
+  lore: string;
   /** Units produced per production tick. Station output storage holds one hour of production. */
   productionOutput: number;
   /** Inputs per production tick. Order is stable and meaningful for display. */

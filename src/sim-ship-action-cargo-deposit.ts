@@ -3,6 +3,7 @@
 import type { ShipAction } from "./sim-travel-types";
 import type { ShipActionSnapshot } from "./sim-save-types";
 import type { Station } from "./sim-station";
+import { waitPlaceholder } from "./sim-ship-action-shared";
 
 type CargoDepositAction = Extract<ShipAction, { type: "cargo-deposit" }>;
 type CargoDepositActionSnapshot = Extract<ShipActionSnapshot, { type: "cargo-deposit" }>;
@@ -16,13 +17,12 @@ export function shipCargoDepositActionToSnapshot(action: CargoDepositAction): Ca
   };
 }
 
-/** Reconstruct a cargo-deposit action. Returns a `wait` placeholder when the
- *  station is gone — keeps the queue advancing past it without crashing. */
+/** Reconstruct a cargo-deposit action, or a `waitPlaceholder` when the station is gone. */
 export function shipCargoDepositActionFromSnapshot(
   snapshot: CargoDepositActionSnapshot,
   stations: Map<string, Station>,
 ): ShipAction {
   const station = stations.get(snapshot.stationId);
-  if (!station) return { type: "wait", duration: 0, label: "Deliver" };
+  if (!station) return waitPlaceholder("Deliver");
   return { type: "cargo-deposit", station, wareId: snapshot.wareId, amount: snapshot.amount };
 }

@@ -1,4 +1,4 @@
-/* Cached station-icon loader + drawer for the static sector page's 2D canvas.
+/* Station-icon cache for the static sector page's 2D canvas.
  *
  * Holds an HTMLImageElement per (svg, color, scale) so drawImage can reuse
  * the decoded bitmap each frame. The sibling src/render-station-icon.ts
@@ -8,28 +8,32 @@
  * The image decodes asynchronously after src is set, so callers must check
  * image.complete before drawing — drawStationIcon does so. */
 
+import { svgToDataUri } from "../render-data-uri-cache";
+
 export interface StationIcon {
   image: HTMLImageElement;
-  size: number;
+  sizePixels: number;
 }
 
 const iconCache = new Map<string, HTMLImageElement>();
 
+const BASE_ICON_SIZE_PIXELS = 24;
+
 export function prepareStationIcon(svgInner: string, nationColor: string, scale: number): StationIcon {
   const key = `${svgInner}|${nationColor}|${scale}`;
-  const size = Math.round(24 * scale);
+  const sizePixels = Math.round(BASE_ICON_SIZE_PIXELS * scale);
   let image = iconCache.get(key);
   if (!image) {
     const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24"` +
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${sizePixels}" height="${sizePixels}" viewBox="0 0 24 24"` +
       ` fill="none" stroke="${nationColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">` +
       svgInner +
       `</svg>`;
     image = new Image();
-    image.src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+    image.src = svgToDataUri(svg);
     iconCache.set(key, image);
   }
-  return { image, size };
+  return { image, sizePixels };
 }
 
 export function drawStationIcon(
@@ -39,5 +43,11 @@ export function drawStationIcon(
   icon: StationIcon,
 ): void {
   if (!icon.image.complete) return;
-  context.drawImage(icon.image, stationX - icon.size / 2, stationY - icon.size / 2, icon.size, icon.size);
+  context.drawImage(
+    icon.image,
+    stationX - icon.sizePixels / 2,
+    stationY - icon.sizePixels / 2,
+    icon.sizePixels,
+    icon.sizePixels,
+  );
 }

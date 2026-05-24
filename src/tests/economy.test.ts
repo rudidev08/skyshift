@@ -5,14 +5,14 @@ import { economyConfig } from "../../data/economy-config.ts";
 import { ice, water, food, medicine, provisions } from "../../data/wares.ts";
 import type { InventorySlot, Station } from "../sim-station.ts";
 import type { WareId } from "../../data/ware-types.ts";
-import { makeStation } from "./factories.ts";
+import { makeStationWithProduces } from "./factories.ts";
 
 // --- Fixtures ---
 
 function createTestStation(produces: WareId[], inventory: InventorySlot[], sizeMultiplier = 1): Station {
   // Pin sizeMultiplier to 1 — single-batch production math (8 ice → 4 water)
   // shouldn't be scaled by the factory's size-derived default.
-  return makeStation({ producesOverride: produces, inventory, sizeMultiplier });
+  return makeStationWithProduces(produces, { inventory, sizeMultiplier });
 }
 
 /** Force exactly one production tick by resetting the per-station stagger and a fresh timer. */
@@ -48,7 +48,7 @@ test("production stops when output storage is full", () => {
   assertEqual(waterSlot.current, 500, "water unchanged");
   // didProduceLastTick must reflect the skipped tick — the trade-simulation
   // report reads this to flag stalled producers, so it has to flip to false
-  // when nothing fired (see report-trade-simulation.ts line 120).
+  // when nothing fired (see report-trade-simulation.ts).
   assertEqual(station.didProduceLastTick, false, "didProduceLastTick should be false when output is full");
 });
 
@@ -157,9 +157,9 @@ test("staggerStationTicks spreads first ticks across one interval", () => {
   // Three stations should land at offsets 0, -1/3, -2/3 of the interval.
   const interval = economyConfig.simulationIntervalSeconds;
   const stations = [
-    makeStation({ producesOverride: ["water"] }),
-    makeStation({ producesOverride: ["water"] }),
-    makeStation({ producesOverride: ["water"] }),
+    makeStationWithProduces(["water"]),
+    makeStationWithProduces(["water"]),
+    makeStationWithProduces(["water"]),
   ];
   // Pre-seed every station with a non-zero sentinel so the assertion that
   // the first station ends at 0 actually proves the loop visited i=0 (not

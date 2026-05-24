@@ -1,5 +1,4 @@
 // Background objects that don't directly affect gameplay
-// Modify station zones and sector data within nebulas to simulate nebula effects
 import type { Nebula } from "./map-types";
 
 export const nebulas: Nebula[] = [

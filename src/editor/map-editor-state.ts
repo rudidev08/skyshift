@@ -20,9 +20,9 @@ export class MapEditorState {
     this.seedEditableArraysFromBaseline();
   }
 
-  /** Build a fresh GameMap from the current editable arrays. Each call clones every station and nebula — call once per sim run, not once per render frame. */
+  /** Build a fresh GameMap from the current editable arrays. Forces `simulationWarmupSeconds: 0` so editor measurements aren't pre-warmed. Each call clones every station and nebula — call once per sim run, not once per render frame. */
   currentMap(): GameMap {
-    const gameMap = createMapFromTemplate(map, this.activePreset);
+    const gameMap = createMapFromTemplate(map, { ...this.activePreset, simulationWarmupSeconds: 0 });
     gameMap.stations = this.editableStations.map((station) => ({ ...station }));
     gameMap.nebulas = this.editableNebulas.map((nebula) => ({ ...nebula }));
     return gameMap;
@@ -41,12 +41,9 @@ export class MapEditorState {
 
   /** Clears and refills the arrays in place (length=0 + push) so views that captured the array reference keep seeing the new contents. */
   private seedEditableArraysFromBaseline(): void {
-    replaceArrayInPlace(this.editableStations, this.baselineMap.stations);
-    replaceArrayInPlace(this.editableNebulas, this.baselineMap.nebulas);
+    this.editableStations.length = 0;
+    for (const station of this.baselineMap.stations) this.editableStations.push({ ...station });
+    this.editableNebulas.length = 0;
+    for (const nebula of this.baselineMap.nebulas) this.editableNebulas.push({ ...nebula });
   }
-}
-
-function replaceArrayInPlace<T>(target: T[], source: readonly T[]): void {
-  target.length = 0;
-  for (const item of source) target.push({ ...item });
 }

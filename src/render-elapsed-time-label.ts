@@ -1,8 +1,10 @@
+import { padToTwoDigits } from "./util-pad";
+
 export interface ElapsedTimeLabel {
   destroy(): void;
 }
 
-const REFRESH_MS = 500;
+const REFRESH_MILLISECONDS = 500;
 
 function decomposeSeconds(seconds: number): {
   days: number;
@@ -18,8 +20,6 @@ function decomposeSeconds(seconds: number): {
     seconds: total % 60,
   };
 }
-
-const padToTwoDigits = (value: number) => String(value).padStart(2, "0");
 
 /** Two largest non-zero units so the HUD readout keeps a consistent width:
  *  m:s under an hour, h:m under a day, d:h beyond. */
@@ -41,7 +41,7 @@ export function formatHoursMinutesSeconds(seconds: number): string {
 
 export function createElapsedTimeLabel(
   root: Document,
-  getSimTime: () => number,
+  getSimTimeSeconds: () => number,
   options?: { offsetSeconds?: number },
 ): ElapsedTimeLabel {
   const host = root.querySelector<HTMLElement>("#speed-hud-elapsed");
@@ -49,22 +49,22 @@ export function createElapsedTimeLabel(
   if (!host || !numberElement) {
     return {
       destroy() {
-        /* does nothing on pages without the speed HUD */
+        // Does nothing on pages without the speed HUD.
       },
     };
   }
   // Hide warmup pre-ticks from the player clock — callers pass
   // simulationWarmupSeconds so boot-time advancement doesn't show up as elapsed time.
-  const offset = options?.offsetSeconds ?? 0;
+  const offsetSeconds = options?.offsetSeconds ?? 0;
   let lastText = "";
   const update = () => {
-    const next = formatElapsed(getSimTime() - offset);
-    if (next === lastText) return;
-    numberElement.textContent = next;
-    lastText = next;
+    const nextText = formatElapsed(getSimTimeSeconds() - offsetSeconds);
+    if (nextText === lastText) return;
+    numberElement.textContent = nextText;
+    lastText = nextText;
   };
   update();
-  const timer = window.setInterval(update, REFRESH_MS);
+  const timer = window.setInterval(update, REFRESH_MILLISECONDS);
   return {
     destroy() {
       window.clearInterval(timer);

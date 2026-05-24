@@ -3,18 +3,18 @@ import { resolve } from "node:path";
 import type { Plugin } from "vite";
 
 /** One clean URL route paired with the HTML file that backs it during local dev. */
-export type HtmlRouteDefinition = {
+export type HtmlRoute = {
   routePattern: RegExp;
   templatePath: string;
 };
 
-export function htmlRoutePlugin(routeDefinitions: HtmlRouteDefinition[]): Plugin {
+export function htmlRoutePlugin(routes: HtmlRoute[]): Plugin {
   return {
     name: "html-route",
     configureServer(server) {
       // Vite's MPA build emits separate HTML entrypoints, but the dev server
       // doesn't map clean URLs like /start/settled or /universe back to those
-      // files. This middleware bridges that gap so local dev matches the
+      // files. This middleware adds that mapping so local dev matches the
       // deployed routing behavior (vercel.json).
       server.middlewares.use(async (request, response, next) => {
         const requestPath = request.url?.split("?")[0];
@@ -22,9 +22,7 @@ export function htmlRoutePlugin(routeDefinitions: HtmlRouteDefinition[]): Plugin
 
         // Fall through (don't 404) on non-matches so Vite's normal asset
         // handling and HTML entrypoint resolution still run.
-        const matchingRoute = routeDefinitions.find((routeDefinition) =>
-          routeDefinition.routePattern.test(requestPath),
-        );
+        const matchingRoute = routes.find((route) => route.routePattern.test(requestPath));
         if (!matchingRoute) return next();
 
         try {

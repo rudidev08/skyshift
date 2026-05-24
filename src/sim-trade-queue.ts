@@ -14,21 +14,20 @@
 
 import { economyConfig } from "../data/economy-config";
 import type { TradeTripLeg } from "./sim-trade-types";
-import type { WareTemplate, WareId } from "../data/ware-types";
+import type { WareId } from "../data/ware-types";
 import { getInventorySlot, type Station, type InventorySlot } from "./sim-station";
 import { stationCodeNameLabel } from "./sim-station-template";
 import { getShipTypeTemplate } from "./sim-ship-template";
 import { createFlightData, createSurfaceEndpoint, createOrbitEndpoint } from "./sim-travel";
 import type { ShipAction, TravelEndpoint } from "./sim-travel-types";
 import { addReservation, fulfillReservation, clearReservations } from "./sim-trade-reservation";
-import { getWareTemplate } from "./sim-ware-template";
 import { type TradeShip, type TradeTransferEvent } from "./sim-trade-types";
 // Type-only — avoids runtime cycle with sim-trade-manager.
 import type { DecommissionEvent, TradeManager } from "./sim-trade-manager";
 
-function addCargo(ship: TradeShip, ware: WareTemplate, amount: number): void {
-  const existing = ship.cargoAmountByWareId.get(ware.id) ?? 0;
-  ship.cargoAmountByWareId.set(ware.id, existing + amount);
+function addCargo(ship: TradeShip, wareId: WareId, amount: number): void {
+  const existing = ship.cargoAmountByWareId.get(wareId) ?? 0;
+  ship.cargoAmountByWareId.set(wareId, existing + amount);
 }
 
 function removeCargo(ship: TradeShip, wareId: WareId, amount: number): void {
@@ -47,11 +46,11 @@ interface TripTransferBuckets {
 }
 
 function createTransferAction(
-  type: "cargo-withdrawal" | "cargo-deposit",
+  actionType: "cargo-withdrawal" | "cargo-deposit",
   station: Station,
   leg: TradeTripLeg,
 ): ShipAction {
-  return { type, station, wareId: leg.wareId, amount: leg.amount };
+  return { type: actionType, station, wareId: leg.wareId, amount: leg.amount };
 }
 
 /** Route each leg's endpoints into per-station per-direction buckets. */
@@ -78,10 +77,10 @@ function bucketTripTransfers(legs: TradeTripLeg[], home: Station, target: Statio
 function createFlyBetweenStations(
   origin: Station,
   destination: Station,
-  fromEndpointKind: "surface" | "orbit",
+  fromSurfaceOrOrbit: "surface" | "orbit",
 ): Extract<ShipAction, { type: "fly" }> {
   const originEndpoint =
-    fromEndpointKind === "orbit" ? createOrbitEndpoint(origin) : createSurfaceEndpoint(origin);
+    fromSurfaceOrOrbit === "orbit" ? createOrbitEndpoint(origin) : createSurfaceEndpoint(origin);
   return {
     type: "fly",
     origin: originEndpoint,
@@ -90,7 +89,7 @@ function createFlyBetweenStations(
     destinationStation: destination,
     travelMode: "interStation",
     label: `Fly: ${stationCodeNameLabel(origin)} to ${stationCodeNameLabel(destination)}`,
-    route: { fromStation: origin, toStation: destination },
+    isTradeFlight: true,
   };
 }
 
@@ -112,7 +111,7 @@ function createLocalHop(
 }
 
 function createDockWait(label: string): Extract<ShipAction, { type: "wait" }> {
-  return { type: "wait", duration: economyConfig.groundedDelaySeconds, label: `Dock: ${label}` };
+  return { type: "wait", durationSeconds: economyConfig.groundedDelaySeconds, label: `Dock: ${label}` };
 }
 
 /** Build the action queue. Ships travel home → target → home, loading/unloading
@@ -176,7 +175,7 @@ export function depositCargo(slot: InventorySlot, amount: number): number {
   return delivered;
 }
 
-export function processDepositAction(
+export function applyDepositAction(
   ship: TradeShip,
   action: Extract<ShipAction, { type: "cargo-deposit" }>,
   manager: TradeManager,
@@ -211,12 +210,12 @@ export function processDepositAction(
       cargoDirection: "incoming",
       wareId: action.wareId,
     };
-    for (const observer of manager.tradeTransferObservers) observer(event);
+    manager.notifyTradeTransfer(event);
   }
   removeCargo(ship, action.wareId, amount);
 }
 
-function processWithdrawAction(
+function applyWithdrawAction(
   ship: TradeShip,
   action: Extract<ShipAction, { type: "cargo-withdrawal" }>,
   manager: TradeManager,
@@ -224,7 +223,7 @@ function processWithdrawAction(
   // Resolve at use-time — missing slot (station demolished or flipped) silently does nothing.
   const slot = getInventorySlot(action.station, action.wareId);
   const taken = slot ? withdrawCargo(slot, action.amount) : 0;
-  if (taken > 0) addCargo(ship, getWareTemplate(action.wareId), taken);
+  if (taken > 0) addCargo(ship, action.wareId, taken);
   if (slot)
     fulfillReservation(ship, {
       station: action.station,
@@ -240,11 +239,11 @@ function processWithdrawAction(
       cargoDirection: "outgoing",
       wareId: action.wareId,
     };
-    for (const observer of manager.tradeTransferObservers) observer(event);
+    manager.notifyTradeTransfer(event);
   }
 }
 
-function processDecommissionAction(
+function applyDecommissionAction(
   ship: TradeShip,
   action: Extract<ShipAction, { type: "decommission" }>,
   manager: TradeManager,
@@ -258,30 +257,30 @@ function processDecommissionAction(
     decommissionStationId: action.station.id,
     reason: "decommission-action",
   };
-  for (const observer of manager.decommissionObservers) observer(event);
+  manager.notifyDecommission(event);
 }
 
 /** Append actions and make sure the ship starts executing immediately.
  *
  *  Idle ships need a zero-duration placeholder so advanceQueue's leading-shift
- *  doesn't consume the first appended action — same trick createQueueFromTrip
+ *  doesn't consume the first appended action — the same one createQueueFromTrip
  *  uses for fresh trips. Ships in flight or mid-action already have a pending
  *  wake-up; idle ships get their timer canceled and rescheduled at 0. */
 export function appendActionsToShip(ship: TradeShip, actions: ShipAction[], manager: TradeManager): void {
   if (actions.length === 0) return;
   const isIdle = ship.actionQueue.length === 0 && !manager.activeTradeShips.isInFlight(ship);
   if (isIdle) {
-    ship.actionQueue.push({ type: "wait", duration: 0, label: "—" });
+    ship.actionQueue.push({ type: "wait", durationSeconds: 0, label: "—" });
   }
   ship.actionQueue.push(...actions);
   if (manager.activeTradeShips.isInFlight(ship)) return;
   // Cancel any pending random-delay timer so the appended tail starts on the
-  // next updateTrade tick.
+  // next tickTrade call.
   manager.activeTradeShips.cancelTimersFor(ship);
-  manager.activeTradeShips.scheduleTimer(ship, manager.tradeTime);
+  manager.activeTradeShips.scheduleTimer(ship, manager.tradeTimeSeconds);
 }
 
-export function startFlight(
+function startFlight(
   ship: TradeShip,
   action: Extract<ShipAction, { type: "fly" }>,
   manager: TradeManager,
@@ -297,20 +296,20 @@ export function startFlight(
     destinationStation: action.destinationStation,
     ship: shipTemplate,
     travelMode: action.travelMode,
-    previousHeading: ship.lastFlightHeadingRadians,
+    previousHeadingRadians: ship.lastFlightHeadingRadians,
   });
 }
 
 /** Reset trade state and enter idle. Called when the queue empties or when
  *  preparing for a new trade. */
-export function resetTradeState(ship: TradeShip, manager: TradeManager): void {
+function resetTradeState(ship: TradeShip, manager: TradeManager): void {
   clearReservations(ship);
   ship.flight = null;
   ship.targetStationId = null;
   ship.tradeDirection = null;
   ship.cargoAmountByWareId.clear();
   ship.lastFlightHeadingRadians = null;
-  ship.idleSinceTradeTime = manager.tradeTime;
+  ship.idleSinceTradeTimeSeconds = manager.tradeTimeSeconds;
 }
 
 /** Commit a trip — place reservations, build the queue, fire the first action. */
@@ -344,13 +343,13 @@ export function startTrip(ship: TradeShip, legs: TradeTripLeg[], manager: TradeM
   // Derived from firstLeg for existing UI/debug readers.
   ship.tradeDirection = firstLeg.fromStation.id === ship.homeStationId ? "sell" : "buy";
 
-  ship.idleSinceTradeTime = manager.tradeTime;
+  ship.idleSinceTradeTimeSeconds = manager.tradeTimeSeconds;
 
   advanceQueue(ship, manager);
 }
 
 /** Random wait between trade attempts when no trip is available. */
-export function randomTradeDelay(): number {
+export function randomTradeDelaySeconds(): number {
   const { tradeWaitMinSeconds, tradeWaitMaxSeconds } = economyConfig;
   return tradeWaitMinSeconds + Math.random() * (tradeWaitMaxSeconds - tradeWaitMinSeconds);
 }
@@ -373,23 +372,23 @@ export function advanceQueue(ship: TradeShip, manager: TradeManager): void {
         return; // blocks until flight completes
 
       case "wait":
-        manager.scheduleTimer(ship, action.duration);
+        manager.scheduleTimer(ship, action.durationSeconds);
         return; // blocks until timer fires
 
       case "cargo-withdrawal":
-        processWithdrawAction(ship, action, manager);
+        applyWithdrawAction(ship, action, manager);
         ship.actionQueue.shift(); // instant, continue to next action
         break;
 
       case "cargo-deposit":
-        processDepositAction(ship, action, manager);
+        applyDepositAction(ship, action, manager);
         ship.actionQueue.shift(); // instant, continue to next action
         break;
 
       case "decommission":
         // Terminal action — ship arrived at the generational ship (or other
         // target) and leaves the universe via the observer (shipManager.removeShip).
-        processDecommissionAction(ship, action, manager);
+        applyDecommissionAction(ship, action, manager);
         ship.actionQueue.shift();
         return;
     }
@@ -397,5 +396,5 @@ export function advanceQueue(ship: TradeShip, manager: TradeManager): void {
 
   // Queue empty — reset trade state and schedule the next trip attempt.
   resetTradeState(ship, manager);
-  manager.scheduleTimer(ship, randomTradeDelay());
+  manager.scheduleTimer(ship, randomTradeDelaySeconds());
 }

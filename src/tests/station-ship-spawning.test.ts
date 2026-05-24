@@ -1,10 +1,11 @@
-import { test, assertEqual, assertTrue, assertThrows } from "./test-utils.ts";
+import { test, assertEqual, assertTrue, withScriptedMathRandom } from "./test-utils.ts";
 import { createStation } from "../sim-station.ts";
-import { createStationShips, getNationShipTypeTemplate } from "../sim-ships.ts";
+import { createStationShips } from "../sim-ships.ts";
+import { getShipTypeTemplate } from "../sim-ship-template.ts";
 import { NamePool } from "../sim-name-pool.ts";
 import type { StationSize, StationTypeId } from "../../data/station-types.ts";
 import type { Station } from "../sim-station-types.ts";
-import { farNation, oreNation, skyNation, wayNation } from "../../data/nations.ts";
+import { bioNation, farNation, oreNation, skyNation, wayNation } from "../../data/nations.ts";
 import { makePlacedStation } from "./factories.ts";
 
 function createFarNationStation(id: string, stationTypeId: StationTypeId, size: StationSize): Station {
@@ -24,9 +25,7 @@ test("createStationShips still spawns FAR habitat ships when traders can move st
   // Pin Math.random so the random-attempt branch of generateUniqueShipCode
   // always proposes the same code — that exercises the per-loop reservation:
   // without it, both ships would land on identical ids.
-  const originalRandom = Math.random;
-  Math.random = () => 0;
-  try {
+  withScriptedMathRandom([0], () => {
     const ships = createStationShips({
       station: createFarNationStation("FAR-HAB", "habitat", "M"),
       takenShipIds: new Set<string>(),
@@ -45,18 +44,31 @@ test("createStationShips still spawns FAR habitat ships when traders can move st
     // of two should never share a name.
     const uniqueShipNames = new Set(ships.map((ship) => ship.shipName));
     assertEqual(uniqueShipNames.size, ships.length, "every spawned ship should have a unique name");
-  } finally {
-    Math.random = originalRandom;
-  }
+    // Pin without-replacement on the draw pile (FAR has 20 ship names; a
+    // 2-ship fleet draws far below exhaustion, so no name should need a
+    // suffix). If drawFromPool peeked instead of popping (`remaining.pop()`
+    // → `remaining[...]`), both ships would draw the same base name and
+    // claimName would mask it as "Traverse" + "Traverse Primus" — distinct
+    // strings, so the size check above stays green while without-replacement
+    // is broken. A suffixed reuse is exactly "<earlier name> <suffix>", so
+    // assert no spawned name is another spawned name plus a trailing word.
+    for (const ship of ships) {
+      for (const other of ships) {
+        if (other === ship) continue;
+        assertTrue(
+          !ship.shipName.startsWith(`${other.shipName} `),
+          `ship name "${ship.shipName}" is a suffixed reuse of "${other.shipName}" — pool drew the same base name twice`,
+        );
+      }
+    }
+  });
 });
 
 test("createStationShips avoids ids already in takenShipIds (cross-station collisions)", () => {
-  // Pin the `new Set(takenShipIds)` seed. Dropping it (`new Set<string>()`) lets
-  // the second station's loop propose ids that collide with the first station's
-  // fleet, since Math.random=0 would otherwise return "FAR-000" every attempt.
-  const originalRandom = Math.random;
-  Math.random = () => 0;
-  try {
+  // Pre-fill `occupied` with the first station's ids. Without them (`new Set<string>()`),
+  // the second station's spawn loop would propose "FAR-000" every attempt
+  // (Math.random=0) and pass the collision check, defeating the cross-station guard.
+  withScriptedMathRandom([0], () => {
     const occupied = new Set<string>(["FAR-000", "FAR-001"]);
     const ships = createStationShips({
       station: createFarNationStation("FAR-HAB-2", "habitat", "M"),
@@ -69,9 +81,7 @@ test("createStationShips avoids ids already in takenShipIds (cross-station colli
     }
     const uniqueIds = new Set(ships.map((ship) => ship.id));
     assertEqual(uniqueIds.size, ships.length, "spawned fleet has internally-unique ids");
-  } finally {
-    Math.random = originalRandom;
-  }
+  });
 });
 
 test("createStationShips spawns build-site fleet for ORE mine even though tanker→trader override doesn't match operational wares", () => {
@@ -148,14 +158,58 @@ test("createStationShips force-spawns editor fleets even when station wares are 
   assertEqual(ships.length, 2, "force-spawned editor fleets should preserve the full station ship count");
 });
 
-test("getNationShipTypeTemplate throws for nations with no primary fleet (WAY)", () => {
-  // Pin the throw guard on `nation.shipTypeId == null`. Dropping the guard
-  // would fall through to getShipTypeTemplate(null) — getShipTypeTemplate's own
-  // unknown-id throw fires with a less-specific message, and any caller that
-  // checks for the WAY-specific text in the error would silently miss.
-  assertThrows(
-    () => getNationShipTypeTemplate(wayNation),
-    "no primary ship type",
-    "WAY nation should be rejected with the no-fleet message",
+test("createStationShips spawns zero ships for a WAY station (no primary fleet)", () => {
+  // WAY has shipTypeId: null and stationConstructionShipTypeId: null, so the
+  // ship-type resolution yields no type and createStationShips returns []. This
+  // is what actually holds — a Ship only exists when a non-null shipTypeId
+  // resolved, which is why the render path can read ship.shipTypeId directly
+  // (the removed getNationShipTypeTemplate's WAY throw was unreachable from any
+  // render call path: no WAY ship is ever constructed).
+  const station = createStation(
+    makePlacedStation({ id: "WAY-GEN", stationTypeId: "habitat", size: "M", nation: wayNation }),
   );
+  const ships = createStationShips({
+    station,
+    takenShipIds: new Set<string>(),
+    namePool: new NamePool(),
+  });
+  assertEqual(ships.length, 0, "WAY station spawns no ships");
+});
+
+test("build-site override fleet renders its own ship type, not the nation default", () => {
+  // BIO's primary fleet is seedhaul, but its stationConstructionShipTypeId is
+  // trader — so a BIO build-site fleet spawned with shipTypeOverride:"trader"
+  // gets ship.shipTypeId === "trader". The render path resolves the ship type
+  // from the ship's OWN shipTypeId. Under the OLD getNationShipTypeTemplate
+  // path it re-derived from station.nation.shipTypeId ("seedhaul") and painted
+  // override fleets with the wrong texture/HUD-icon/name/lore — this test
+  // fails under that path (resolved id would be "seedhaul").
+  const station = createStation(
+    makePlacedStation({
+      id: "BIO-FARM-X",
+      stationTypeId: "farm",
+      size: "M",
+      nation: bioNation,
+      state: "building",
+      build: { waresRequired: { provisions: 4200, hulls: 7800 }, contractingNationId: undefined },
+    }),
+  );
+  const ships = createStationShips({
+    station,
+    takenShipIds: new Set<string>(),
+    namePool: new NamePool(),
+    options: { shipTypeOverride: "trader" },
+  });
+  assertTrue(ships.length > 0, "BIO build site spawns at least one trader build-fleet ship");
+  for (const ship of ships) {
+    assertEqual(ship.shipTypeId, "trader", "spawned ship carries the override shipTypeId");
+    // The render resolution: getShipTypeTemplate(ship.shipTypeId). Must be the
+    // trader template, NOT bioNation.shipTypeId's seedhaul template.
+    const resolved = getShipTypeTemplate(ship.shipTypeId);
+    assertEqual(
+      resolved.id,
+      "trader",
+      "render resolves the ship's own type (trader), not the nation default (seedhaul)",
+    );
+  }
 });

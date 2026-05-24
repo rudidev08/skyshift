@@ -12,31 +12,13 @@ import {
   isStationProducing,
   isStationUnderConstruction,
 } from "../sim-station.ts";
-import { stationCodeNameLabel, getStationTypeTemplate, computeBuildWares } from "../sim-station-template.ts";
-import type { PlacedStation, StationSize, StationTypeId } from "../../data/station-types.ts";
+import { stationCodeNameLabel, getStationTypeTemplate } from "../sim-station-template.ts";
+import type { StationSize } from "../../data/station-types.ts";
 import type { Station } from "../sim-station-types.ts";
-import type { WareId } from "../../data/ware-types.ts";
-import { makePlacedStation, makeStation } from "./factories.ts";
-
-function makeStationProducing(produces: WareId[], size: StationSize = "S") {
-  return makeStation({ producesOverride: produces, size });
-}
-
-function makePlacedStationWithType(
-  stationTypeId: StationTypeId,
-  size: StationSize = "S",
-): PlacedStation {
-  return makePlacedStation({
-    name: "TestStation",
-    stationTypeId,
-    size,
-    // Cast: tests only consume codeName/name/color from nation.
-    nation: { codeName: "TST", name: "Testers", color: "#fff" } as Station["nation"],
-  });
-}
+import { makePlacedStationWithType, makeStation, makeStationWithProduces } from "./factories.ts";
 
 test("getStationRates: provisions producer consumes food/medicine and outputs provisions", () => {
-  const station = makeStationProducing(["provisions"]);
+  const station = makeStationWithProduces(["provisions"], { size: "S" });
 
   const rates = getStationRates(station);
 
@@ -47,7 +29,7 @@ test("getStationRates: provisions producer consumes food/medicine and outputs pr
 });
 
 test("getStationRates: hulls producer consumes tech and outputs hulls", () => {
-  const station = makeStationProducing(["hulls"]);
+  const station = makeStationWithProduces(["hulls"], { size: "S" });
 
   const rates = getStationRates(station);
 
@@ -57,7 +39,7 @@ test("getStationRates: hulls producer consumes tech and outputs hulls", () => {
 
 test("getStationRates: mine produces both ice and mineral with separate rates", () => {
   // Mine produces ice (output 8) and mineral (output 8), both raw with no inputs
-  const station = makeStationProducing(["ice", "mineral"]);
+  const station = makeStationWithProduces(["ice", "mineral"], { size: "S" });
 
   const rates = getStationRates(station);
 
@@ -68,7 +50,7 @@ test("getStationRates: mine produces both ice and mineral with separate rates", 
 
 test("getStationRates: size L multiplier triples base rates", () => {
   // Large station multiplier is 3 — all rates should be tripled
-  const station = makeStationProducing(["water"], "L");
+  const station = makeStationWithProduces(["water"], { size: "L" });
 
   const rates = getStationRates(station);
 
@@ -79,7 +61,7 @@ test("getStationRates: size L multiplier triples base rates", () => {
 
 test("getStationRates: size M doubles provisions producer rates", () => {
   // Medium provisions station: produces 1 provisions + consumes 1 food + 1 medicine, multiplied by 2
-  const station = makeStationProducing(["provisions"], "M");
+  const station = makeStationWithProduces(["provisions"], { size: "M" });
 
   const rates = getStationRates(station);
 
@@ -90,7 +72,7 @@ test("getStationRates: size M doubles provisions producer rates", () => {
 
 test("getStationRates: station type with empty produces list has zero rates", () => {
   // Edge case: a station type that produces nothing at all
-  const station = makeStationProducing([]);
+  const station = makeStationWithProduces([], { size: "S" });
 
   const rates = getStationRates(station);
 
@@ -102,7 +84,7 @@ test("getStationRates: sink ware with output 0 is excluded from production", () 
   // Passengers has productionOutput 0 — the only sink ware in the data set.
   // The `productionOutput > 0` filter in getStationRates pins this; relaxing
   // it to >= 0 would falsely list passengers as a produced ware.
-  const station = makeStationProducing(["passengers"]);
+  const station = makeStationWithProduces(["passengers"], { size: "S" });
 
   const rates = getStationRates(station);
 
@@ -113,8 +95,8 @@ test("getStationRates: sink ware with output 0 is excluded from production", () 
 test("createStation: mine has exactly two output slots for ice and mineral with no duplicates", () => {
   // Mine produces ice and mineral, both raw (no inputs).
   // Should have exactly 2 inventory slots, one per output.
-  const mapStation = makePlacedStationWithType("mine", "S");
-  const station = createStation(mapStation);
+  const placedStation = makePlacedStationWithType("mine", "S");
+  const station = createStation(placedStation);
 
   const slots = getAllInventorySlots(station);
   assertEqual(slots.length, 2, "mine should have 2 inventory slots");
@@ -129,8 +111,8 @@ test("createStation: habitat inventory is sorted in canonical wares order", () =
   // Habitat produces provisions; produces-iteration order would push
   // provisions first, then food + medicine inputs. Canonical wares order
   // (food, medicine, provisions) only matches if createStation re-sorts.
-  const mapStation = makePlacedStationWithType("habitat", "S");
-  const station = createStation(mapStation);
+  const placedStation = makePlacedStationWithType("habitat", "S");
+  const station = createStation(placedStation);
 
   const wareIds = getAllInventorySlots(station).map((slot) => slot.ware.id);
   assertEqual(wareIds[0], "food", "food sorts first");
@@ -147,8 +129,8 @@ const sizeMultipliers: Array<[StationSize, number]> = [
 ];
 for (const [size, multiplier] of sizeMultipliers) {
   test(`createStation: water storage at size ${size} is floor(28800 * ${multiplier})`, () => {
-    const mapStation = makePlacedStationWithType("water-processing", size);
-    const station = createStation(mapStation);
+    const placedStation = makePlacedStationWithType("water-processing", size);
+    const station = createStation(placedStation);
     const waterSlot = assertNotUndefined(getInventorySlot(station, "water"), "water slot");
     assertEqual(waterSlot.max, Math.floor(28800 * multiplier), `water max at size ${size}`);
   });
@@ -158,16 +140,16 @@ test("createStation: ice input storage scales with multiplier (size L)", () => {
   // Ice input storage = cost(8) × getStorageCapacityInTicks(7200) = 57600. Output-slot
   // test above doesn't exercise input slots, so keep this one for the
   // input-side formula.
-  const mapStation = makePlacedStationWithType("water-processing", "L");
-  const station = createStation(mapStation);
+  const placedStation = makePlacedStationWithType("water-processing", "L");
+  const station = createStation(placedStation);
   const iceSlot = assertNotUndefined(getInventorySlot(station, "ice"), "ice input slot");
   assertEqual(iceSlot.max, Math.floor(57600 * 3), "ice input max at size L");
 });
 
 test("createStation: initial current is half of max (floored)", () => {
   // Stations start at 50% fill — verify the floor(max * 0.5) formula
-  const mapStation = makePlacedStationWithType("water-processing", "S");
-  const station = createStation(mapStation);
+  const placedStation = makePlacedStationWithType("water-processing", "S");
+  const station = createStation(placedStation);
 
   const waterSlot = assertNotUndefined(getInventorySlot(station, "water"), "water slot");
   // max = floor(28800 * 1) = 28800, current = floor(28800 * 0.5) = 14400
@@ -178,8 +160,8 @@ test("createStation: initial current is half of max (floored)", () => {
 });
 
 test("createStation: shipyard has a hulls output slot plus tech input slot", () => {
-  const mapStation = makePlacedStationWithType("shipyard", "M");
-  const station = createStation(mapStation);
+  const placedStation = makePlacedStationWithType("shipyard", "M");
+  const station = createStation(placedStation);
 
   assertNotUndefined(getInventorySlot(station, "hulls"), "hulls slot");
 
@@ -191,8 +173,8 @@ test("getInventorySlot returns the same slot instance as getAllInventorySlots", 
   // Indexed lookup and iteration view must return identical slot refs —
   // a mismatch would make mutations through one path invisible via the
   // other and silently break economy code.
-  const mapStation = makePlacedStationWithType("medical-lab", "L");
-  const station = createStation(mapStation);
+  const placedStation = makePlacedStationWithType("medical-lab", "L");
+  const station = createStation(placedStation);
 
   for (const slot of getAllInventorySlots(station)) {
     const mappedSlot = getInventorySlot(station, slot.ware.id);
@@ -202,18 +184,18 @@ test("getInventorySlot returns the same slot instance as getAllInventorySlots", 
 });
 
 test("createStation: defaults state to producing when placement omits it", () => {
-  // Pin the assembleStation default. Trade routing and rate math gate off
+  // Pin the finalizeStation default. Trade routing and rate math gate off
   // `state === "producing"`; flipping the fallback to "emigrating" would silently
   // suspend trade for every freshly-created station.
-  const mapStation = makePlacedStationWithType("mine", "S");
-  const station = createStation(mapStation);
+  const placedStation = makePlacedStationWithType("mine", "S");
+  const station = createStation(placedStation);
   assertEqual(station.state, "producing", "default state");
 });
 
 test("createStation: reservations initialized to zero on all slots", () => {
   // Nonzero reservations at startup would let trade ships see phantom availability.
-  const mapStation = makePlacedStationWithType("mine", "M");
-  const station = createStation(mapStation);
+  const placedStation = makePlacedStationWithType("mine", "M");
+  const station = createStation(placedStation);
 
   for (const slot of getAllInventorySlots(station)) {
     assertEqual(slot.reservedIncoming, 0, `${slot.ware.id} reservedIncoming should start at 0`);
@@ -264,7 +246,7 @@ test("reserveOutgoing and releaseOutgoing round-trip cleanly", () => {
   assertEqual(waterSlot.reservedOutgoing, 25, "release subtracts amount");
 });
 
-test("releaseIncoming and releaseOutgoing no-op when the slot is missing", () => {
+test("releaseIncoming and releaseOutgoing do nothing when the slot is missing", () => {
   // Pin the missing-slot guard. Trade ships may release against a station
   // whose slot was demolished; dropping the `if (!slot) return` would throw
   // mid-tick instead of silently completing the release.
@@ -324,18 +306,6 @@ test("getStationTypeTemplate throws on an unknown station type id", () => {
     "Unknown station type",
     "unknown id should be named in the error",
   );
-});
-
-test("computeBuildWares: S non-contracted total = base 3000 × 2 = 6000", () => {
-  // Pin the `BUILD_BASE_PER_WARE_S * 2` factor and the `contracted ? 2 : 1`
-  // multiplier at their identity point. Mutating either constant (e.g. `* 2`
-  // → `* 1`, or flipping the contracted ternary) would halve or double every
-  // build cost across the game without changing per-size ratios or per-type
-  // splits, so a ratio-only check elsewhere can't see it.
-  const wares = computeBuildWares("habitat", "S", false);
-  assertEqual(wares.provisions + wares.hulls, 6000, "S non-contracted total = 6000");
-  const contracted = computeBuildWares("habitat", "S", true);
-  assertEqual(contracted.provisions + contracted.hulls, 12000, "S contracted total = 2× = 12000");
 });
 
 test("stationCodeNameLabel formats as '<codeName> <name>' (code first)", () => {

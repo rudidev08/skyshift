@@ -4,7 +4,7 @@
 
 import type { Game } from "./game";
 import type { GameSnapshot } from "./sim-save-types";
-import { Simulation } from "./sim-lifecycle";
+import { Simulation, createShipsForStations } from "./sim-lifecycle";
 import { restoreSavedGame } from "./ui-savegame-manager";
 import { assignStationNames } from "./sim-name-pool";
 import {
@@ -20,8 +20,7 @@ import { createAmbientTraffic } from "./phaser/ambient-traffic-render";
 import { createPausedIndicator } from "./ui-game-paused-indicator";
 import { createElapsedTimeLabel } from "./render-elapsed-time-label";
 import { addSpeedChangeObserver } from "./phaser/time-controls";
-import { createStationShips } from "./sim-ships";
-import { ensureStationRender, destroyStationRender, resetAutoSaveAccumulator } from "./game-loop";
+import { ensureStationRender, destroyStationRender } from "./game-loop";
 
 export function setupHudOverlay(game: Game): void {
   resolveHudOverlayElements(game);
@@ -29,30 +28,28 @@ export function setupHudOverlay(game: Game): void {
 }
 
 function resolveHudOverlayElements(game: Game): void {
-  game.selectedObjectEl = document.getElementById("selected-object")!;
-  game.selectedTypeEl = document.getElementById("selected-type")!;
-  game.infoCardEl = document.getElementById("overlay-info-card")!;
-  game.serialCodeEl = document.getElementById("serial-code")!;
-  game.descriptionEl = document.getElementById("description")!;
-  game.statusBandEl = document.getElementById("status-band")!;
-  game.loreEl = document.getElementById("lore")!;
-  game.loreTitleEl = document.getElementById("lore-title")!;
-  game.infoPanelEl = document.getElementById("overlay-info")!;
-  game.hudIconEl = document.getElementById("hud-icon")!;
-  game.loreToggleEl = document.getElementById("lore-toggle")!;
-  game.logToggleEl = document.getElementById("log-toggle")!;
-  game.detailsContentEl = document.getElementById("details-content")!;
-  game.detailsBoxEl = document.getElementById("details-box")!;
-  game.loreBoxEl = document.getElementById("lore-box")!;
+  game.selectedObjectElement = document.getElementById("selected-object")!;
+  game.selectedTypeElement = document.getElementById("selected-type")!;
+  game.infoCardElement = document.getElementById("overlay-info-card")!;
+  game.serialCodeElement = document.getElementById("serial-code")!;
+  game.descriptionElement = document.getElementById("description")!;
+  game.statusBandElement = document.getElementById("status-band")!;
+  game.loreElement = document.getElementById("lore")!;
+  game.loreTitleElement = document.getElementById("lore-title")!;
+  game.infoPanelElement = document.getElementById("overlay-info")!;
+  game.hudIconElement = document.getElementById("hud-icon")!;
+  game.loreToggleElement = document.getElementById("lore-toggle")!;
+  game.logToggleElement = document.getElementById("log-toggle")!;
+  game.logContentElement = document.getElementById("log-content")!;
+  game.logBoxElement = document.getElementById("log-box")!;
 }
 
 /** Editor never populates the selection dossier — hide it so the .id-card chrome doesn't show as an empty "broken" box. */
 function hideInfoPanelForEditorMode(game: Game): void {
-  if (game.isEditorMode) game.infoPanelEl.style.display = "none";
+  if (game.isEditorMode) game.infoPanelElement.style.display = "none";
 }
 
-/** Wire up the speed pill and elapsed-time label. Call site skips this in
- *  editor mode — the editor owns sim-speed state through its own controls. */
+/** Skipped in editor mode — the editor owns sim-speed state through its own controls. */
 export function setupGameplaySpeedAndTimeHud(game: Game): void {
   game.pausedIndicator = createPausedIndicator(document);
   game.pausedIndicator.setSpeed(game.timeController.currentSpeed);
@@ -61,7 +58,7 @@ export function setupGameplaySpeedAndTimeHud(game: Game): void {
   });
   game.elapsedTimeLabel = createElapsedTimeLabel(
     document,
-    () => game.simulation?.tradeManager.tradeTime ?? 0,
+    () => game.simTimeSeconds(),
     {
       offsetSeconds: game.map.simulationWarmupSeconds ?? 0,
     },
@@ -72,15 +69,12 @@ function setupEntityRenderObservers(game: Game, simulation: Simulation): void {
   const shipContext = createShipVisualBundleContext(game, simulation);
   simulation.shipManager.onAdd((newShips) => {
     for (const ship of newShips) {
-      game.shipBundles.push(createShipVisualBundle(ship, shipContext));
+      createShipVisualBundle(ship, shipContext);
     }
   });
   simulation.shipManager.onRemove((ship) => {
-    const renderIndex = game.shipBundles.findIndex((shipRender) => shipRender.ship === ship);
-    if (renderIndex >= 0) {
-      destroyShipVisualBundle(game.shipBundles[renderIndex], shipContext);
-      game.shipBundles.splice(renderIndex, 1);
-    }
+    const shipRender = game.shipBundleByShipId.get(ship.id);
+    if (shipRender) destroyShipVisualBundle(shipRender, shipContext);
   });
   simulation.stationManager.onAdd((newStation) => {
     ensureStationRender(game, newStation);
@@ -95,15 +89,13 @@ function createShipVisualBundleContext(game: Game, simulation: Simulation): Ship
     scene: game,
     selection: game.selection,
     tradeManager: simulation.tradeManager,
-    orbitPool: game.shipOrbitPool,
-    bundles: game.shipBundlesById,
+    orbitSlotAllocator: game.shipOrbitSlotAllocator,
+    bundleByShipId: game.shipBundleByShipId,
   };
 }
 
-/** Construct the Simulation, set up its zone visuals + render-mirror observers,
- *  then restore from the player's saved snapshot. Returns the initialized
- *  simulation; the saved snapshot is the sole source of station truth, so the
- *  initial map is not consulted for station placements. */
+/** Restore a saved game into a new Simulation. The snapshot is the sole source
+ *  of station truth — the map template's initial placements are not consulted. */
 export function createGameSimulationForSnapshot(game: Game, snapshot: GameSnapshot): Simulation {
   const simulation = new Simulation(game.map);
   game.simulation = simulation;
@@ -111,26 +103,23 @@ export function createGameSimulationForSnapshot(game: Game, snapshot: GameSnapsh
   setupEntityRenderObservers(game, simulation);
 
   restoreSavedGame(game, snapshot);
-  // Snapshot already applied; release the reference so it can be GC'd.
+  // Snapshot already applied; clear the reference so the snapshot can be freed.
   game.initialSnapshot = undefined;
-  resetAutoSaveAccumulator();
-  // Reserve-only pass — restored stations carry names already; this just
-  // registers them so future dynamic spawns don't collide.
+  game.secondsSinceLastAutoSave = 0;
+  // Restored stations already have names — register them so new dynamic spawns don't reuse the same names.
   assignStationNames(simulation.namePool, game.stations);
   simulation.seedRosterForSavedGame(game.stations, game.ships);
   for (const station of game.stations) ensureStationRender(game, station);
   const shipContext = createShipVisualBundleContext(game, simulation);
   for (const ship of game.ships) {
-    game.shipBundles.push(createShipVisualBundle(ship, shipContext));
+    createShipVisualBundle(ship, shipContext);
   }
   game.ambientTraffic = createAmbientTraffic(game, game.stations, game.map.sectorSize);
   return simulation;
 }
 
-/** Construct the Simulation, set up its zone visuals + render-mirror observers,
- *  then seed a fresh universe from the map template. Returns the initialized
- *  simulation, with warmup ticks and initial nation/emigration spawns
- *  applied so the game starts mid-activity. */
+/** Seed a fresh universe from the map template. Warmup ticks and initial
+ *  nation/emigration spawns are applied so the game starts mid-activity. */
 export function createGameSimulationForFreshUniverse(game: Game): Simulation {
   const simulation = new Simulation(game.map);
   game.simulation = simulation;
@@ -140,22 +129,18 @@ export function createGameSimulationForFreshUniverse(game: Game): Simulation {
   assignStationNames(simulation.namePool, game.map.stations);
   game.ambientTraffic = createAmbientTraffic(game, game.map.stations, game.map.sectorSize);
   const stations = game.map.stations.map((placement) => createStation(placement));
-  const stationBundles: StationVisualBundle[] = [];
   const stationBundleByStation = new Map<Station, StationVisualBundle>();
   for (const station of stations) {
-    const bundle = createStationVisualBundle(game, station, game.selection);
-    stationBundles.push(bundle);
-    stationBundleByStation.set(station, bundle);
+    stationBundleByStation.set(station, createStationVisualBundle(game, station, game.selection));
   }
   game.stations = stations;
-  game.stationBundles = stationBundles;
   game.stationBundleByStation = stationBundleByStation;
   game.map.seedInitialInventory?.(game.stations);
 
   if (!game.isEditorMode) seedFreshFleet(game, simulation);
 
   simulation.seedFreshRoster(game.stations, game.ships, game.map.initialStaggerDurationSeconds);
-  runWarmupTicks(simulation, game.map.simulationWarmupSeconds ?? 0);
+  simulation.runWarmup(game.map.simulationWarmupSeconds ?? 0);
   // Initial-build expansion runs AFTER warmup so scarcity math sees real
   // inventory rather than the flat 50%-full initial state.
   simulation.nationManager.startInitialStationBuilds();
@@ -167,7 +152,7 @@ function setupStationZoneVisuals(game: Game, simulation: Simulation): void {
   const zoneResult = createStationZoneVisualBundles(
     game,
     simulation.stationZones,
-    game.stationZonesVisibleRef,
+    () => game.viewMode.getViewMode() === "zones",
     game.selection,
   );
   game.stationZoneVisualBundles = zoneResult.visualBundles;
@@ -178,42 +163,24 @@ function setupStationZoneVisuals(game: Game, simulation: Simulation): void {
  *  build their render bundles. Skipped in editor mode — the editor is a static
  *  editing surface with no trade ships or sim ticks. */
 function seedFreshFleet(game: Game, simulation: Simulation): void {
-  // Shared across stations so per-station fleets don't collide on the
-  // BIO-042 id pool with each other.
-  const takenShipIds = new Set<string>();
+  const ships = createShipsForStations(game.stations, simulation.namePool, false);
+  game.ships.push(...ships);
   const shipContext = createShipVisualBundleContext(game, simulation);
-  for (const station of game.stations) {
-    const ships = createStationShips({
-      station,
-      takenShipIds,
-      namePool: simulation.namePool,
-    });
-    for (const ship of ships) takenShipIds.add(ship.id);
-    game.ships.push(...ships);
-    for (const ship of ships) {
-      game.shipBundles.push(createShipVisualBundle(ship, shipContext));
-    }
-  }
-}
-
-/** Fast-forward the freshly-seeded universe so it starts mid-activity. */
-function runWarmupTicks(simulation: Simulation, warmupSeconds: number): void {
-  const warmupStep = 0.5;
-  for (let elapsed = 0; elapsed < warmupSeconds; elapsed += warmupStep) {
-    simulation.tick(warmupStep);
+  for (const ship of ships) {
+    createShipVisualBundle(ship, shipContext);
   }
 }
 
 export function setInitialCameraView(game: Game): void {
-  const cameraStart = game.map.cameraStart ?? { x: 0, y: 0, zoom: 0.3 };
+  const initialCameraView = game.map.cameraStart ?? { x: 0, y: 0, zoom: 0.3 };
   const halfSector = game.map.sectorSize / 2;
-  game.camera.setZoom(cameraStart.zoom);
+  game.camera.setZoom(initialCameraView.zoom);
   // Phaser 4 camera centering is zoom-independent (world center = scrollX +
   // width/2). Dividing the offset by zoom here would break clampCamera's
   // bounds symmetry.
-  game.camera.scrollX = cameraStart.x + halfSector - game.camera.width / 2;
-  game.camera.scrollY = cameraStart.y - halfSector - game.camera.height / 2;
-  // Resync the zoom dial — we set cameraStart.zoom directly via setZoom,
-  // which bypasses the onZoom callback that normally repaints the dial.
+  game.camera.scrollX = initialCameraView.x + halfSector - game.camera.width / 2;
+  game.camera.scrollY = initialCameraView.y - halfSector - game.camera.height / 2;
+  // Repaint the zoom dial — camera.setZoom doesn't notify the zoom-controls
+  // helper, so the dial would show stale data without this call.
   game.zoomControls!.updateDisplay();
 }

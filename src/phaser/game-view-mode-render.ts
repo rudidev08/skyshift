@@ -1,10 +1,9 @@
 import type { Game } from "../game";
 import type { GameViewMode } from "../game-view-mode";
 import {
+  applySectorGridMode,
   createOverviewGrid,
   hideSectorGridVisuals,
-  showSectorGridFullAlpha,
-  resetAutoSectorGridState,
   updateSectorCorners,
 } from "./sector-grid";
 import { updateStationZoneVisibility, StationZoneSelectionTarget } from "./station-zone-render";
@@ -24,12 +23,11 @@ export function applyViewMode(scene: Game, mode: GameViewMode): void {
   // so the prior state restores when overview exits.
   document.body.classList.toggle("view-overview", mode === "overview");
 
-  // Restrict proximity selection to stations only while in overview.
   scene.selection.setAllowedKinds(mode === "overview" ? new Set<SelectionKind>(["station"]) : null);
 
   setOverviewPause(scene, mode);
   setMinZoom(scene, mode);
-  setBackgrounds(scene, mode);
+  setBackgroundsForViewMode(scene, mode);
 
   if (mode === "overview") {
     enterOverviewVisuals(scene);
@@ -42,7 +40,6 @@ export function applyViewMode(scene: Game, mode: GameViewMode): void {
 
 function setStationZonesForViewMode(scene: Game, mode: GameViewMode): void {
   const zonesVisible = mode === "zones";
-  scene.stationZonesVisibleRef.value = zonesVisible;
   updateStationZoneVisibility(scene.stationZoneVisualBundles, zonesVisible);
   if (!zonesVisible) deselectHiddenZone(scene);
 }
@@ -58,7 +55,7 @@ function deselectHiddenZone(scene: Game): void {
  *  auto-shows the panel (no HUD updates run there). */
 function showInfoPanel(scene: Game, mode: GameViewMode): void {
   if (scene.isEditorMode) return;
-  scene.infoPanelEl.style.display = mode === "overview" ? "none" : scene.currentSector() ? "" : "none";
+  scene.infoPanelElement.style.display = mode === "overview" ? "none" : scene.currentSector() ? "" : "none";
 }
 
 /** Auto-pause on entering overview; restore on leave if we paused it. */
@@ -77,16 +74,15 @@ function setOverviewPause(scene: Game, mode: GameViewMode): void {
  *  restore the normal floor (camera-controls snaps zoom back up if below). */
 function setMinZoom(scene: Game, mode: GameViewMode): void {
   const viewModeMinZoom = mode === "overview" ? overviewMinZoomPhaserClamp : cameraMinZoomPhaserClamp;
-  scene.cameraControls?.setMinZoom(viewModeMinZoom);
-  scene.zoomControls?.setMinZoom(viewModeMinZoom);
+  scene.cameraControls?.setMinPhaserZoom(viewModeMinZoom);
+  scene.zoomControls?.setMinPhaserZoom(viewModeMinZoom);
 }
 
-/** Hide stars + nebulas in overview; restore on exit. */
-function setBackgrounds(scene: Game, mode: GameViewMode): void {
+function setBackgroundsForViewMode(scene: Game, mode: GameViewMode): void {
   const inOverview = mode === "overview";
   scene.background.starsFar.setVisible(!inOverview);
   scene.background.starsNear.setVisible(!inOverview);
-  for (const image of scene.nebulaImages) image.setVisible(!inOverview);
+  for (const image of scene.background.nebulaImages) image.setVisible(!inOverview);
 }
 
 function enterOverviewVisuals(scene: Game): void {
@@ -95,14 +91,14 @@ function enterOverviewVisuals(scene: Game): void {
     scene.overviewGrid = createOverviewGrid(scene, scene.map);
   }
   scene.overviewGrid.setVisible(true);
-  for (const shipRender of scene.shipBundles) hideShipForOverview(shipRender);
+  for (const shipRender of scene.shipBundleByShipId.values()) hideShipForOverview(shipRender);
   scene.ambientTraffic.dotPool.releaseAll();
 }
 
 function exitOverviewVisuals(scene: Game, mode: GameViewMode): void {
   scene.overviewGrid?.setVisible(false);
   syncSectorGridVisibility(scene, mode);
-  for (const shipRender of scene.shipBundles) restoreShipAfterOverview(shipRender);
+  for (const shipRender of scene.shipBundleByShipId.values()) restoreShipAfterOverview(shipRender);
   redrawAmbientTraffic(scene.ambientTraffic, performance.now(), scene.camera);
   // Orbit sprite + shipUi don't need explicit restore — updateAllShipVisualBundles rebuilds them next frame.
 }
@@ -115,17 +111,9 @@ export function syncSectorGridVisibility(scene: Game, mode: GameViewMode): void 
     hideSectorGridVisuals(scene.sectorGrid);
     return;
   }
-  if (scene.sectorGrid.gridMode === "off") {
-    hideSectorGridVisuals(scene.sectorGrid);
-    return;
-  }
-  if (scene.sectorGrid.gridMode === "on") {
-    showSectorGridFullAlpha(scene.sectorGrid);
-  } else {
-    // Overview can leave auto-grid scroll tracking anchored to the
-    // pre-overlay camera — reset it like a fresh auto-mode activation
-    // before restoring the normal grid.
-    resetAutoSectorGridState(scene.sectorGrid);
-  }
+  // Re-applying the preference resets auto-mode scroll tracking, which is what
+  // a fresh auto activation needs after overview left it anchored to the
+  // pre-overlay camera.
+  applySectorGridMode(scene.sectorGrid, scene.sectorGrid.gridMode);
   updateSectorCorners(scene.sectorGrid, scene.map.sectors, scene.camera);
 }

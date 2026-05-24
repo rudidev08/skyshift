@@ -1,6 +1,6 @@
 import { allWares } from "../../../data/wares.ts";
-import { createStation, getStationRates } from "../../sim-station.ts";
-import type { createMapFromTemplate } from "../../sim-map-create.ts";
+import { buildStationRateRecords } from "../util-station-rates.ts";
+import type { GameMap } from "../../sim-map-types.ts";
 
 const wareById = Object.fromEntries(allWares.map((ware) => [ware.id, ware]));
 
@@ -16,26 +16,21 @@ type GlobalTotals = {
   consumed: Record<string, number>;
 };
 
-export function aggregateNationProduction(
-  map: ReturnType<typeof createMapFromTemplate>,
-): Record<string, NationReport> {
+export function aggregateNationProduction(map: GameMap): Record<string, NationReport> {
   const nations: Record<string, NationReport> = {};
 
-  for (const station of map.stations) {
-    if (!nations[station.nation.id]) {
-      nations[station.nation.id] = {
-        name: station.nation.name,
+  for (const { placement, rates } of buildStationRateRecords(map.stations)) {
+    if (!nations[placement.nation.id]) {
+      nations[placement.nation.id] = {
+        name: placement.nation.name,
         stationCount: 0,
         produces: {},
         consumes: {},
       };
     }
 
-    const nation = nations[station.nation.id];
+    const nation = nations[placement.nation.id];
     nation.stationCount++;
-
-    const stationData = createStation(station);
-    const rates = getStationRates(stationData);
 
     for (const [wareId, amount] of rates.production) {
       nation.produces[wareId] = (nation.produces[wareId] ?? 0) + amount;
@@ -64,30 +59,27 @@ function computeGlobalTotals(nations: Record<string, NationReport>): GlobalTotal
   return { produced, consumed };
 }
 
-export function logNationBalanceReport(nations: Record<string, NationReport>): void {
-  console.log(`\n  Economy Report: Settled Universe`);
-  console.log(`  ${"─".repeat(50)}`);
-
-  for (const [nationId, nation] of Object.entries(nations)) {
-    console.log(`\n  ${nation.name} (${nationId}) — ${nation.stationCount} stations`);
-
-    console.log(`    Produces per station / total:`);
-    for (const [wareId, total] of Object.entries(nation.produces)) {
-      const perStation = total / nation.stationCount;
-      console.log(
-        `      ${wareById[wareId].name.padEnd(12)} ${perStation.toFixed(1)}/cycle × ${nation.stationCount} = ${total}/cycle`,
-      );
-    }
-
-    console.log(`    Consumes per station / total:`);
-    for (const [wareId, total] of Object.entries(nation.consumes)) {
-      const perStation = total / nation.stationCount;
-      console.log(
-        `      ${wareById[wareId].name.padEnd(12)} ${perStation.toFixed(1)}/cycle × ${nation.stationCount} = ${total}/cycle`,
-      );
-    }
+function printNationWareTotals(
+  label: string,
+  totalsByWareId: Record<string, number>,
+  stationCount: number,
+): void {
+  console.log(`    ${label}`);
+  for (const [wareId, total] of Object.entries(totalsByWareId)) {
+    const perStation = total / stationCount;
+    console.log(
+      `      ${wareById[wareId].name.padEnd(12)} ${perStation.toFixed(1)}/cycle × ${stationCount} = ${total}/cycle`,
+    );
   }
+}
 
+function printNationBreakdown(nationId: string, nation: NationReport): void {
+  console.log(`\n  ${nation.name} (${nationId}) — ${nation.stationCount} stations`);
+  printNationWareTotals("Produces per station / total:", nation.produces, nation.stationCount);
+  printNationWareTotals("Consumes per station / total:", nation.consumes, nation.stationCount);
+}
+
+function printGlobalBalance(nations: Record<string, NationReport>): void {
   console.log(`\n  ${"─".repeat(50)}`);
   console.log(`  Global Balance (totals per cycle)`);
 
@@ -102,4 +94,13 @@ export function logNationBalanceReport(nations: Record<string, NationReport>): v
       `    ${ware.name.padEnd(12)}  produced: ${String(produced).padStart(3)}  consumed: ${String(consumed).padStart(3)}  net: ${sign}${net}`,
     );
   }
+}
+
+export function logNationBalanceReport(nations: Record<string, NationReport>): void {
+  console.log(`\n  Economy Report: Settled Universe`);
+  console.log(`  ${"─".repeat(50)}`);
+  for (const [nationId, nation] of Object.entries(nations)) {
+    printNationBreakdown(nationId, nation);
+  }
+  printGlobalBalance(nations);
 }

@@ -1,16 +1,16 @@
 import type { PlacedStation } from "../../data/station-types";
 import type { Nebula } from "../../data/map-types";
 
-export interface EditComparison {
-  stations: { current: readonly PlacedStation[]; baseline: readonly PlacedStation[] };
-  nebulas: { current: readonly Nebula[]; baseline: readonly Nebula[] };
-}
-
 /** True when editor state diverges from the preset baseline. Stations match by id; nebulas match by index since they have no stable id. */
-export function hasUnsavedEdits(comparison: EditComparison): boolean {
+export function hasUnsavedEdits(
+  currentStations: readonly PlacedStation[],
+  baselineStations: readonly PlacedStation[],
+  currentNebulas: readonly Nebula[],
+  baselineNebulas: readonly Nebula[],
+): boolean {
   return (
-    stationsDifferFromBaseline(comparison.stations.current, comparison.stations.baseline) ||
-    nebulasDifferFromBaseline(comparison.nebulas.current, comparison.nebulas.baseline)
+    stationsDifferFromBaseline(currentStations, baselineStations) ||
+    nebulasDifferFromBaseline(currentNebulas, baselineNebulas)
   );
 }
 

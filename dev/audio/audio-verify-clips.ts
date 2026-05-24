@@ -3,26 +3,21 @@
 
 import { existsSync, readdirSync, statSync } from "fs";
 import { resolve } from "path";
-import { collectCoreVoiceKeys, collectVoiceKeysFromMapStations } from "../../src/audio-voice-keys";
+import { collectSharedVoiceKeys, collectVoiceKeysFromMapStations } from "../../src/audio-voice-keys";
 import { settledPreset } from "../../data/map-preset-settled";
 
 function collectExpectedAnnouncementClipFilenames(): string[] {
   // Derive filenames from live game data — a stale manifest could hide a missing clip.
   // Settled covers Frontier's station names too, so it's the only preset we need to scan.
-  const expectedVoiceKeys = new Set<string>(collectCoreVoiceKeys());
-  for (const voiceKey of collectVoiceKeysFromMapStations(settledPreset.presetStations)) {
-    expectedVoiceKeys.add(voiceKey);
-  }
+  const expectedVoiceKeys = new Set<string>([
+    ...collectSharedVoiceKeys(),
+    ...collectVoiceKeysFromMapStations(settledPreset.presetStations),
+  ]);
 
   return [...expectedVoiceKeys].sort().map((voiceKey) => `${voiceKey}.wav`);
 }
 
-interface ParsedArguments {
-  clipDirectoryPath: string;
-  allowExtraFiles: boolean;
-}
-
-function parseArguments(): ParsedArguments {
+function parseArguments(): { clipDirectoryPath: string; allowExtraFiles: boolean } {
   const commandLineArguments = process.argv.slice(2);
   const clipDirectoryArgument = commandLineArguments.find((argument) => !argument.startsWith("--"));
   const allowExtraFiles = commandLineArguments.includes("--allow-extra");
@@ -46,14 +41,17 @@ function validateClipDirectory(clipDirectoryPath: string): void {
   }
 }
 
-function reportFilenameProblems(severityLabel: string, header: string, filenames: string[]): void {
+const MAX_LISTED_FILENAMES = 20;
+
+/** Prints up to MAX_LISTED_FILENAMES problem entries, then exits. */
+function reportFilenameProblemsAndExit(severityLabel: string, header: string, filenames: string[]): void {
   if (filenames.length === 0) return;
   console.error(header);
-  for (const filename of filenames.slice(0, 20)) {
+  for (const filename of filenames.slice(0, MAX_LISTED_FILENAMES)) {
     console.error(`  ${severityLabel}: ${filename}`);
   }
-  if (filenames.length > 20) {
-    console.error(`  ... and ${filenames.length - 20} more`);
+  if (filenames.length > MAX_LISTED_FILENAMES) {
+    console.error(`  ... and ${filenames.length - MAX_LISTED_FILENAMES} more`);
   }
   process.exit(1);
 }
@@ -74,13 +72,13 @@ function verifyAnnouncementClips(): void {
   );
   const extraClipFilenames = actualClipFilenames.filter((filename) => !expectedClipFilenameSet.has(filename));
 
-  reportFilenameProblems(
+  reportFilenameProblemsAndExit(
     "MISSING",
     `ERROR: ${missingClipFilenames.length} announcement clips are missing from ${clipDirectoryPath}`,
     missingClipFilenames,
   );
   if (!allowExtraFiles) {
-    reportFilenameProblems(
+    reportFilenameProblemsAndExit(
       "EXTRA",
       `ERROR: ${extraClipFilenames.length} unexpected clips were found in ${clipDirectoryPath}`,
       extraClipFilenames,

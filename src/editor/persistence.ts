@@ -4,7 +4,7 @@
 import { allShips } from "../../data/ships";
 import { allWares } from "../../data/wares";
 import { economyConfig } from "../../data/economy-config";
-import { baselineShips, baselineWares, baselineEconomyConfig, type EconomyFieldName } from "./snapshot-state";
+import { baselineShips, baselineWares, baselineEconomyConfig, type EconomyFieldName } from "./edit-baselines";
 import type { MapEditorState } from "./map-editor-state";
 import type { EditorSimulationSession } from "./simulation-session";
 
@@ -16,7 +16,7 @@ interface DraftSnapshot {
   removedStationIds: string[];
 }
 
-interface EconomyFilesPayload {
+interface EconomyEdits {
   config: { field: string; value: number }[];
   ships: { id: string; cargoCapacity: number; speed: number }[];
   wares: { id: string; productionOutput: number }[];
@@ -29,8 +29,8 @@ interface ButtonRestoreOptions {
   restoreAfterMs: number;
 }
 
-function buildEconomyFilesPayload(mapState: MapEditorState): EconomyFilesPayload {
-  const payload: EconomyFilesPayload = {
+function buildEconomyEdits(mapState: MapEditorState): EconomyEdits {
+  const payload: EconomyEdits = {
     config: [],
     ships: [],
     wares: [],
@@ -44,7 +44,7 @@ function buildEconomyFilesPayload(mapState: MapEditorState): EconomyFilesPayload
   return payload;
 }
 
-function collectConfigDeltas(payload: EconomyFilesPayload): void {
+function collectConfigDeltas(payload: EconomyEdits): void {
   for (const field of Object.keys(baselineEconomyConfig) as EconomyFieldName[]) {
     const baselineValue = baselineEconomyConfig[field];
     if (economyConfig[field] !== baselineValue) {
@@ -53,7 +53,7 @@ function collectConfigDeltas(payload: EconomyFilesPayload): void {
   }
 }
 
-function collectShipDeltas(payload: EconomyFilesPayload): void {
+function collectShipDeltas(payload: EconomyEdits): void {
   for (const ship of allShips) {
     const baseline = baselineShips.find((baselineShip) => baselineShip.id === ship.id);
     if (!baseline) continue;
@@ -62,7 +62,7 @@ function collectShipDeltas(payload: EconomyFilesPayload): void {
   }
 }
 
-function collectWareDeltas(payload: EconomyFilesPayload): void {
+function collectWareDeltas(payload: EconomyEdits): void {
   for (const ware of allWares) {
     const baseline = baselineWares.find((baselineWare) => baselineWare.id === ware.id);
     if (!baseline) continue;
@@ -80,14 +80,14 @@ function collectWareDeltas(payload: EconomyFilesPayload): void {
   }
 }
 
-function collectRemovedStationIds(payload: EconomyFilesPayload, mapState: MapEditorState): void {
+function collectRemovedStationIds(payload: EconomyEdits, mapState: MapEditorState): void {
   const currentStationIds = new Set(mapState.editableStations.map((station) => station.id));
   for (const station of mapState.baselineMap.stations) {
     if (!currentStationIds.has(station.id)) payload.removedStationIds.push(station.id);
   }
 }
 
-function hasAnyChanges(payload: EconomyFilesPayload): boolean {
+function hasAnyChanges(payload: EconomyEdits): boolean {
   return (
     payload.config.length > 0 ||
     payload.ships.length > 0 ||
@@ -146,7 +146,7 @@ async function postEconomyApi(options: PostEconomyApiOptions): Promise<void> {
 
 export async function saveEconomyToFiles(mapState: MapEditorState) {
   const button = document.getElementById("save-button")!;
-  const payload = buildEconomyFilesPayload(mapState);
+  const payload = buildEconomyEdits(mapState);
 
   if (!hasAnyChanges(payload)) {
     flashButtonStatus(button, "No changes", { restoreLabel: "Save", restoreAfterMs: 1500 });

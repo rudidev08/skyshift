@@ -8,6 +8,8 @@ import type { PlacedStation } from "../../data/station-types";
 import { getWareTemplate } from "../sim-ware-template";
 import { createStation, getAllInventorySlots } from "../sim-station";
 import { shipThroughputCellId, shipStoragePercentCellId, shipSuggestedCargoCellId } from "./cell-ids";
+import { closePanel, openPanel } from "./panel-chrome";
+import { baselineShips } from "./edit-baselines";
 
 const defaultShipSuggestionPercent = 50;
 
@@ -106,9 +108,10 @@ function buildShipRowHtml(
   suggestedCargoByShip: Map<ShipTypeId, number>,
 ): string {
   const wareColumnsCount = 6;
+  const baseline = baselineShips.find((ship) => ship.id === shipTemplate.id);
   let html = `<tr><td class="label-cell">${shipTemplate.name}</td>`;
-  html += `<td class="numeric-cell input-cell"><input type="number" data-target="ship" data-id="${shipTemplate.id}" data-field="cargoCapacity" value="${shipTemplate.cargoCapacity}" step="500"></td>`;
-  html += `<td class="numeric-cell input-cell"><input type="number" data-target="ship" data-id="${shipTemplate.id}" data-field="speed" value="${shipTemplate.speed}" step="0.5"></td>`;
+  html += `<td class="numeric-cell input-cell"><input type="number" data-target="ship" data-id="${shipTemplate.id}" data-field="cargoCapacity" value="${shipTemplate.cargoCapacity}" data-baseline="${baseline?.cargoCapacity ?? shipTemplate.cargoCapacity}" step="500"></td>`;
+  html += `<td class="numeric-cell input-cell"><input type="number" data-target="ship" data-id="${shipTemplate.id}" data-field="speed" value="${shipTemplate.speed}" data-baseline="${baseline?.speed ?? shipTemplate.speed}" step="0.5"></td>`;
   html += `<td class="numeric-cell calculated-cell" id="${shipThroughputCellId(shipTemplate.id)}">${formatShipThroughput(shipTemplate)}</td>`;
   html += `<td class="numeric-cell calculated-cell" id="${shipStoragePercentCellId(shipTemplate.id)}">${formatStoragePercentForShip(shipTemplate, minimumStorageByWare)}</td>`;
   html += `<td class="numeric-cell calculated-cell" id="${shipSuggestedCargoCellId(shipTemplate.id)}">${formatSuggestedCargoForShip(shipTemplate, suggestedCargoByShip)}</td>`;
@@ -132,8 +135,7 @@ export function buildShipsHtml(stations: PlacedStation[]): string {
   const minimumStorageByWare = buildMinimumStorageByWare(stations);
   const suggestedCargoByShip = buildSuggestedCargoByShip(defaultShipSuggestionPercent, minimumStorageByWare);
 
-  let html = '<div class="panel">';
-  html += '<div class="panel-header"><h2>Ships</h2></div>';
+  let html = openPanel("Ships");
   html += '<table class="metric-table ships-table">';
   html += buildShipsTableHeaderHtml();
   for (const ship of allShips) {
@@ -141,6 +143,6 @@ export function buildShipsHtml(stations: PlacedStation[]): string {
   }
   html += "</table>";
   html += buildShipCalculatorControlsHtml();
-  html += "</div>";
+  html += closePanel();
   return html;
 }

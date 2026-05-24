@@ -2,7 +2,7 @@
 // Nations / Emigration / Log) and a map-space trade-route Phaser overlay that
 // shows only while the Trading tab is active.
 //
-// Per-tab content lives in sibling files (overview-trade-sidebar/render,
+// Per-tab content lives in sibling files (overview-trade-overlay/render,
 // ui-overview-nations, ui-overview-emigration, ui-overview-stations-timelapse).
 // Visuals carry no per-ware color: dim-gray baseline lines, accent green only
 // when a specific ware is selected in the Trading dropdown.
@@ -26,13 +26,11 @@ import type { StationPosition } from "./overview-trade-render";
 import { createTradeRouteOverlay } from "./overview-trade-overlay";
 import type { StationHistory } from "../sim-station-history";
 
-export type { StationPosition } from "./overview-trade-render";
-
 export interface OverviewModeOptions {
   scene: Scene;
   uiRoot: HTMLElement;
   getStations: () => ReadonlyArray<StationPosition>;
-  getSimTime: () => number;
+  getSimTimeSeconds: () => number;
   viewMode: GameViewModeController;
   nationManager: NationManager;
   emigrationManager: EmigrationManager;
@@ -61,9 +59,8 @@ interface OverviewTabBar {
   setActiveTab(tabId: TabId): void;
 }
 
-/** Build the tab bar wrap + 4 panel containers + setActiveTab dispatcher.
- *  Lazy-mount of pane content is the caller's job (via `onActivate`) so the
- *  tab bar stays free of cross-system dependencies. */
+/** Pane content is mounted on first activation via `onActivate`, keeping
+ *  the tab bar free of cross-system dependencies. */
 function createOverviewTabBar(onActivate: (tabId: TabId) => void): OverviewTabBar {
   const root = document.createElement("div");
   root.className = "ware-sidebar-wrap";
@@ -122,7 +119,7 @@ interface LazyTabPanesOptions {
   stationManager: StationManager;
   zones: StationZone[];
   stationHistory: StationHistory;
-  getSimTime: () => number;
+  getSimTimeSeconds: () => number;
   rewindOverlay: StationRewindOverlay;
 }
 
@@ -134,7 +131,7 @@ interface LazyTabPanes {
   destroy(): void;
 }
 
-/** Owns lifecycle of the lazy-mounted panes (nations / emigration / log). */
+/** Owns lifecycle of the panes mounted on first tab activation (nations / emigration / log). */
 function createLazyTabPanes(options: LazyTabPanesOptions): LazyTabPanes {
   const {
     tabBar,
@@ -143,7 +140,7 @@ function createLazyTabPanes(options: LazyTabPanesOptions): LazyTabPanes {
     stationManager,
     zones,
     stationHistory,
-    getSimTime,
+    getSimTimeSeconds,
     rewindOverlay,
   } = options;
 
@@ -177,7 +174,7 @@ function createLazyTabPanes(options: LazyTabPanesOptions): LazyTabPanes {
         stationsTimelapsePane = createStationsTimelapseLogPane({
           root: tabBar.stationsTimelapsePanel,
           stationHistory,
-          getSimTime,
+          getSimTimeSeconds,
           rewindOverlay,
         });
       }
@@ -210,7 +207,7 @@ export function createOverviewMode(options: OverviewModeOptions): OverviewMode {
     scene,
     uiRoot,
     getStations,
-    getSimTime,
+    getSimTimeSeconds,
     viewMode,
     nationManager,
     emigrationManager,
@@ -245,7 +242,7 @@ export function createOverviewMode(options: OverviewModeOptions): OverviewMode {
     stationManager,
     zones,
     stationHistory,
-    getSimTime,
+    getSimTimeSeconds,
     rewindOverlay,
   });
   const tradeRouteOverlay = createTradeRouteOverlay({
@@ -253,13 +250,13 @@ export function createOverviewMode(options: OverviewModeOptions): OverviewMode {
     sidebarParent: tabBar.waresPanel,
     tradeManager,
     getStations,
-    getSimTime,
+    getSimTimeSeconds,
   });
 
   uiRoot.appendChild(tabBar.root);
   tabBar.setActiveTab("wares");
 
-  const unsubViewMode = viewMode.onViewModeChange((mode) => {
+  const unsubscribeViewMode = viewMode.onViewModeChange((mode) => {
     setVisible(mode === "overview");
   });
   if (viewMode.getViewMode() === "overview") setVisible(true);
@@ -280,7 +277,7 @@ export function createOverviewMode(options: OverviewModeOptions): OverviewMode {
 
   function destroy(): void {
     setVisible(false);
-    unsubViewMode();
+    unsubscribeViewMode();
     tradeRouteOverlay.destroy();
     lazyPanes.destroy();
     rewindOverlay.destroy();

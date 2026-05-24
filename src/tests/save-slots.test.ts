@@ -8,29 +8,15 @@ import {
   readSlotSummary,
   findLatestSave,
 } from "../storage-save-slots.ts";
+import { createMapBackedStorage } from "./local-storage-test-fixtures.ts";
 
 // Tests run as plain tsx Node scripts — no jsdom, no real localStorage.
 // Save-slots only touches localStorage inside function bodies (not at
 // module load), so installing this Map-backed shim after the static import
 // resolves but before any test() runs is enough for clearAllSaves() to
 // land in our store.
-const store = new Map<string, string>();
-(globalThis as { localStorage?: Storage }).localStorage = {
-  getItem: (key: string) => store.get(key) ?? null,
-  setItem: (key: string, value: string) => {
-    store.set(key, value);
-  },
-  removeItem: (key: string) => {
-    store.delete(key);
-  },
-  clear: () => {
-    store.clear();
-  },
-  key: (index: number) => Array.from(store.keys())[index] ?? null,
-  get length() {
-    return store.size;
-  },
-} as Storage;
+const { storage, store } = createMapBackedStorage();
+(globalThis as { localStorage?: Storage }).localStorage = storage;
 
 test("saveSlotKey is shared across maps (no map segment)", () => {
   // Slot keys intentionally omit the map so saves from different universes
@@ -52,8 +38,8 @@ test("SAVE_VERSION is permanently 1 during pre-release development", () => {
   // Pin the literal value. Both captureSnapshot's `version` field and
   // validateSnapshot's expected version come from this constant, so a bump
   // would round-trip cleanly inside one process — only a pin against the
-  // literal catches drift away from the documented contract (AGENTS.md:
-  // "Save schema is permanently SAVE_VERSION = 1 during development").
+  // literal catches drift away from the contract documented in the JSDoc on
+  // `SAVE_VERSION` in sim-save-types.ts.
   assertEqual(SAVE_VERSION, 1, "save schema version literal");
 });
 
@@ -119,8 +105,11 @@ test("clearAllSaves wipes every slot key + auto-rotation cursor", () => {
   );
 });
 
-function seedSlot(slotKind: "manual" | "auto", index: number, savedAt: number): void {
-  store.set(saveSlotKey(slotKind, index), JSON.stringify({ savedAt, presetId: "settled", source: slotKind }));
+function seedSlot(kind: "manual" | "auto", index: number, savedAtMilliseconds: number): void {
+  store.set(
+    saveSlotKey(kind, index),
+    JSON.stringify({ savedAtMilliseconds, presetId: "settled", source: kind }),
+  );
 }
 
 test("listSlots returns one summary per manual + auto slot", () => {
@@ -149,33 +138,36 @@ test("readSlotSummary returns empty placeholder for an unwritten slot", () => {
   const summary = readSlotSummary("manual", 1);
   assertEqual(summary.kind, "manual", "kind preserved");
   assertEqual(summary.index, 1, "index preserved");
-  assertEqual(summary.savedAt, null, "empty savedAt");
+  assertEqual(summary.savedAtMilliseconds, null, "empty savedAtMilliseconds");
   assertEqual(summary.presetId, null, "empty presetId");
   assertEqual(summary.source, null, "empty source");
 });
 
 test("readSlotSummary returns the breadcrumb fields when a slot blob is present", () => {
-  // Anchors validateSlotSummary on a real round-trip — so a flipped
-  // `typeof savedAt !== "number"` check (silently treating numbers as bad)
-  // would surface here as a null savedAt.
+  // Anchors parseSlotSummaryFields on a real round-trip — so a flipped
+  // `typeof savedAtMilliseconds !== "number"` check (silently treating numbers as bad)
+  // would surface here as a null savedAtMilliseconds.
   store.clear();
   store.set(
     saveSlotKey("manual", 2),
-    JSON.stringify({ savedAt: 12345, presetId: "frontier", source: "manual" }),
+    JSON.stringify({ savedAtMilliseconds: 12345, presetId: "frontier", source: "manual" }),
   );
   const summary = readSlotSummary("manual", 2);
-  assertEqual(summary.savedAt, 12345, "savedAt extracted");
+  assertEqual(summary.savedAtMilliseconds, 12345, "savedAtMilliseconds extracted");
   assertEqual(summary.presetId, "frontier", "presetId extracted");
   assertEqual(summary.source, "manual", "source extracted");
 });
 
 test("readSlotSummary falls back to empty when source is not in the allowed set", () => {
-  // Anchors the SLOT_SOURCES whitelist — drift (e.g. dropping "export")
+  // Anchors the SLOT_SOURCES allowed set — drift (e.g. dropping "export")
   // would surface as a populated source slipping past validation.
   store.clear();
-  store.set(saveSlotKey("manual", 1), JSON.stringify({ savedAt: 1, presetId: "settled", source: "haxxor" }));
+  store.set(
+    saveSlotKey("manual", 1),
+    JSON.stringify({ savedAtMilliseconds: 1, presetId: "settled", source: "haxxor" }),
+  );
   const summary = readSlotSummary("manual", 1);
-  assertEqual(summary.savedAt, null, "rejected blob falls back to empty");
+  assertEqual(summary.savedAtMilliseconds, null, "rejected blob falls back to empty");
 });
 
 test("readSlotSummary accepts every supported source value", () => {
@@ -183,10 +175,13 @@ test("readSlotSummary accepts every supported source value", () => {
   // "export" or any other value would reject a legitimate exported snapshot.
   store.clear();
   for (const source of ["auto", "manual", "export"] as const) {
-    store.set(saveSlotKey("manual", 1), JSON.stringify({ savedAt: 1, presetId: "settled", source }));
+    store.set(
+      saveSlotKey("manual", 1),
+      JSON.stringify({ savedAtMilliseconds: 1, presetId: "settled", source }),
+    );
     const summary = readSlotSummary("manual", 1);
     assertEqual(summary.source, source, `${source} source preserved`);
-    assertEqual(summary.savedAt, 1, `${source} blob accepted`);
+    assertEqual(summary.savedAtMilliseconds, 1, `${source} blob accepted`);
   }
 });
 
@@ -194,9 +189,9 @@ test("readSlotSummary falls back to empty for non-string presetId", () => {
   // typeof guard on presetId — a flipped check would let a number leak through
   // and break the slot picker which reads .presetId directly.
   store.clear();
-  store.set(saveSlotKey("auto", 1), JSON.stringify({ savedAt: 1, presetId: 42, source: "auto" }));
+  store.set(saveSlotKey("auto", 1), JSON.stringify({ savedAtMilliseconds: 1, presetId: 42, source: "auto" }));
   const summary = readSlotSummary("auto", 1);
-  assertEqual(summary.savedAt, null, "non-string presetId rejected");
+  assertEqual(summary.savedAtMilliseconds, null, "non-string presetId rejected");
 });
 
 test("readSlotSummary falls back to empty when JSON.parse throws", () => {
@@ -205,7 +200,7 @@ test("readSlotSummary falls back to empty when JSON.parse throws", () => {
   store.clear();
   store.set(saveSlotKey("manual", 1), "not json {{{");
   const summary = readSlotSummary("manual", 1);
-  assertEqual(summary.savedAt, null, "malformed JSON falls back to empty");
+  assertEqual(summary.savedAtMilliseconds, null, "malformed JSON falls back to empty");
 });
 
 test("findLatestSave returns null when every slot is empty", () => {
@@ -213,8 +208,8 @@ test("findLatestSave returns null when every slot is empty", () => {
   assertEqual(findLatestSave(), null, "no saves anywhere → null");
 });
 
-test("findLatestSave picks the slot with the highest savedAt timestamp", () => {
-  // Comparison flip in `latest.savedAt < slot.savedAt` would pick the
+test("findLatestSave picks the slot with the highest savedAtMilliseconds timestamp", () => {
+  // Comparison flip in `latest.savedAtMilliseconds < slot.savedAtMilliseconds` would pick the
   // oldest. Three timestamps so the largest is unambiguous regardless of
   // iteration order.
   store.clear();
@@ -223,15 +218,15 @@ test("findLatestSave picks the slot with the highest savedAt timestamp", () => {
   seedSlot("auto", 1, 2000);
   const latest = findLatestSave();
   if (!latest) throw new Error("expected a latest slot");
-  assertEqual(latest.savedAt, 3000, "highest timestamp wins");
+  assertEqual(latest.savedAtMilliseconds, 3000, "highest timestamp wins");
   assertEqual(latest.kind, "manual", "M2 wins on timestamp");
   assertEqual(latest.index, 2, "M2 wins on timestamp");
 });
 
 test("findLatestSave skips empty slots when picking the latest", () => {
   // The `isSavedSlot` filter step — dropping it would let the reduce see an
-  // empty (savedAt=null) slot and either crash on the comparison or pick a
-  // slot with no savedAt to display.
+  // empty (savedAtMilliseconds=null) slot and either crash on the comparison or pick a
+  // slot with no savedAtMilliseconds to display.
   store.clear();
   seedSlot("auto", 2, 5000);
   const latest = findLatestSave();

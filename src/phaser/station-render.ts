@@ -1,20 +1,20 @@
 import { type Scene } from "phaser";
-import { ringTwinkles, segmentTwinkles } from "../../data/station-visuals";
+import { ringTwinkles, segmentTwinkles, stationOrbitRingRadius } from "../../data/station-visuals";
 import { closeViewAlpha } from "./camera-fade";
-import { drawInventorySegments } from "./inventory-ring-render";
+import { displaySlotsForRing, drawInventorySegments } from "./inventory-ring-render";
 import { LABEL_STYLE } from "./text-styles";
 import { isVisibleInViewport } from "./viewport-culling";
 import { updateIfDirty } from "../render-dirty-state";
 import { GameObjectRenderPool } from "./game-object-render-pool";
 import { Layer } from "../../data/visuals-layers";
 import { updateStatusBadge, hideStatusBadge } from "./station-render-status-badge";
-import type { StationVisualBundle } from "./station-visual-bundle";
+import type { StationTwinkle, StationVisualBundle } from "./station-visual-bundle";
 import type { GameViewMode } from "../game-view-mode";
 import type { InventorySlot } from "../sim-station";
 
 /** One frame's worth of render context for a station — grouped so callers don't thread 7 separate args. */
 export interface StationRenderFrame {
-  time: number;
+  timeSeconds: number;
   zoom: number;
   camera: Phaser.Cameras.Scene2D.Camera;
   viewMode: GameViewMode;
@@ -26,7 +26,6 @@ export interface StationRenderFrame {
 export interface StationRenderPool {
   /** Release pooled twinkles before each frame's render loop. */
   beginFrame(): void;
-  /** Render one station for the current frame. */
   updateStationRender(bundle: StationVisualBundle, frame: StationRenderFrame): void;
   /** Free the underlying Phaser objects; call on scene teardown. */
   destroy(): void;
@@ -50,7 +49,7 @@ export function createStationRenderPool(scene: Scene): StationRenderPool {
       return;
     }
     if (frame.viewMode === "overview") {
-      renderOverviewStation(bundle, frame);
+      renderOverviewStation(bundle);
       return;
     }
     renderNormalStation(bundle, frame, twinklePool);
@@ -76,12 +75,12 @@ function renderOffScreenStation(bundle: StationVisualBundle): void {
   hideStatusBadge(bundle);
 }
 
-function renderOverviewStation(bundle: StationVisualBundle, frame: StationRenderFrame): void {
-  // Overview mode draws its own green/gray station rings — hide ours so we don't double-stack; icon still shows.
+function renderOverviewStation(bundle: StationVisualBundle): void {
+  // Overview mode draws its own station rings (green for ware-highlighted, dark otherwise) — hide ours to avoid stacking two rings; icon still shows.
   bundle.ringImage.setVisible(false);
   bundle.graphics.setVisible(false);
   hideInventoryLabels(bundle);
-  updateStatusBadge(bundle, frame.viewMode);
+  updateStatusBadge(bundle);
 }
 
 function renderNormalStation(
@@ -91,17 +90,16 @@ function renderNormalStation(
 ): void {
   const segmentAlpha = closeViewAlpha(frame.zoom);
   const ringAlpha = 1 - segmentAlpha;
-  const timeSeconds = frame.time / 1000;
 
-  renderStationRingLayer(bundle, frame, ringAlpha, timeSeconds, twinklePool);
-  renderStationSegmentLayer(bundle, frame, segmentAlpha, timeSeconds, twinklePool);
+  renderStationRingLayer(bundle, frame, ringAlpha, frame.timeSeconds, twinklePool);
+  renderStationSegmentLayer(bundle, frame, segmentAlpha, frame.timeSeconds, twinklePool);
 
   if (frame.selected && segmentAlpha > 0.5) {
     showInventoryLabels(bundle, frame.currentTick, frame.selected);
   } else {
     hideInventoryLabels(bundle);
   }
-  updateStatusBadge(bundle, frame.viewMode);
+  hideStatusBadge(bundle);
 }
 
 /** Static pre-rendered ring image plus pooled twinkles. Twinkles skip when the station is selected so the segment ring takes over visually. */
@@ -117,7 +115,7 @@ function renderStationRingLayer(
   bundle.ringImage.setAlpha(ringAlpha);
   if (frame.selected) return;
   drawTwinklesPooled(twinklePool, {
-    placement: { centerX: bundle.station.x, centerY: bundle.station.y, radius: bundle.ringRadius },
+    placement: { centerX: bundle.station.x, centerY: bundle.station.y, radius: stationOrbitRingRadius },
     twinkles: bundle.ringTwinkles,
     timeSeconds,
     alpha: ringAlpha,
@@ -148,7 +146,7 @@ function renderStationSegmentLayer(
 
   if (frame.selected) return;
   drawTwinklesPooled(twinklePool, {
-    placement: { centerX: bundle.station.x, centerY: bundle.station.y, radius: bundle.ringRadius },
+    placement: { centerX: bundle.station.x, centerY: bundle.station.y, radius: stationOrbitRingRadius },
     twinkles: bundle.segmentTwinkles,
     timeSeconds,
     alpha: segmentAlpha,
@@ -167,35 +165,35 @@ function redrawInventorySegmentsIfDirty(bundle: StationVisualBundle, frame: Stat
     currentTick: frame.currentTick,
     isFocused: frame.selected,
     items: slots,
-    getValue: readSlotCurrent,
-    forceDirty: frame.selected !== bundle.lastSegmentSelected,
+    getValue: readSlotCurrentAmount,
+    forceDirty: frame.selected !== bundle.segmentSelectedLastDraw,
     onDirty: () => {
       bundle.graphics.clear();
-      const ringSlots = slots.length === 0 ? [{ current: 0, max: 1 }] : slots;
+      const ringSlots = displaySlotsForRing(slots);
       drawInventorySegments({
         graphics: bundle.graphics,
         x: bundle.station.x,
         y: bundle.station.y,
-        radius: bundle.ringRadius,
+        radius: stationOrbitRingRadius,
         slots: ringSlots,
         arcs: bundle.segmentArcs,
         alpha: 1,
         selected: frame.selected,
       });
-      bundle.lastSegmentSelected = frame.selected;
+      bundle.segmentSelectedLastDraw = frame.selected;
     },
   });
 }
 
 interface TwinkleRenderParams {
   placement: { centerX: number; centerY: number; radius: number };
-  twinkles: { angle: number; phase: number; speed: number }[];
+  twinkles: StationTwinkle[];
   timeSeconds: number;
   alpha: number;
   dot: { size: number; color: number; peakAlpha: number };
 }
 
-function computeTwinkleBrightness(timeSeconds: number, twinkle: { phase: number; speed: number }): number {
+function computeTwinkleBrightness(timeSeconds: number, twinkle: StationTwinkle): number {
   // Wrap into [0, 1) — single % can return negative when phase is negative; the +1 then % normalizes it.
   const cycle = (((timeSeconds * twinkle.speed + twinkle.phase) % 1) + 1) % 1;
   // Each twinkle is dark for the first half of its cycle and pulses through
@@ -208,7 +206,7 @@ function computeTwinkleBrightness(timeSeconds: number, twinkle: { phase: number;
 function paintTwinkleDot(
   circle: Phaser.GameObjects.Arc,
   placement: { centerX: number; centerY: number; radius: number },
-  twinkle: { angle: number },
+  twinkle: StationTwinkle,
   dot: { size: number; color: number; peakAlpha: number },
   alpha: number,
   brightness: number,
@@ -235,7 +233,7 @@ function drawTwinklesPooled(
 }
 
 // Hoisted so updateIfDirty's snapshot loop doesn't allocate a new closure per call.
-const readSlotCurrent = (slot: { current: number }) => slot.current;
+const readSlotCurrentAmount = (slot: { current: number }) => slot.current;
 
 interface LabelPlacement {
   x: number;
@@ -248,14 +246,14 @@ interface LabelPlacement {
 function getLabelPlacements(
   stationX: number,
   stationY: number,
-  count: number,
+  slotCount: number,
   ringRadius: number,
 ): LabelPlacement[] {
   const labelDistance = ringRadius + 22;
-  if (count === 1) {
+  if (slotCount === 1) {
     return [{ x: stationX, y: stationY - labelDistance, originX: 0.5, originY: 1, align: "center" }];
   }
-  if (count === 2) {
+  if (slotCount === 2) {
     return [
       { x: stationX + labelDistance, y: stationY, originX: 0, originY: 0.5, align: "left" }, // right (produced)
       { x: stationX - labelDistance, y: stationY, originX: 1, originY: 0.5, align: "right" }, // left
@@ -281,9 +279,12 @@ function showInventoryLabels(bundle: StationVisualBundle, currentTick: number, s
 function ensureInventoryLabels(bundle: StationVisualBundle): void {
   if (bundle.inventoryLabels.length > 0) return;
   const scene = bundle.graphics.scene;
-  const slots = bundle.sortedSlots;
-  const displayCount = slots.length === 0 ? 1 : slots.length;
-  const placements = getLabelPlacements(bundle.station.x, bundle.station.y, displayCount, bundle.ringRadius);
+  const placements = getLabelPlacements(
+    bundle.station.x,
+    bundle.station.y,
+    bundle.segmentArcs.length,
+    stationOrbitRingRadius,
+  );
   for (const placement of placements) {
     bundle.inventoryLabels.push(createInventoryLabel(scene, placement));
   }
@@ -312,7 +313,7 @@ function refreshInventoryLabelTextIfDirty(
     currentTick,
     isFocused: selected,
     items: slots,
-    getValue: readSlotCurrent,
+    getValue: readSlotCurrentAmount,
     forceDirty: false,
     onDirty: () => refreshInventoryLabelText(bundle),
   });
@@ -320,12 +321,16 @@ function refreshInventoryLabelTextIfDirty(
   for (const label of bundle.inventoryLabels) label.setVisible(true);
 }
 
+function showNoWaresPlaceholder(bundle: StationVisualBundle): void {
+  bundle.inventoryLabels[0].setText("No Wares");
+  bundle.inventoryLabels[0].setVisible(true);
+  for (let i = 1; i < bundle.inventoryLabels.length; i++) bundle.inventoryLabels[i].setVisible(false);
+}
+
 function refreshInventoryLabelText(bundle: StationVisualBundle): void {
   const slots = bundle.sortedSlots;
   if (slots.length === 0) {
-    bundle.inventoryLabels[0].setText("No Wares");
-    bundle.inventoryLabels[0].setVisible(true);
-    for (let i = 1; i < bundle.inventoryLabels.length; i++) bundle.inventoryLabels[i].setVisible(false);
+    showNoWaresPlaceholder(bundle);
     return;
   }
   for (let i = 0; i < bundle.inventoryLabels.length; i++) {

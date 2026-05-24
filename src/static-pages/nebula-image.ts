@@ -24,17 +24,14 @@ export function loadNebulaImage(src: string): HTMLImageElement {
   return image;
 }
 
-/** One nebula draw request: where to paint, how big, and the loaded image to composite. */
-export interface NebulaDrawRequest {
-  nebula: SectorNebula;
-  image: HTMLImageElement;
-  canvasWidth: number;
-  canvasHeight: number;
-}
-
 /** Composites a nebula onto the canvas with additive blending; bails out if the image hasn't finished loading. */
-export function drawNebula(context: CanvasRenderingContext2D, request: NebulaDrawRequest): void {
-  const { nebula, image, canvasWidth, canvasHeight } = request;
+export function drawNebula(
+  context: CanvasRenderingContext2D,
+  nebula: SectorNebula,
+  image: HTMLImageElement,
+  canvasWidth: number,
+  canvasHeight: number,
+): void {
   // Image not loaded yet — skip this frame; a later draw call will paint it once decoded.
   if (!image.complete || !image.naturalWidth) return;
   context.save();

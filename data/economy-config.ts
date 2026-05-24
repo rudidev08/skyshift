@@ -2,6 +2,8 @@ export const economyConfig = {
   // time between sim ticks: production, consumption, UI
   // helps with performance since this doesn't need to be calculated every tick
   simulationIntervalSeconds: 0.5,
+  // slow tick for build-completion handoff and emigration lifecycle (sim seconds)
+  slowSimulationTickIntervalSeconds: 5,
   // time to fill station ware output from empty with production
   targetFillTimeSeconds: 3600, // 1 hour
 
@@ -29,7 +31,7 @@ export const economyConfig = {
   // used in overview: trade view to see route history
   tradeRouteHistoryRetentionSeconds: 3 * 60 * 60,
 
-  // UI throttling — cuts expensive setText/innerHTML calls. Values are tick multiples.
+  // UI throttling — cuts setText/innerHTML calls. Values are tick multiples.
   // selected in-game object (station & ship inventory rings) + HUD panel: every tick (0.5s)
   focusedAttentionIntervalTicks: 1,
   // unselected in-game objects: every 10 ticks (5s)

@@ -1,11 +1,9 @@
 import { stationVisuals } from "../../data/station-visuals";
+import { displayFontFamily, mapLabelColor } from "../../data/visuals-text";
 
-export const DISPLAY_FONT_FAMILY = '"Space Grotesk", system-ui, sans-serif';
-export const MONO_FONT_FAMILY = '"JetBrains Mono", ui-monospace, monospace';
-
-/** Default text style for map-space labels (station names, ship names, cargo). */
+/** Shared base text style for map-space labels (ship names, station names, cargo) — used directly or spread-extended with per-site overrides. */
 export const LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
-  fontFamily: DISPLAY_FONT_FAMILY,
+  fontFamily: displayFontFamily,
   fontSize: stationVisuals.labelFontSize,
-  color: "#c0c0c0",
+  color: mapLabelColor,
 };

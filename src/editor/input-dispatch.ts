@@ -14,7 +14,7 @@ import {
   type DraftDependencies,
 } from "./persistence";
 import { refreshShipDerivedColumns } from "./ships-panel";
-import { isEconomyFieldName } from "./snapshot-state";
+import { isEconomyFieldName } from "./edit-baselines";
 import { addEditableStation, removeEditableStation, type AddStationDependencies } from "./stations-panel";
 import type { MapEditorState } from "./map-editor-state";
 import type { EditorSimulationSession } from "./simulation-session";
@@ -139,7 +139,7 @@ function handleEditorNumberInput(event: Event, dependencies: EditorEventDependen
 }
 
 /** Attaches the editor's input + click event listeners to the root element. */
-export function attachEditorEventListeners(dependencies: EditorEventDependencies) {
+export function setupEditorEventListeners(dependencies: EditorEventDependencies) {
   dependencies.rootElement.addEventListener("input", (event) => handleEditorNumberInput(event, dependencies));
   dependencies.rootElement.addEventListener("click", (event) => handleEditorClick(event, dependencies));
 }

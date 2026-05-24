@@ -17,8 +17,8 @@ const testFiles = readdirSync(here)
   .sort();
 
 if (testFiles.length === 0) {
-  console.log("no *.test.mjs files found");
-  process.exit(0);
+  console.error(`no *.test.mjs files matched in ${here} — check working directory`);
+  process.exit(1);
 }
 
 const childArgs = process.argv.slice(2);
@@ -28,7 +28,7 @@ for (const file of testFiles) {
   console.log(`\n──── ${file} ────`);
   const exitCode = await new Promise((resolve) => {
     const child = spawn("node", [join(here, file), ...childArgs], { stdio: "inherit" });
-    child.on("exit", (code) => resolve(code ?? 0));
+    child.on("exit", (code, signal) => resolve(code === 0 && signal === null ? 0 : 1));
   });
   if (exitCode !== 0) failedTests.push(file);
 }

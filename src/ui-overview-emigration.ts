@@ -2,7 +2,7 @@
 
 import type { EmigrationManager } from "./sim-emigration-manager";
 import type { EmigrationTriggerMode, EmigrationIntensity } from "./sim-emigration-types";
-import { morseBarGradient } from "./render-morse-bar";
+import { createWareSidebar } from "./ui-overview-sidebar-shell";
 import { formatHoursMinutesSeconds } from "./render-elapsed-time-label";
 import { showToast } from "./ui-toast";
 import { setTextIfChanged } from "./ui-dom-cache";
@@ -28,70 +28,76 @@ const MODE_DESCRIPTION: Record<EmigrationTriggerMode, string> = {
   manual: "Emigration only triggers when you start it yourself.",
 };
 
-// One-off button — kept inline rather than extracted to ui.css.
-const TRIGGER_BUTTON_STYLE =
-  "width: 100%; justify-content: center; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;";
+const MODE_OPTIONS: ReadonlyArray<{ value: EmigrationTriggerMode; label: string }> = [
+  { value: "auto", label: "Auto" },
+  { value: "manual", label: "Manual" },
+];
+
+const INTENSITY_OPTIONS: ReadonlyArray<{ value: EmigrationIntensity; label: string }> = [
+  { value: "low", label: "25%" },
+  { value: "medium", label: "50%" },
+  { value: "high", label: "75%" },
+];
 
 /** Mount the emigration sidebar into `root` and return a controls handle for per-tick refresh and teardown. */
 export function createEmigrationControls(
   root: HTMLElement,
   emigrationManager: EmigrationManager,
 ): EmigrationControls {
-  const sidebar = buildEmigrationSidebar(root);
-  const elements = findEmigrationElements(sidebar);
+  const shell = createWareSidebar(root, "Emigration");
+  fillEmigrationSidebar(shell.sidebar);
+  const elements = findEmigrationElements(shell.sidebar);
   const refresh = (): void => refreshEmigrationView(elements, emigrationManager);
-  attachModeButtonHandlers(elements.modeButtons, emigrationManager, refresh);
-  attachIntensityButtonHandlers(elements.intensityButtons, emigrationManager, refresh);
+  attachSegmentHandlers(elements.modeButtons, MODE_OPTIONS, (value) => emigrationManager.setMode(value), refresh);
+  attachSegmentHandlers(
+    elements.intensityButtons,
+    INTENSITY_OPTIONS,
+    (value) => emigrationManager.setIntensity(value),
+    refresh,
+  );
   attachTriggerButtonHandler(elements.triggerButton, emigrationManager, refresh);
   refresh();
 
   return {
     update: refresh,
-    destroy: () => {
-      root.innerHTML = "";
-    },
+    destroy: shell.destroy,
   };
 }
 
-function buildEmigrationSidebar(root: HTMLElement): HTMLElement {
-  root.innerHTML = "";
-  const sidebar = document.createElement("div");
-  sidebar.className = "ware-sidebar";
-  sidebar.style.setProperty(
-    "--morse-bar",
-    morseBarGradient("Emigration", { letterCount: 3, color: "var(--paper-mute)" }),
-  );
-  root.appendChild(sidebar);
+function segmentButtonsHtml(
+  action: string,
+  options: ReadonlyArray<{ value: string; label: string }>,
+): string {
+  return options
+    .map((option) => `<button data-action="${action}" data-value="${option.value}" class="hud-btn">${option.label}</button>`)
+    .join("");
+}
 
+function fillEmigrationSidebar(sidebar: HTMLElement): void {
   sidebar.innerHTML = `
     <div class="ware-sidebar-head">Emigration</div>
     <div class="ware-sidebar-blurb">Stations send their crew to the generational ship, which emigrates beyond the charts — freeing sectors for new settlement.</div>
     <div class="ware-section">
       <div class="ware-section-label ware-section-label--settings">» Mode</div>
       <div class="hud-segment hud-segment--row">
-        <button data-action="set-mode" data-value="auto" class="hud-btn">Auto</button>
-        <button data-action="set-mode" data-value="manual" class="hud-btn">Manual</button>
+        ${segmentButtonsHtml("set-mode", MODE_OPTIONS)}
       </div>
       <div class="description-text-dim" data-role="mode-description"></div>
     </div>
     <div class="ware-section">
       <div class="ware-section-label ware-section-label--settings">» Share</div>
       <div class="hud-segment hud-segment--row">
-        <button data-action="set-intensity" data-value="low" class="hud-btn">25%</button>
-        <button data-action="set-intensity" data-value="medium" class="hud-btn">50%</button>
-        <button data-action="set-intensity" data-value="high" class="hud-btn">75%</button>
+        ${segmentButtonsHtml("set-intensity", INTENSITY_OPTIONS)}
       </div>
       <div class="description-text-dim">Percentage of stations that will start emigrating out of the cluster.</div>
     </div>
     <div class="ware-section" data-role="trigger-section" hidden>
       <div class="ware-section-label ware-section-label--settings">» Trigger</div>
-      <button data-action="trigger" class="hud-btn" style="${TRIGGER_BUTTON_STYLE}">Start emigration</button>
+      <button data-action="trigger" class="hud-btn hud-btn--wide">Start emigration</button>
       <div class="description-text-dim" data-role="eligibility"></div>
     </div>
-    <div class="ware-section" data-role="arrival-section" style="font-family: var(--font-mono); font-size: 11px; color: var(--paper-dim);" hidden></div>
+    <div class="ware-section description-text-dim" data-role="arrival-section" hidden></div>
   `;
-
-  return sidebar;
 }
 
 function findEmigrationElements(sidebar: HTMLElement): EmigrationElements {
@@ -106,32 +112,19 @@ function findEmigrationElements(sidebar: HTMLElement): EmigrationElements {
   };
 }
 
-function attachModeButtonHandlers(
-  modeButtons: NodeListOf<HTMLButtonElement>,
-  emigrationManager: EmigrationManager,
+function attachSegmentHandlers<Value extends string>(
+  buttons: NodeListOf<HTMLButtonElement>,
+  options: ReadonlyArray<{ value: Value; label: string }>,
+  apply: (value: Value) => void,
   refresh: () => void,
 ): void {
-  for (const button of modeButtons) {
+  buttons.forEach((button, index) => {
+    const { value } = options[index];
     button.addEventListener("click", () => {
-      const value = button.getAttribute("data-value");
-      if (value === "auto" || value === "manual") emigrationManager.setMode(value);
+      apply(value);
       refresh();
     });
-  }
-}
-
-function attachIntensityButtonHandlers(
-  intensityButtons: NodeListOf<HTMLButtonElement>,
-  emigrationManager: EmigrationManager,
-  refresh: () => void,
-): void {
-  for (const button of intensityButtons) {
-    button.addEventListener("click", () => {
-      const value = button.getAttribute("data-value");
-      if (value === "low" || value === "medium" || value === "high") emigrationManager.setIntensity(value);
-      refresh();
-    });
-  }
+  });
 }
 
 function attachTriggerButtonHandler(

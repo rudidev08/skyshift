@@ -1,7 +1,7 @@
 // Orientation page (`/help.html`): three mini sector animations + HUD icons.
 // Verifies the entry script runs without errors and mounts the scene canvases.
 
-import { checkPage } from "./lib.mjs";
+import { checkPage } from "./page-test-helpers.mjs";
 
 await checkPage({
   name: "orientation",

@@ -76,11 +76,11 @@ interface FakeDevSpeedButton extends FakeButton {
   dataset: { devSpeed?: string };
 }
 
-function buildFakeDevSpeedButton(rawDevSpeed: string | undefined): FakeDevSpeedButton {
+function buildFakeDevSpeedButton(rawDevModeSpeed: string | undefined): FakeDevSpeedButton {
   const handlers = new Set<() => void>();
   return {
-    id: `dev-${rawDevSpeed ?? "missing"}`,
-    dataset: rawDevSpeed === undefined ? {} : { devSpeed: rawDevSpeed },
+    id: `dev-${rawDevModeSpeed ?? "missing"}`,
+    dataset: rawDevModeSpeed === undefined ? {} : { devSpeed: rawDevModeSpeed },
     click() {
       for (const handler of handlers) handler();
     },
@@ -227,7 +227,7 @@ test("setupTimeControls resets lastUnpausedSpeed so a remounted scene doesn't re
   });
 });
 
-test("setSpeed is idempotent — repeating the current speed does not refire onSpeedChange", () => {
+test("setSpeed: repeating the current speed does not refire onSpeedChange", () => {
   withFakeDocument(() => {
     let observerCallCount = 0;
     const controller = setupTimeControls(buildFakeScene() as never, () => {
@@ -236,7 +236,7 @@ test("setSpeed is idempotent — repeating the current speed does not refire onS
 
     controller.setSpeed(2);
     const callsAfterFirst = observerCallCount;
-    // Pin the no-op short-circuit. Removing `if (normalizedScale === currentSpeed) return`
+    // Pin the do-nothing short-circuit. Removing `if (normalizedScale === currentSpeed) return`
     // would re-fire onSpeedChange (and any other observers) on every redundant setSpeed call.
     controller.setSpeed(2);
     controller.setSpeed(2);
@@ -327,7 +327,7 @@ test("pauseSim / resumeSim / isSimPaused bridge external pause callers to the ti
     assertEqual(observedSpeed, 2, "resumeSim fires the registered onSpeedChange");
     assertTrue(!isSimPaused(), "isSimPaused false after resumeSim");
 
-    // Pin pauseSim's no-op-when-paused branch. The second pauseSim must early-return;
+    // Pin pauseSim's already-paused branch. The second pauseSim must early-return;
     // currentSpeed stays at 0 either way (setCurrentSpeed's normalizedScale-equals-currentSpeed
     // guard would also catch a duplicate apply), so this only weakly pins the outer guard.
     pauseSim();
@@ -360,21 +360,21 @@ test("devmode speed buttons skip non-positive and non-finite data-dev-speed valu
   // and one with no attribute. The zero, negative, and missing buttons must
   // be skipped — clicking them does nothing. The NaN button is also skipped.
   // The 20× button must wire up and jump straight to 20× when clicked.
-  const okButton = buildFakeDevSpeedButton("20");
+  const validSpeedButton = buildFakeDevSpeedButton("20");
   const zeroButton = buildFakeDevSpeedButton("0");
   const negativeButton = buildFakeDevSpeedButton("-5");
   const nanButton = buildFakeDevSpeedButton("not-a-number");
   const missingAttrButton = buildFakeDevSpeedButton(undefined);
   setExtendedAllowedSpeeds([20]);
 
-  withDevSpeedButtonDocument([okButton, zeroButton, negativeButton, nanButton, missingAttrButton], () => {
+  withDevSpeedButtonDocument([validSpeedButton, zeroButton, negativeButton, nanButton, missingAttrButton], () => {
     let observedSpeed = -1;
     const controller = setupTimeControls(buildFakeScene() as never, (scale) => {
       observedSpeed = scale;
     });
 
     // Sanity: the 20× button is attached and jumps directly to 20×.
-    okButton.click();
+    validSpeedButton.click();
     assertEqual(controller.currentSpeed, 20, "20x devmode button jumps to 20x");
     assertEqual(observedSpeed, 20, "20x devmode button fires onSpeedChange(20)");
 

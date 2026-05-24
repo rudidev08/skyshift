@@ -14,13 +14,14 @@ import { bioNation, farNation, hubNation, oreNation, skyNation } from "../data/n
 import type { NationTemplate } from "../data/nation-types";
 import { nationColoredCodeSpan } from "./sim-nation-code-format";
 import {
+  bucketStationCount,
   computeBuckets,
-  pickBucketDurationSeconds,
   type ChartBucket,
 } from "./ui-stations-timelapse-bucketing";
 import { setHtmlIfChanged } from "./ui-dom-cache";
+import { clamp01 } from "./util-clamp";
 import type { StationHistory } from "./sim-station-history";
-import type { TimelapseStep } from "./sim-timelapse-state";
+import { STEP_LABELS, STEP_ORDER, type TimelapseStep } from "./sim-timelapse-state";
 
 export interface StationsTimelapseControlOptions {
   parent: HTMLElement;
@@ -52,28 +53,17 @@ export interface StationsTimelapseControl {
   destroy(): void;
 }
 
-const STEP_ORDER: TimelapseStep[] = ["-1d", "-8h", "-1h", "+1h", "+8h", "+1d"];
-const STEP_LABELS: Record<TimelapseStep, string> = {
-  "-1d": "−1d",
-  "-8h": "−8h",
-  "-1h": "−1h",
-  "+1h": "+1h",
-  "+8h": "+8h",
-  "+1d": "+1d",
-};
-
-// HSL-hue iteration order (ORE 33° → FAR 49° → BIO 122° → SKY 181° → HUB 205°)
-// so stacked bar colors flow warm → cool bottom-to-top, and the counts row
-// left-to-right tracks the same sequence. Seg class is collocated with each
-// nation so a new entry can't be added without its CSS class. WAY is absent
-// because the gen-ship faction doesn't found stations the same way; adding a
-// new nation that should appear on the chart means adding a row here.
-const BAR_NATIONS: ReadonlyArray<{ nation: NationTemplate; segClass: string }> = [
-  { nation: oreNation, segClass: "stations-timelapse-bar__seg--ore" },
-  { nation: farNation, segClass: "stations-timelapse-bar__seg--far" },
-  { nation: bioNation, segClass: "stations-timelapse-bar__seg--bio" },
-  { nation: skyNation, segClass: "stations-timelapse-bar__seg--sky" },
-  { nation: hubNation, segClass: "stations-timelapse-bar__seg--hub" },
+// Stacked bar colors flow warm → cool bottom-to-top (ORE 33° → HUB 205° HSL);
+// the counts row left-to-right tracks the same sequence. WAY is absent because
+// the gen-ship faction doesn't found stations the same way. Adding a new nation
+// to the chart means adding a row here; the seg class is collocated so it can't
+// be forgotten.
+const BAR_NATIONS: ReadonlyArray<{ nation: NationTemplate; segmentClass: string }> = [
+  { nation: oreNation, segmentClass: "stations-timelapse-bar__seg--ore" },
+  { nation: farNation, segmentClass: "stations-timelapse-bar__seg--far" },
+  { nation: bioNation, segmentClass: "stations-timelapse-bar__seg--bio" },
+  { nation: skyNation, segmentClass: "stations-timelapse-bar__seg--sky" },
+  { nation: hubNation, segmentClass: "stations-timelapse-bar__seg--hub" },
 ];
 
 export function createStationsTimelapseControl(
@@ -107,17 +97,19 @@ export function createStationsTimelapseControl(
 
   function update(bindings: StationsTimelapseControlBindings): void {
     const playheadTime = bindings.playheadTime ?? bindings.currentTime;
-    const bucketDurationSeconds = pickBucketDurationSeconds(bindings.windowSeconds);
-    latestBuckets = computeBuckets({
+    const { buckets, bucketDurationSeconds } = computeBuckets({
       history: bindings.history,
       windowSeconds: bindings.windowSeconds,
       currentTime: bindings.currentTime,
-      bucketDurationSeconds,
     });
+    latestBuckets = buckets;
     renderCounts(bindings.history, playheadTime);
     renderBars(latestBuckets, playheadTime, bucketDurationSeconds);
     renderAxis(bindings);
-    renderPlayhead(latestBuckets, playheadTime, bucketDurationSeconds);
+    if (latestBuckets.length > 0) {
+      const fraction = computePlayheadFraction(latestBuckets, playheadTime, bucketDurationSeconds);
+      barsElement.style.setProperty("--playhead", `${fraction * 100}%`);
+    }
   }
 
   function renderCounts(history: StationHistory, playheadTime: number): void {
@@ -137,26 +129,24 @@ export function createStationsTimelapseControl(
   function renderBars(buckets: ChartBucket[], playheadTime: number, bucketDurationSeconds: number): void {
     let bucketsWithData = 0;
     for (const bucket of buckets) {
-      if (bucket.total > 0) bucketsWithData++;
+      if (bucketStationCount(bucket) > 0) bucketsWithData++;
     }
     if (bucketsWithData < 2) {
       renderEmptyChartPlaceholder(barsElement, bucketDurationSeconds);
       return;
     }
     barsElement.classList.remove("is-empty");
-    const maxBucketTotal = Math.max(1, ...buckets.map((bucket) => bucket.total));
-    const html: string[] = [];
+    const maxBucketStationCount = Math.max(1, ...buckets.map((bucket) => bucketStationCount(bucket)));
+    const barsHtml: string[] = [];
     for (const bucket of buckets) {
-      html.push(buildBarHtml(bucket, playheadTime));
+      barsHtml.push(buildBarHtml(bucket, playheadTime));
     }
-    barsElement.style.setProperty("--bars-max", String(maxBucketTotal));
-    setHtmlIfChanged(barsElement, html.join("") + `<span class="stations-timelapse-playhead"></span>`);
+    barsElement.style.setProperty("--bars-max", String(maxBucketStationCount));
+    setHtmlIfChanged(barsElement, barsHtml.join("") + `<span class="stations-timelapse-playhead"></span>`);
   }
 
   function renderAxis(bindings: StationsTimelapseControlBindings): void {
-    const totalDays = Math.round(bindings.windowSeconds / (24 * 3600));
-    const startLabel = totalDays >= 1 ? `−${totalDays}d` : `−${Math.round(bindings.windowSeconds / 3600)}h`;
-    const midLabel = totalDays >= 4 ? `−${Math.round(totalDays / 2)}d` : "";
+    const { startLabel, midLabel } = buildAxisLabels(bindings.windowSeconds);
     const endLabel = "now";
     setHtmlIfChanged(
       axisElement,
@@ -164,17 +154,20 @@ export function createStationsTimelapseControl(
     );
   }
 
-  function renderPlayhead(buckets: ChartBucket[], playheadTime: number, bucketDurationSeconds: number): void {
-    const playheadElement = barsElement.querySelector<HTMLElement>(".stations-timelapse-playhead");
-    if (!playheadElement || buckets.length === 0) return;
-    playheadElement.style.left = `${computePlayheadFraction(buckets, playheadTime, bucketDurationSeconds) * 100}%`;
-  }
-
   function destroy(): void {
     parent.removeChild(root);
   }
 
   return { update, destroy };
+}
+
+/** Left + optional mid tick labels for the chart axis. Mid label only appears
+ *  for windows of 4+ days so short windows don't get a cramped middle tick. */
+function buildAxisLabels(windowSeconds: number): { startLabel: string; midLabel: string } {
+  const totalDays = Math.round(windowSeconds / (24 * 3600));
+  const startLabel = totalDays >= 1 ? `−${totalDays}d` : `−${Math.round(windowSeconds / 3600)}h`;
+  const midLabel = totalDays >= 4 ? `−${Math.round(totalDays / 2)}d` : "";
+  return { startLabel, midLabel };
 }
 
 function computePlayheadFraction(
@@ -185,8 +178,8 @@ function computePlayheadFraction(
   const startTime = buckets[0].endTime - bucketDurationSeconds;
   const endTime = buckets[buckets.length - 1].endTime;
   const span = endTime - startTime;
-  const positionFraction = span === 0 ? 1 : (playheadTime - startTime) / span;
-  return Math.max(0, Math.min(1, positionFraction));
+  const playheadFraction = span === 0 ? 1 : (playheadTime - startTime) / span;
+  return clamp01(playheadFraction);
 }
 
 function createStepButton(step: TimelapseStep, onStep: (step: TimelapseStep) => void): HTMLButtonElement {
@@ -203,9 +196,9 @@ function createStepButton(step: TimelapseStep, onStep: (step: TimelapseStep) => 
 }
 
 /**
- * A single filled bar is just a number — the chart is meaningless until at
- * least two slices carry data. Until then, show a placeholder telling the
- * player when the chart will start filling in.
+ * One filled bar conveys nothing — the chart needs at least two slices with
+ * data. Until then, show a placeholder telling the player when the chart will
+ * start filling in.
  */
 function renderEmptyChartPlaceholder(barsElement: HTMLElement, bucketDurationSeconds: number): void {
   const waitHours = Math.max(1, Math.round((2 * bucketDurationSeconds) / 3600));
@@ -218,13 +211,13 @@ function renderEmptyChartPlaceholder(barsElement: HTMLElement, bucketDurationSec
 
 function buildBarHtml(bucket: ChartBucket, playheadTime: number): string {
   const isFuture = bucket.endTime > playheadTime;
-  const segHtml: string[] = [];
-  for (const { nation, segClass } of BAR_NATIONS) {
+  const segmentHtml: string[] = [];
+  for (const { nation, segmentClass } of BAR_NATIONS) {
     const count = bucket.countsByNation.get(nation.id) ?? 0;
     if (count === 0) continue;
-    segHtml.push(`<i class="${segClass}" style="--c:${count}"></i>`);
+    segmentHtml.push(`<i class="${segmentClass}" style="--c:${count}"></i>`);
   }
-  return `<div class="stations-timelapse-bar${isFuture ? " is-future" : ""}" style="--t:${bucket.total}">${segHtml.join("")}</div>`;
+  return `<div class="stations-timelapse-bar${isFuture ? " is-future" : ""}" style="--t:${bucketStationCount(bucket)}">${segmentHtml.join("")}</div>`;
 }
 
 function attachScrubPointerHandlers(
@@ -237,8 +230,8 @@ function attachScrubPointerHandlers(
     const fraction = (clientX - rect.left) / rect.width;
     const buckets = getBuckets();
     if (buckets.length === 0) return null;
-    const clamped = Math.max(0, Math.min(1, fraction));
-    const index = Math.min(buckets.length - 1, Math.floor(clamped * buckets.length));
+    const clampedFraction = clamp01(fraction);
+    const index = Math.min(buckets.length - 1, Math.floor(clampedFraction * buckets.length));
     return buckets[index];
   }
   bars.addEventListener("pointerdown", (event) => {

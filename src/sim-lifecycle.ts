@@ -1,5 +1,5 @@
 // Top-level Simulation container — owns the manager set, clock, ware index,
-// runtime stations + ships, and exposes tick / slowSimulationTick / dispose. One
+// runtime stations + ships, and exposes tick / slowSimulationTick / destroy. One
 // per running simulation: game scene, editor preview, balance solver, CLI
 // report each construct their own. Headless — no Phaser dependency.
 
@@ -8,13 +8,15 @@ import type { StationZone } from "./sim-station-zone-types";
 import { createStation, type Station } from "./sim-station";
 import { createStationShips, type Ship } from "./sim-ships";
 import { EconomyTimer, tickEconomy, staggerStationTicks } from "./sim-economy";
+import { economyConfig } from "../data/economy-config";
 import { NamePool, assignStationNames } from "./sim-name-pool";
 import { TradeManager } from "./sim-trade-manager";
 import { ShipManager } from "./sim-ship-manager";
 import { StationManager } from "./sim-station-manager";
 import { NationManager } from "./sim-nation-manager";
 import { EmigrationManager } from "./sim-emigration-manager";
-import { createStationHistory, type StationHistory, type HistoryStation } from "./sim-station-history";
+import { createStationHistory, type StationHistory } from "./sim-station-history";
+import { toTimelapseStation } from "./sim-timelapse-state";
 import { createStationZones } from "./sim-station-zone";
 
 export interface SimulationOptions {
@@ -26,7 +28,6 @@ export interface SimulationOptions {
   initialStaggerDurationSeconds?: number;
 }
 
-/** Top-level simulation. Holds the entire sim graph for one running session. */
 export class Simulation {
   readonly map: GameMap;
   readonly shipManager: ShipManager;
@@ -43,7 +44,7 @@ export class Simulation {
   stations: Station[] = [];
   ships: Ship[] = [];
   private unsubscribeDecommission!: () => void;
-  private disposed = false;
+  private destroyed = false;
 
   constructor(map: GameMap) {
     this.map = map;
@@ -70,18 +71,8 @@ export class Simulation {
   /** Subtracts warmup so time-zero is the player's first sim tick (the
    *  warmup phase ticks the sim ahead from the initial state but isn't shown
    *  on the player-facing history axis). */
-  private historyTimeNowSeconds(): number {
-    return this.tradeManager.tradeTime - (this.map.simulationWarmupSeconds ?? 0);
-  }
-
-  private toHistoryStation(station: Station): HistoryStation {
-    return {
-      id: station.id,
-      position: { x: station.x, y: station.y },
-      nationId: station.nation.id,
-      typeId: station.stationType.id,
-      state: station.state === "building" ? "construction" : "operational",
-    };
+  private playerFacingHistoryTimeSeconds(): number {
+    return this.tradeManager.tradeTimeSeconds - (this.map.simulationWarmupSeconds ?? 0);
   }
 
   private createStationManager(): StationManager {
@@ -142,63 +133,60 @@ export class Simulation {
 
   private subscribeStationHistoryObservers(): void {
     this.stationManager.onAdd((station) => {
-      this.stationHistory.recordCreated(this.historyTimeNowSeconds(), this.toHistoryStation(station));
+      this.stationHistory.recordCreated(this.playerFacingHistoryTimeSeconds(), toTimelapseStation(station));
     });
     this.stationManager.onRemove((station) => {
-      this.stationHistory.recordRemoved(this.historyTimeNowSeconds(), station.id);
+      this.stationHistory.recordRemoved(this.playerFacingHistoryTimeSeconds(), station.id);
     });
     // Mirror the building → producing flip into history as the operational state.
     this.stationManager.onStationStateChange((station, oldState, newState) => {
       if (oldState === "building" && newState === "producing") {
-        this.stationHistory.recordStateChanged(this.historyTimeNowSeconds(), station.id, "operational");
+        this.stationHistory.recordStateChanged(this.playerFacingHistoryTimeSeconds(), station.id, "operational");
       }
     });
   }
 
   private subscribeTradeIndexObservers(): void {
-    // Any station state change can shift its role between producer, consumer,
-    // and excluded — rebuild the trade path cache on every transition.
-    this.stationManager.onStationStateChange(() => {
+    // Any station state change can shift its role in the producer/consumer
+    // index — rebuild on every transition so trade routes stay current.
+    const rebuild = () =>
       this.tradeManager.rebuildWareStationIndex(this.stationManager.getStations());
-    });
-    this.stationManager.onStationStateChangeBatch(() => {
-      this.tradeManager.rebuildWareStationIndex(this.stationManager.getStations());
-    });
+    this.stationManager.onStationStateChange(rebuild);
+    this.stationManager.onStationStateChangeBatch(rebuild);
   }
 
   /** Restore-from-save path: register the rosters but skip economy/trade setup
    *  — `restoreSavedGame` already restored ticks, ware index, trade ships, and
    *  stagger offsets from the saved state. */
   seedRosterForSavedGame(stations: Station[], ships: Ship[]): void {
-    this.registerStationsAndShips(stations, ships);
-  }
-
-  /** Fresh-universe path: register the rosters, zero the economy clock,
-   *  stagger per-station tick offsets, build the trade-path cache, schedule
-   *  initial trade departures, and seed the StationHistory recorder. */
-  seedFreshRoster(stations: Station[], ships: Ship[], staggerDuration?: number): void {
-    this.registerStationsAndShips(stations, ships);
-    this.economyTimer.reset();
-    staggerStationTicks(stations);
-    this.tradeManager.rebuildWareStationIndex(stations);
-    this.tradeManager.seedInitialTradeShips(ships, staggerDuration);
-    this.recordInitialStationsInHistory(stations);
-  }
-
-  private registerStationsAndShips(stations: Station[], ships: Ship[]): void {
     this.stations = stations;
     this.ships = ships;
     this.stationManager.seed(stations);
     this.shipManager.seed(ships);
   }
 
+  /** Fresh-universe path: register the rosters, zero the economy clock,
+   *  stagger per-station tick offsets, build the trade-path cache, schedule
+   *  initial trade departures, and seed the StationHistory recorder. */
+  seedFreshRoster(stations: Station[], ships: Ship[], staggerDurationSeconds?: number): void {
+    this.stations = stations;
+    this.ships = ships;
+    this.stationManager.seed(stations);
+    this.shipManager.seed(ships);
+    this.economyTimer.reset();
+    staggerStationTicks(stations);
+    this.tradeManager.rebuildWareStationIndex(stations);
+    this.tradeManager.seedInitialTradeShips(ships, staggerDurationSeconds);
+    this.recordInitialStationsInHistory(stations);
+  }
+
   /** StationManager.seed deliberately doesn't fire onAdd, so the history's
    *  subscriber misses the preset stations — backfill them so the Stations
    *  Timelapse Log starts at the correct counts on a fresh game. */
   private recordInitialStationsInHistory(stations: Station[]): void {
-    const time = this.historyTimeNowSeconds();
+    const time = this.playerFacingHistoryTimeSeconds();
     for (const station of stations) {
-      this.stationHistory.recordCreated(time, this.toHistoryStation(station));
+      this.stationHistory.recordCreated(time, toTimelapseStation(station));
     }
   }
 
@@ -208,26 +196,35 @@ export class Simulation {
     this.tradeManager.tick(deltaSeconds);
   }
 
+  /** Fast-forward a freshly-seeded universe so it opens mid-activity. Steps at
+   *  the sim's own tick cadence so warmup and live ticks advance the economy
+   *  the same way. */
+  runWarmup(warmupSeconds: number): void {
+    const step = economyConfig.simulationIntervalSeconds;
+    for (let elapsed = 0; elapsed < warmupSeconds; elapsed += step) {
+      this.tick(step);
+    }
+  }
+
   /** One slow simulation tick over the station/nation/emigration managers —
    *  flips completed builds to production stations, kicks off next builds, advances emigration.
    *  Fires every ~5 sim-seconds in the game scene. */
   slowSimulationTick(deltaSeconds: number): void {
     this.stationManager.tick();
-    this.nationManager.tick(deltaSeconds);
+    this.nationManager.tick();
     this.emigrationManager.tick(deltaSeconds);
   }
 
   /** Tear down the simulation — unwires observers and resets all managers.
    *  Safe to call more than once. */
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
+  destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.unsubscribeDecommission();
-    this.nationManager.reset();
-    this.emigrationManager.dispose();
+    this.emigrationManager.destroy();
     this.stationManager.reset();
     this.shipManager.reset();
-    this.tradeManager.dispose();
+    this.tradeManager.destroy();
     this.stationHistory.reset();
   }
 }
@@ -250,10 +247,12 @@ function createStationsFromMap(map: GameMap): Station[] {
   return stations;
 }
 
-/** Build the default fleet for each station. `ignoreCargoCompatibility`
- *  spawns ships even when the nation's ship class can't carry any of the
- *  station's wares — used by editor/report sims that want the full fleet. */
-function createShipsForStations(
+/** Build the default fleet for each station, sharing one id pool across
+ *  stations so consecutive fleet spawns don't collide on the BIO-042 codes.
+ *  `ignoreCargoCompatibility` spawns ships even when the nation's ship class
+ *  can't carry any of the station's wares — used by editor/report sims that
+ *  want the full fleet. */
+export function createShipsForStations(
   stations: Station[],
   namePool: NamePool,
   ignoreCargoCompatibility: boolean,

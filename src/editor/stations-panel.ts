@@ -4,13 +4,14 @@
 
 import { allWares } from "../../data/wares";
 import { allStationTypes } from "../../data/stations";
-import { createStation, getStationRates } from "../sim-station";
 import type { WareId } from "../../data/ware-types";
 import type { PlacedStation, StationTypeId, StationSize } from "../../data/station-types";
 import type { Station } from "../sim-station-types";
 import type { Nation } from "../sim-nation";
 import type { MapEditorState } from "./map-editor-state";
+import { closePanel, openPanel } from "./panel-chrome";
 import type { EditorSimulationSession } from "./simulation-session";
+import { buildStationRateRecords } from "./util-station-rates";
 
 function buildAddStationControlsHtml(allPlayableNations: Nation[]): string {
   let html = '<div class="station-panel-actions">';
@@ -54,8 +55,7 @@ function sortStationIndicesByNation(
     .sort((leftIndex, rightIndex) => {
       const leftStation = editableStations[leftIndex];
       const rightStation = editableStations[rightIndex];
-      const nationDifference =
-        (nationOrder.get(leftStation.nation.id) ?? 999) - (nationOrder.get(rightStation.nation.id) ?? 999);
+      const nationDifference = nationOrder.get(leftStation.nation.id)! - nationOrder.get(rightStation.nation.id)!;
       if (nationDifference !== 0) return nationDifference;
       const leftName = (leftStation.name ?? leftStation.id).toLowerCase();
       const rightName = (rightStation.name ?? rightStation.id).toLowerCase();
@@ -71,12 +71,6 @@ function getStationHealthClass(stationResults: Array<{ minPercent: number; maxPe
   return "station-healthy";
 }
 
-interface StationRowResult {
-  rowHtml: string;
-  produced: Map<WareId, number>;
-  consumed: Map<WareId, number>;
-}
-
 function buildStationRow(stationRowInput: {
   mapStation: PlacedStation;
   stationData: Station;
@@ -84,10 +78,8 @@ function buildStationRow(stationRowInput: {
   wareColumns: typeof allWares;
   stationHealthClass: string;
   stationIndex: number;
-}): StationRowResult {
+}): string {
   const { mapStation, stationData, rates, wareColumns, stationHealthClass, stationIndex } = stationRowInput;
-  const produced = new Map<WareId, number>();
-  const consumed = new Map<WareId, number>();
 
   let rowHtml = "<tr>";
   rowHtml += `<td><button class="remove-button" data-action="remove-station" data-station-index="${stationIndex}" title="Remove station">×</button></td>`;
@@ -98,9 +90,6 @@ function buildStationRow(stationRowInput: {
   for (const ware of wareColumns) {
     const wareProduced = rates.production.get(ware.id) ?? 0;
     const wareConsumed = rates.consumption.get(ware.id) ?? 0;
-    if (wareProduced > 0) produced.set(ware.id, wareProduced);
-    if (wareConsumed > 0) consumed.set(ware.id, wareConsumed);
-
     const net = wareProduced - wareConsumed;
     if (net !== 0) {
       const sign = net > 0 ? "+" : "";
@@ -112,13 +101,30 @@ function buildStationRow(stationRowInput: {
   }
   rowHtml += "</tr>";
 
-  return { rowHtml, produced, consumed };
+  return rowHtml;
 }
 
-function addToWareTotals(accumulator: Map<WareId, number>, fromRow: Map<WareId, number>): void {
+function addToWareTotals(totals: Map<WareId, number>, fromRow: Map<WareId, number>): void {
   for (const [wareId, amount] of fromRow) {
-    accumulator.set(wareId, (accumulator.get(wareId) ?? 0) + amount);
+    totals.set(wareId, (totals.get(wareId) ?? 0) + amount);
   }
+}
+
+function buildWareTotalsRowHtml(
+  rowSpec: { label: string; signCharacter: string; positiveClass: string },
+  wareColumns: typeof allWares,
+  valueByWareId: Map<WareId, number>,
+): string {
+  let html = "<tr>";
+  html += `<td></td><td colspan="2" class="totals-label">${rowSpec.label}</td>`;
+  for (const ware of wareColumns) {
+    const value = valueByWareId.get(ware.id) ?? 0;
+    html += `<td class="totals-cell${value > 0 ? ` ${rowSpec.positiveClass}` : ""}">`;
+    html += value > 0 ? `${rowSpec.signCharacter}${value.toFixed(1)}` : "";
+    html += "</td>";
+  }
+  html += "</tr>";
+  return html;
 }
 
 function buildStationTotalsRowsHtml(
@@ -126,27 +132,16 @@ function buildStationTotalsRowsHtml(
   totalProduced: Map<WareId, number>,
   totalConsumed: Map<WareId, number>,
 ): string {
-  let html = "";
-
-  html += "<tr>";
-  html += '<td></td><td colspan="2" class="totals-label">Produced</td>';
-  for (const ware of wareColumns) {
-    const value = totalProduced.get(ware.id) ?? 0;
-    html += `<td class="totals-cell${value > 0 ? " net-positive" : ""}">`;
-    html += value > 0 ? `+${value.toFixed(1)}` : "";
-    html += "</td>";
-  }
-  html += "</tr>";
-
-  html += "<tr>";
-  html += '<td></td><td colspan="2" class="totals-label">Consumed</td>';
-  for (const ware of wareColumns) {
-    const value = totalConsumed.get(ware.id) ?? 0;
-    html += `<td class="totals-cell${value > 0 ? " net-negative" : ""}">`;
-    html += value > 0 ? `−${value.toFixed(1)}` : "";
-    html += "</td>";
-  }
-  html += "</tr>";
+  let html = buildWareTotalsRowHtml(
+    { label: "Produced", signCharacter: "+", positiveClass: "net-positive" },
+    wareColumns,
+    totalProduced,
+  );
+  html += buildWareTotalsRowHtml(
+    { label: "Consumed", signCharacter: "−", positiveClass: "net-negative" },
+    wareColumns,
+    totalConsumed,
+  );
 
   html += "<tr>";
   html += '<td></td><td colspan="2" class="totals-label">Net</td>';
@@ -182,32 +177,31 @@ function buildStationTableBodyHtml(
   wareColumns: typeof allWares,
   totalColumnCount: number,
 ): StationTableBodyResult {
-  const hasResults = simulationSession.lastSlotRangesByStationId !== null;
+  const slotRangesByStationId = simulationSession.lastSlotRangesByStationId;
   const sortedStationIndices = sortStationIndicesByNation(mapState.editableStations, allPlayableNations);
+  const recordsByStationId = new Map(
+    buildStationRateRecords(mapState.editableStations).map((record) => [record.placement.id, record]),
+  );
 
   const totalProduced = new Map<WareId, number>();
   const totalConsumed = new Map<WareId, number>();
   let bodyHtml = "";
-  let previousNationId = "";
+  let previousNationId: string | null = null;
 
   for (const stationIndex of sortedStationIndices) {
     const mapStation = mapState.editableStations[stationIndex];
 
-    if (mapStation.nation.id !== previousNationId && previousNationId !== "") {
+    if (previousNationId !== null && mapStation.nation.id !== previousNationId) {
       bodyHtml += `<tr class="separator"><td colspan="${totalColumnCount}"></td></tr>`;
     }
     previousNationId = mapStation.nation.id;
 
-    const stationData = createStation(mapStation);
-    const rates = getStationRates(stationData);
+    const { station: stationData, rates } = recordsByStationId.get(mapStation.id)!;
 
-    let stationHealthClass = "";
-    if (hasResults) {
-      const stationResults = simulationSession.lastSlotRangesByStationId!.get(mapStation.id);
-      if (stationResults) stationHealthClass = getStationHealthClass(stationResults);
-    }
+    const stationResults = slotRangesByStationId?.get(mapStation.id);
+    const stationHealthClass = stationResults ? getStationHealthClass(stationResults) : "";
 
-    const row = buildStationRow({
+    bodyHtml += buildStationRow({
       mapStation,
       stationData,
       rates,
@@ -215,9 +209,8 @@ function buildStationTableBodyHtml(
       stationHealthClass,
       stationIndex,
     });
-    bodyHtml += row.rowHtml;
-    addToWareTotals(totalProduced, row.produced);
-    addToWareTotals(totalConsumed, row.consumed);
+    addToWareTotals(totalProduced, rates.production);
+    addToWareTotals(totalConsumed, rates.consumption);
   }
 
   return { bodyHtml, totalProduced, totalConsumed };
@@ -231,10 +224,7 @@ function buildStationPanelHtml(
   const wareColumns = allWares;
   const totalColumnCount = 3 + wareColumns.length;
 
-  let html = '<div class="panel">';
-  html += '<div class="panel-header"><h2>Stations</h2>';
-  html += buildAddStationControlsHtml(allPlayableNations);
-  html += "</div>";
+  let html = openPanel("Stations", undefined, buildAddStationControlsHtml(allPlayableNations));
 
   html += '<div class="table-scroll table-scroll-stations">';
   html += '<table class="station-grid">';
@@ -252,7 +242,7 @@ function buildStationPanelHtml(
   html += `<tr class="separator"><td colspan="${totalColumnCount}"></td></tr>`;
   html += buildStationTotalsRowsHtml(wareColumns, body.totalProduced, body.totalConsumed);
 
-  html += "</table></div></div>";
+  html += `</table></div>${closePanel()}`;
   return html;
 }
 
@@ -274,6 +264,13 @@ export interface AddStationDependencies {
   simulationSession: EditorSimulationSession;
   markMapEditorNeedsRemount: () => void;
   refreshDerivedPanels: () => void;
+}
+
+function notifyStructuralEditApplied(dependencies: AddStationDependencies): void {
+  dependencies.markMapEditorNeedsRemount();
+  dependencies.simulationSession.invalidateResults();
+  dependencies.refreshDerivedPanels();
+  dependencies.simulationSession.markResultsStale();
 }
 
 let nextCustomStationCount = 0;
@@ -299,16 +296,10 @@ export function addEditableStation(dependencies: AddStationDependencies) {
   };
 
   dependencies.mapState.editableStations.push(newStation);
-  dependencies.markMapEditorNeedsRemount();
-  dependencies.simulationSession.invalidateResults();
-  dependencies.refreshDerivedPanels();
-  dependencies.simulationSession.markResultsStale();
+  notifyStructuralEditApplied(dependencies);
 }
 
 export function removeEditableStation(stationIndex: number, dependencies: AddStationDependencies) {
   dependencies.mapState.editableStations.splice(stationIndex, 1);
-  dependencies.markMapEditorNeedsRemount();
-  dependencies.simulationSession.invalidateResults();
-  dependencies.refreshDerivedPanels();
-  dependencies.simulationSession.markResultsStale();
+  notifyStructuralEditApplied(dependencies);
 }

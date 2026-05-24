@@ -7,28 +7,8 @@ import { getSectorHudIcon } from "./render-hud-icon";
 import { shouldUpdateUI } from "./render-dirty-state";
 import { sectorEnvironmentById, type SectorEnvironmentId } from "../data/map-sector-environments";
 import { getStationTypeTemplate } from "./sim-station-template";
-
-interface SelectionLabel {
-  iconUri: string;
-  stackLabel: string;
-  name: string;
-  serialCode: string;
-  description: string;
-  loreTypeName: string;
-  lore: string;
-  hasDetails: boolean;
-  accentColor: string;
-  statusLabel: string;
-}
-
-interface HudSelectionTarget {
-  getSelectedLabel(): SelectionLabel | null;
-}
-
-interface HudSelectionState {
-  interactive: boolean;
-  selectedTarget: HudSelectionTarget | null;
-}
+import { EMPTY_SELECTION_LABEL } from "./phaser/selection-input";
+import type { SelectionLabel, SelectionTarget } from "./phaser/selection-input";
 
 export interface GameHudSector {
   name: string;
@@ -40,9 +20,9 @@ export interface GameHudSector {
 
 /** The Game scene satisfies this structurally — no class import needed. */
 export interface GameHudHost {
-  selection: HudSelectionState;
-  lastSelectionTarget: HudSelectionTarget | null;
-  lastDetailsPanelOpen: boolean;
+  selection: { interactive: boolean; selectedTarget: SelectionTarget | null };
+  lastSelectionTarget: SelectionTarget | null;
+  lastLogPanelOpen: boolean;
   lastHudTick: number;
   /** Last sector shown in the card, as "gridX,gridY" ("" = none). Edge-tracks
    *  camera panning so the sector card refreshes on boundary crossings. */
@@ -50,35 +30,22 @@ export interface GameHudHost {
   simulation?: { economyTimer: { tickCount: number } };
   lastIconUri: string;
   lastAccentColor: string;
-  selectedObjectEl: HTMLElement;
-  selectedTypeEl: HTMLElement;
-  serialCodeEl: HTMLElement;
-  descriptionEl: HTMLElement;
-  statusBandEl: HTMLElement;
-  loreEl: HTMLElement;
-  loreTitleEl: HTMLElement;
-  hudIconEl: HTMLElement;
-  infoCardEl: HTMLElement;
-  loreToggleEl: HTMLElement;
-  logToggleEl: HTMLElement;
-  detailsContentEl: HTMLElement;
-  detailsBoxEl: HTMLElement;
-  /** Returns HTML for the details panel when a details-bearing target is selected. */
-  getSelectionDetailsLog(): string;
+  selectedObjectElement: HTMLElement;
+  selectedTypeElement: HTMLElement;
+  serialCodeElement: HTMLElement;
+  descriptionElement: HTMLElement;
+  statusBandElement: HTMLElement;
+  loreElement: HTMLElement;
+  loreTitleElement: HTMLElement;
+  hudIconElement: HTMLElement;
+  infoCardElement: HTMLElement;
+  loreToggleElement: HTMLElement;
+  logToggleElement: HTMLElement;
+  logContentElement: HTMLElement;
+  logBoxElement: HTMLElement;
+  /** Returns HTML for the log panel when the selected target has a trade log. */
+  getSelectionTradeLog(): string;
 }
-
-const EMPTY_LABEL: SelectionLabel = {
-  iconUri: "",
-  stackLabel: "",
-  name: "",
-  serialCode: "",
-  description: "",
-  loreTypeName: "",
-  lore: "",
-  hasDetails: false,
-  accentColor: "",
-  statusLabel: "",
-};
 
 /** Sector info card body: green-accented Supports Stations list, split into two
  *  rows for compactness. Environment name lives in the status band. */
@@ -102,10 +69,10 @@ function buildSectorDescriptionHtml(sectorEnvironment: SectorEnvironmentId | und
 export function updateGameHud(host: GameHudHost, sector: GameHudSector | undefined): void {
   // Editor manages the top-left panel directly — skip HUD updates.
   if (!host.selection.interactive) return;
-  if (!prepareHudFrame(host, sector)) return;
+  if (!shouldRepaintHudThisFrame(host, sector)) return;
 
   const label = host.selection.selectedTarget?.getSelectedLabel() ?? buildSectorSelectionLabel(sector);
-  host.descriptionEl.classList.toggle(
+  host.descriptionElement.classList.toggle(
     "cargo-grid--narrow-label",
     !host.selection.selectedTarget && Boolean(sector),
   );
@@ -122,31 +89,31 @@ export function updateGameHud(host: GameHudHost, sector: GameHudSector | undefin
  *  paused, when no tick ever elapses to fire the throttle. */
 export function shouldRefreshSelectionHud(triggers: {
   selectionChanged: boolean;
-  detailsPanelJustOpened: boolean;
+  logPanelJustOpened: boolean;
   tickThrottleElapsed: boolean;
   showingSectorCard: boolean;
   sectorChanged: boolean;
 }): boolean {
   return (
     triggers.selectionChanged ||
-    triggers.detailsPanelJustOpened ||
+    triggers.logPanelJustOpened ||
     triggers.tickThrottleElapsed ||
     (triggers.showingSectorCard && triggers.sectorChanged)
   );
 }
 
-/** Returns true if the HUD should refresh this frame, and edge-tracks the
- *  per-frame state the decision compares against. See shouldRefreshSelectionHud. */
-function prepareHudFrame(host: GameHudHost, sector: GameHudSector | undefined): boolean {
+/** Mutates the host's last-seen selection/sector/log/tick fields as a side
+ *  effect of the dirty check. See shouldRefreshSelectionHud for the rules. */
+function shouldRepaintHudThisFrame(host: GameHudHost, sector: GameHudSector | undefined): boolean {
   const selectionChanged = host.selection.selectedTarget !== host.lastSelectionTarget;
   host.lastSelectionTarget = host.selection.selectedTarget;
   if (selectionChanged) {
-    // Clear the details pane so cached innerHTML doesn't short-circuit the swap.
-    host.detailsContentEl.innerHTML = "";
+    // Clear immediately so the drawer shows blank instead of the previous entity's log.
+    host.logContentElement.innerHTML = "";
   }
-  const detailsPanelOpen = host.detailsBoxEl.style.display !== "none";
-  const detailsPanelJustOpened = detailsPanelOpen && !host.lastDetailsPanelOpen;
-  host.lastDetailsPanelOpen = detailsPanelOpen;
+  const logPanelOpen = host.logBoxElement.style.display !== "none";
+  const logPanelJustOpened = logPanelOpen && !host.lastLogPanelOpen;
+  host.lastLogPanelOpen = logPanelOpen;
 
   const sectorKey = sector ? `${sector.gridX},${sector.gridY}` : "";
   const sectorChanged = sectorKey !== host.lastHudSectorKey;
@@ -155,7 +122,7 @@ function prepareHudFrame(host: GameHudHost, sector: GameHudSector | undefined): 
   const currentTick = host.simulation?.economyTimer.tickCount ?? 0;
   const refresh = shouldRefreshSelectionHud({
     selectionChanged,
-    detailsPanelJustOpened,
+    logPanelJustOpened,
     tickThrottleElapsed: shouldUpdateUI(currentTick, host.lastHudTick, true),
     showingSectorCard: !host.selection.selectedTarget,
     sectorChanged,
@@ -166,7 +133,7 @@ function prepareHudFrame(host: GameHudHost, sector: GameHudSector | undefined): 
 }
 
 function buildSectorSelectionLabel(sector: GameHudSector | undefined): SelectionLabel {
-  if (!sector) return EMPTY_LABEL;
+  if (!sector) return EMPTY_SELECTION_LABEL;
   const initials = sector.name.slice(0, 2).toUpperCase();
   const sectorEnvironment = sector.environment as SectorEnvironmentId | undefined;
   const environmentLabel = sectorEnvironment
@@ -180,58 +147,62 @@ function buildSectorSelectionLabel(sector: GameHudSector | undefined): Selection
     description: buildSectorDescriptionHtml(sectorEnvironment),
     loreTypeName: `Sector: ${sector.name}`,
     lore: sector.lore,
-    hasDetails: false,
+    hasLog: false,
     accentColor: "",
     statusLabel: environmentLabel,
   };
 }
 
+/** background-image and --id-icon must stay in sync, so a single local
+ *  comparison (lastIconUri) covers both writes rather than splitting across
+ *  two dom-cache entries. */
+function writeHudIconIfChanged(host: GameHudHost, iconUri: string): void {
+  if (iconUri === host.lastIconUri) return;
+  const imageValue = iconUri ? `url("${iconUri}")` : "";
+  host.hudIconElement.style.backgroundImage = imageValue;
+  if (imageValue) host.infoCardElement.style.setProperty("--id-icon", imageValue);
+  else host.infoCardElement.style.removeProperty("--id-icon");
+  host.lastIconUri = iconUri;
+}
+
 function writeLabelToHud(host: GameHudHost, label: SelectionLabel): void {
-  // iconUri changes write three things (background-image + --id-icon + lastIconUri), so diff once locally instead of using dom-cache (which only diffs single writes).
-  if (label.iconUri !== host.lastIconUri) {
-    const imageValue = label.iconUri ? `url("${label.iconUri}")` : "";
-    host.hudIconEl.style.backgroundImage = imageValue;
-    if (imageValue) host.infoCardEl.style.setProperty("--id-icon", imageValue);
-    else host.infoCardEl.style.removeProperty("--id-icon");
-    host.lastIconUri = label.iconUri;
+  writeHudIconIfChanged(host, label.iconUri);
+  setTextIfChanged(host.selectedTypeElement, label.stackLabel);
+  if (setTextIfChanged(host.selectedObjectElement, label.name)) {
+    host.infoCardElement.style.setProperty("--morse-bar", morseBarGradient(label.name));
   }
-  setTextIfChanged(host.selectedTypeEl, label.stackLabel);
-  if (setTextIfChanged(host.selectedObjectEl, label.name)) {
-    host.infoCardEl.style.setProperty("--morse-bar", morseBarGradient(label.name));
-  }
-  setTextIfChanged(host.serialCodeEl, label.serialCode);
+  setTextIfChanged(host.serialCodeElement, label.serialCode);
   if (label.accentColor !== host.lastAccentColor) {
-    if (label.accentColor) host.infoCardEl.style.setProperty("--nation-accent", label.accentColor);
-    else host.infoCardEl.style.removeProperty("--nation-accent");
+    if (label.accentColor) host.infoCardElement.style.setProperty("--nation-accent", label.accentColor);
+    else host.infoCardElement.style.removeProperty("--nation-accent");
     host.lastAccentColor = label.accentColor;
   }
-  setHtmlIfChanged(host.descriptionEl, label.description);
-  if (setTextIfChanged(host.statusBandEl, label.statusLabel)) {
-    host.statusBandEl.hidden = label.statusLabel.length === 0;
+  setHtmlIfChanged(host.descriptionElement, label.description);
+  if (setTextIfChanged(host.statusBandElement, label.statusLabel)) {
+    host.statusBandElement.hidden = label.statusLabel.length === 0;
   }
-  setTextIfChanged(host.loreTitleEl, label.loreTypeName);
-  setTextIfChanged(host.loreEl, label.lore);
+  setTextIfChanged(host.loreTitleElement, label.loreTypeName);
+  setTextIfChanged(host.loreElement, label.lore);
 
-  publishLoreAndLogButtonAvailability(host, label);
-  if (label.hasDetails) refreshOpenTradeLog(host);
+  refreshInfoRailButtonStates(host, label);
+  if (label.hasLog) refreshOpenTradeLog(host);
 }
 
-/** Toggle clickable state on the lore and trade-log buttons in the dossier's
- *  info-rail based on whether the selection has lore and details. */
-function publishLoreAndLogButtonAvailability(host: GameHudHost, label: SelectionLabel): void {
+/** Update lore/trade-log button availability in the info-rail, and close any
+ *  panel that the new selection no longer supports. */
+function refreshInfoRailButtonStates(host: GameHudHost, label: SelectionLabel): void {
   const hasLore = label.lore.length > 0;
-  const loreChanged = setAttrIfChanged(host.loreToggleEl, "data-has-lore", String(hasLore));
-  const detailsChanged = setAttrIfChanged(host.logToggleEl, "data-has-details", String(label.hasDetails));
-  if (loreChanged || detailsChanged) {
-    // Notify the toggle button to re-run its click-availability check now that data-has-lore / data-has-details changed.
-    host.loreToggleEl.dispatchEvent(new CustomEvent("reapply"));
-    host.loreToggleEl.classList.toggle("is-available", hasLore);
-    host.logToggleEl.classList.toggle("is-available", label.hasDetails);
+  const loreChanged = setAttrIfChanged(host.loreToggleElement, "data-has-lore", String(hasLore));
+  const logChanged = setAttrIfChanged(host.logToggleElement, "data-has-log", String(label.hasLog));
+  if (loreChanged || logChanged) {
+    // Fires applyToggles in game-entry-hud.ts — closes any open panel whose content just disappeared.
+    host.loreToggleElement.dispatchEvent(new CustomEvent("reapply"));
+    host.loreToggleElement.classList.toggle("is-available", hasLore);
+    host.logToggleElement.classList.toggle("is-available", label.hasLog);
   }
 }
 
-/** Write the latest trade-log HTML into the details drawer when it's open. */
 function refreshOpenTradeLog(host: GameHudHost): void {
-  if (host.detailsBoxEl.style.display === "none") return;
-  setHtmlIfChanged(host.detailsContentEl, host.getSelectionDetailsLog());
+  if (host.logBoxElement.style.display === "none") return;
+  setHtmlIfChanged(host.logContentElement, host.getSelectionTradeLog());
 }

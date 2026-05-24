@@ -1,19 +1,24 @@
 import { allWares } from "../../../data/wares.ts";
+import type { WareTemplate } from "../../../data/ware-types.ts";
 import { economyConfig } from "../../../data/economy-config.ts";
 import { allStationTypes } from "../../../data/stations.ts";
-import { createStation, getStationRates, getAllInventorySlots } from "../../sim-station.ts";
+import type { PlacedStation, StationTypeTemplate } from "../../../data/station-types.ts";
+import {
+  createStation,
+  getAllInventorySlots,
+  getInventorySlot,
+  getStationRates,
+  type Station,
+} from "../../sim-station.ts";
 import { EconomyTimer, tickEconomy } from "../../sim-economy.ts";
+import { getStorageCapacityInTicks } from "../../sim-ware-template.ts";
 import { hubNation } from "../../../data/nations.ts";
 
-type Ware = (typeof allWares)[number];
-type StationType = (typeof allStationTypes)[number];
-type Station = ReturnType<typeof createStation>;
-
 type ProductionResult =
-  | { kind: "sink"; ware: Ware; stationType: StationType }
+  | { kind: "sink"; ware: WareTemplate; stationType: StationTypeTemplate }
   | {
       kind: "raw";
-      ware: Ware;
+      ware: WareTemplate;
       effectiveOutput: number;
       outputMax: number;
       fillCycles: number;
@@ -21,7 +26,7 @@ type ProductionResult =
     }
   | {
       kind: "simulated";
-      ware: Ware;
+      ware: WareTemplate;
       effectiveOutput: number;
       outputMax: number;
       outputCurrent: number;
@@ -29,19 +34,22 @@ type ProductionResult =
       cycles: number;
       timeSeconds: number;
       filled: boolean;
-      stationType: StationType;
+      stationType: StationTypeTemplate;
       station: Station;
     };
 
-function createPrimedSimStation(ware: Ware, stationType: StationType): Station {
-  const placement = {
+function createStationWithFullInputsEmptyOutput(
+  ware: WareTemplate,
+  stationType: StationTypeTemplate,
+): Station {
+  const placement: PlacedStation = {
     id: `sim-${ware.id}`,
     name: "Sim",
     x: 0,
     y: 0,
     nation: hubNation,
     stationTypeId: stationType.id,
-    size: "S" as const,
+    size: "S",
   };
   const station = createStation(placement);
 
@@ -56,12 +64,12 @@ function createPrimedSimStation(ware: Ware, stationType: StationType): Station {
   return station;
 }
 
-function runProductionForWare(ware: Ware): ProductionResult | null {
-  const stationType = allStationTypes.find((candidate) => candidate.produces.includes(ware.id));
+function runProductionForWare(ware: WareTemplate): ProductionResult | null {
+  const stationType = allStationTypes.find((stationType) => stationType.produces.includes(ware.id));
   if (!stationType) return null;
 
-  const station = createPrimedSimStation(ware, stationType);
-  const outputSlot = getAllInventorySlots(station).find((slot) => slot.ware.id === ware.id);
+  const station = createStationWithFullInputsEmptyOutput(ware, stationType);
+  const outputSlot = getInventorySlot(station, ware.id);
   const rates = getStationRates(station);
   const effectiveOutput = rates.production.get(ware.id) ?? 0;
 
@@ -82,9 +90,8 @@ function runProductionForWare(ware: Ware): ProductionResult | null {
 
   const reportTimer = new EconomyTimer();
   let cycles = 0;
-  // Double the expected fill time so slow-but-healthy producers don't trip the stall bailout; if inputs deplete the loop hits this cap and the report flags which slot ran out.
-  const maxCycles =
-    Math.ceil(economyConfig.targetFillTimeSeconds / economyConfig.simulationIntervalSeconds) * 2;
+  // Enough cycles for a slow-but-healthy producer to fully fill without tripping the stall flag; if inputs genuinely deplete first, the loop hits this cap and the report identifies which slot ran out.
+  const maxCycles = Math.ceil(getStorageCapacityInTicks()) * 2;
 
   while (outputSlot.current < outputSlot.max && cycles < maxCycles) {
     tickEconomy([station], reportTimer, economyConfig.simulationIntervalSeconds);
@@ -127,6 +134,12 @@ function printProductionResult(result: ProductionResult): void {
   printSimulatedProductionResult(result);
 }
 
+function findDepletedInputSlot(station: Station, stationType: StationTypeTemplate) {
+  return getAllInventorySlots(station).find(
+    (slot) => !stationType.produces.includes(slot.ware.id) && slot.current <= 0,
+  );
+}
+
 function printSimulatedProductionResult(result: Extract<ProductionResult, { kind: "simulated" }>): void {
   console.log(`  ${result.ware.name} — per station (output ${result.effectiveOutput}/cycle)`);
   console.log(
@@ -135,11 +148,9 @@ function printSimulatedProductionResult(result: Extract<ProductionResult, { kind
   if (result.filled) {
     console.log(`    ✓ Fills completely`);
   } else {
-    const emptyInputSlot = getAllInventorySlots(result.station).find(
-      (slot) => !result.stationType.produces.includes(slot.ware.id) && slot.current <= 0,
-    );
+    const depletedInputSlot = findDepletedInputSlot(result.station, result.stationType);
     console.log(
-      `    ✗ Stalls at ${result.outputPercent}% — ${emptyInputSlot?.ware.name ?? "unknown"} runs out`,
+      `    ✗ Stalls at ${result.outputPercent}% — ${depletedInputSlot?.ware.name ?? "unknown"} runs out`,
     );
   }
 

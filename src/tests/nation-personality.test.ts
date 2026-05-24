@@ -7,7 +7,6 @@ import {
 } from "../../data/nation-personality.ts";
 import { hubNation, bioNation, oreNation, skyNation, farNation } from "../../data/nations.ts";
 import type { NationTemplate } from "../../data/nation-types.ts";
-import type { StationTypeId } from "../../data/station-types.ts";
 import type { Sector } from "../sim-map-types.ts";
 import type { StationZone } from "../sim-station-zone-types.ts";
 import type { Station } from "../sim-station-types.ts";
@@ -35,33 +34,19 @@ function makeZone(sector: Sector): StationZone {
   };
 }
 
-function makeOwnStation(id: string, x: number, y: number, nation: NationTemplate): Station {
-  return makeStation({ placement: { id, x, y, nation } });
-}
-
 // Two stations clustered near the origin; the nearer of the two sits at (300, 0),
 // so a sector on the +x axis at center cx has min-distance |cx - 300|.
 function ownStationsNearOrigin(nation: NationTemplate): Station[] {
-  return [makeOwnStation("OWN-1", 0, 0, nation), makeOwnStation("OWN-2", 300, 0, nation)];
+  return [
+    makeStation({ placement: { id: "OWN-1", x: 0, y: 0, nation } }),
+    makeStation({ placement: { id: "OWN-2", x: 300, y: 0, nation } }),
+  ];
 }
 
-function makeContext(args: {
-  nation: NationTemplate;
-  sector: Sector;
-  chosenTypeId: StationTypeId;
-  ownStations: Station[];
-  candidateZones: StationZone[];
-  tieBreak?: number;
-}): SectorScorerContext {
-  return {
-    nation: args.nation,
-    sector: args.sector,
-    chosenTypeId: args.chosenTypeId,
-    ownStations: args.ownStations,
-    candidateZones: args.candidateZones,
-    mapMaxDistance: MAP_MAX_DISTANCE,
-    tieBreak: args.tieBreak ?? 0,
-  };
+function makeContext(
+  args: Omit<SectorScorerContext, "mapMaxDistance" | "tieBreak"> & { tieBreak?: number },
+): SectorScorerContext {
+  return { ...args, mapMaxDistance: MAP_MAX_DISTANCE, tieBreak: args.tieBreak ?? 0 };
 }
 
 test("HUB scores nearest-to-own highest: near > mid > far", () => {

@@ -1,7 +1,11 @@
-import { Pause, Play } from "lucide-static";
+import { Pause } from "lucide-static";
 import { getSpeedCycleButtonTitle, getSpeedPauseButtonTitle } from "./ui-speed-control-titles";
 import { speedCycle, type CycleSpeed } from "../data/controls-game-speed";
 import { speedIcons } from "./render-speed-icons";
+
+function isCycleSpeed(speed: number): speed is CycleSpeed {
+  return (speedCycle as ReadonlyArray<number>).includes(speed);
+}
 
 export interface PausedIndicator {
   /** Speed 0 means paused; non-zero values come from speedCycle or data-dev-speed buttons. */
@@ -51,39 +55,25 @@ export function createPausedIndicator(root: ParentNode): PausedIndicator {
   // The cycle button always shows a speed label/icon — even paused — so users
   // know what they'll resume to. Only cycle-list speeds update this; devmode
   // speeds (20×, 60×) light their own pill instead.
-  let lastCycleSpeed = 1;
+  let lastCycleSpeed: CycleSpeed = 1;
 
   function setSpeed(speed: number) {
     speedHud.toggleAttribute("hidden", false);
     const paused = speed === 0;
-    const onCycleSpeed = !paused && (speedCycle as ReadonlyArray<number>).includes(speed);
+    const onCycleSpeed = !paused && isCycleSpeed(speed);
     const keyboardShortcutsEnabled = speedHud.dataset.keyboardShortcutsEnabled === "true";
 
-    updatePauseButton(paused, keyboardShortcutsEnabled);
-    if (onCycleSpeed) lastCycleSpeed = speed;
-    updateCycleButton(onCycleSpeed, lastCycleSpeed, keyboardShortcutsEnabled);
-    updateDevSpeedPills(speed);
-  }
-
-  function updatePauseButton(paused: boolean, keyboardShortcutsEnabled: boolean): void {
     pauseButton.classList.toggle("is-on", paused);
     pauseButton.title = getSpeedPauseButtonTitle(paused, keyboardShortcutsEnabled);
-  }
 
-  function updateCycleButton(
-    onCycleSpeed: boolean,
-    cycleSpeed: number,
-    keyboardShortcutsEnabled: boolean,
-  ): void {
+    if (!paused && isCycleSpeed(speed)) lastCycleSpeed = speed;
     cycleButton.title = getSpeedCycleButtonTitle(keyboardShortcutsEnabled);
-    cycleButtonIcon.innerHTML = speedIcons[cycleSpeed as CycleSpeed] ?? Play;
-    cycleButtonText.textContent = `${cycleSpeed}×`;
+    cycleButtonIcon.innerHTML = speedIcons[lastCycleSpeed];
+    cycleButtonText.textContent = `${lastCycleSpeed}×`;
     cycleButton.classList.toggle("is-on", onCycleSpeed);
-  }
 
-  function updateDevSpeedPills(currentSpeed: number): void {
     for (const { button, speed: target } of devSpeedTargets) {
-      button.classList.toggle("is-on", currentSpeed === target);
+      button.classList.toggle("is-on", speed === target);
     }
   }
 

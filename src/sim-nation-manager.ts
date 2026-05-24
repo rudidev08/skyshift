@@ -1,6 +1,6 @@
-// Per-nation expansion state — one entry per buildsStations: true nation,
-// holding the station id of any in-flight build (undefined when ready to
-// start a new build).
+// Per-nation expansion driver. A nation's in-flight build is derived from the
+// station roster — the Station with state === "building" and nation.id === N —
+// so there's no parallel id map to keep in sync or persist.
 //
 // Build type is picked by ware scarcity + nation personality, pre-filtered to
 // types with a legal free zone. Sector scoring uses the chosen typeId so
@@ -11,7 +11,6 @@ import type { StationTypeId } from "../data/station-types";
 import type { Station } from "./sim-station-types";
 import type { Nation } from "./sim-nation";
 import type { StationZone } from "./sim-station-zone-types";
-import type { NationExpansionSnapshot } from "./sim-save-types";
 import { sectorEnvironmentById } from "../data/map-sector-environments";
 import { allowedStationTypesForZone } from "./sim-map-sector-environments";
 import { allNations } from "../data/nations";
@@ -47,8 +46,6 @@ interface BuildScoringContext {
 }
 
 export class NationManager {
-  /** Per-nation in-flight build station id; undefined or missing means no current build. */
-  private inFlightBuildStationIdByNation = new Map<string, string | undefined>();
   /** Runtime zone list created from map.stationZones + sectors. */
   private readonly zones: StationZone[];
   private readonly sectors: Sector[];
@@ -72,56 +69,55 @@ export class NationManager {
     this.namePool = dependencies.namePool;
   }
 
-  /** Initialize expansion state at game start — one building station per nation,
-   *  alphabetical by Nation.id so concurrent zone choices are deterministic. */
-  startInitialStationBuilds(): void {
-    const nations = allNations
+  /** Nations that build stations, ordered by Nation.id so concurrent zone
+   *  choices are deterministic across runs. */
+  private buildingNationsInOrder(): Nation[] {
+    return allNations
       .filter((nation) => nation.buildsStations)
       .sort((leftNation, rightNation) => leftNation.id.localeCompare(rightNation.id));
-    for (const nation of nations) {
-      const placedId = this.startNextStationBuild(nation);
-      this.inFlightBuildStationIdByNation.set(nation.id, placedId ?? undefined);
+  }
+
+  /** Initialize expansion at game start — one building station per nation. */
+  startInitialStationBuilds(): void {
+    for (const nation of this.buildingNationsInOrder()) {
+      this.startNextStationBuild(nation);
     }
   }
 
-  /** Runs on the slow simulation tick (~5 sim seconds), not every frame. */
-  tick(_deltaSeconds: number): void {
-    for (const [nationId, currentBuildStationId] of this.inFlightBuildStationIdByNation) {
-      const nation = allNations.find((candidateNation) => candidateNation.id === nationId);
-      if (!nation) continue;
-
-      let liveBuildStationId = currentBuildStationId;
-      if (liveBuildStationId) {
-        const station = this.stationManager.getStation(liveBuildStationId);
-        // Build completed (or station vanished) — start the next one.
-        if (!station || station.state === "producing") {
-          liveBuildStationId = undefined;
-        }
+  /** Runs on the slow simulation tick (~5 sim seconds), not every frame. Each
+   *  building nation with no station currently under construction starts the
+   *  next one — the in-flight build is the nation's own "building" station. */
+  tick(): void {
+    for (const nation of this.buildingNationsInOrder()) {
+      if (!this.findBuildingStationFor(nation.id)) {
+        this.startNextStationBuild(nation);
       }
-
-      if (!liveBuildStationId) {
-        const placedId = this.startNextStationBuild(nation);
-        if (placedId) liveBuildStationId = placedId;
-      }
-
-      this.inFlightBuildStationIdByNation.set(nationId, liveBuildStationId);
     }
+  }
+
+  /** This nation's station currently under construction, or undefined if none.
+   *  A nation has at most one because the manager starts the next build only
+   *  after the previous flips out of "building". */
+  private findBuildingStationFor(nationId: string): Station | undefined {
+    return this.stationManager
+      .getStations()
+      .find((station) => station.nation.id === nationId && station.state === "building");
   }
 
   /** Pick build type, pick preferred zone, place the building station.
-   *  Returns the new station id, or null if no sitable zone exists. */
-  private startNextStationBuild(nation: Nation): string | null {
+   *  Does nothing if no sitable zone exists. */
+  private startNextStationBuild(nation: Nation): void {
     // Compute occupied-zone ids once and thread through per-type checks —
-    // otherwise pickNextBuildType rescans the roster per candidate type.
+    // otherwise hasFreeZoneAllowingType rescans every zone per candidate type.
     const occupiedZoneIds = this.computeOccupiedZoneIds();
 
     const decision = this.pickNextBuildType(nation, occupiedZoneIds);
-    if (!decision) return null;
+    if (!decision) return;
 
     const zone = this.pickPreferredBuildZone(nation, decision.typeId, occupiedZoneIds);
-    if (!zone) return null;
+    if (!zone) return;
 
-    const placement = this.stationManager.placeBuild({
+    this.stationManager.placeBuild({
       zoneId: zone.id,
       typeId: decision.typeId,
       size: zone.size,
@@ -131,8 +127,6 @@ export class NationManager {
       y: zone.y,
       name: this.namePool.claimStationName(nation),
     });
-
-    return placement.station.id;
   }
 
   /** Score sectors via the nation's personality scorer and return the highest-
@@ -176,7 +170,7 @@ export class NationManager {
 
   /** Every live station owned by the given nation. */
   private ownStations(nation: Nation): Station[] {
-    return this.stationManager.getStations().filter((station) => station.nation.id === nation.id);
+    return this.stationManager.getStationsForNation(nation.id);
   }
 
   /** Zone ids currently occupied by any placed station. Computed once per
@@ -238,7 +232,10 @@ export class NationManager {
       const isOnline = isStationProducing(station);
       const isBuilding = station.state === "building";
       // Online producers' rate plus in-flight builds' eventual production/consumption.
-      if (isOnline || isBuilding) addOnlineProductionAndConsumption(station, production, consumption);
+      if (isOnline || isBuilding) {
+        addStationProduction(station, production);
+        addStationInputConsumption(station, consumption);
+      }
       if (isBuilding) addTransientBuildConsumption(station, consumption);
     }
 
@@ -293,7 +290,7 @@ export class NationManager {
   }
 
   /** Scarcity-aware build-type picker. Runs at build-start per nation. */
-  pickNextBuildType(
+  private pickNextBuildType(
     nation: Nation,
     occupiedZoneIds: Set<string>,
   ): { typeId: StationTypeId; contractingNationId?: string } | null {
@@ -304,42 +301,27 @@ export class NationManager {
       occupiedZoneIds,
     };
 
-    let best: { typeId: StationTypeId; score: number; isBlueprint: boolean } | null = null;
+    let bestCandidate: { typeId: StationTypeId; score: number; isBlueprint: boolean } | null = null;
     for (const typeId of ALL_BUILDABLE_STATION_TYPES) {
       const result = this.scoreStationTypeForNewConstruction(typeId, context);
       if (!result) continue;
-      if (!best || result.score > best.score) best = { typeId, ...result };
+      if (!bestCandidate || result.score > bestCandidate.score) bestCandidate = { typeId, ...result };
     }
 
-    if (!best) return null;
+    if (!bestCandidate) return null;
     return {
-      typeId: best.typeId,
-      contractingNationId: best.isBlueprint ? undefined : this.pickContractor(best.typeId, nation.id),
+      typeId: bestCandidate.typeId,
+      contractingNationId: bestCandidate.isBlueprint
+        ? undefined
+        : this.pickContractor(bestCandidate.typeId, nation.id),
     };
   }
 
-  /** Station id of this nation's in-flight build, or undefined if none. */
+  /** Station id of this nation's in-flight build, or undefined if none.
+   *  Derived from the roster — building stations persist in the station
+   *  snapshot, so this survives save/load without a parallel id map. */
   getCurrentBuildStationId(nationId: string): string | undefined {
-    return this.inFlightBuildStationIdByNation.get(nationId);
-  }
-
-  toSnapshot(): NationExpansionSnapshot[] {
-    const expansions: NationExpansionSnapshot[] = [];
-    for (const [nationId, currentBuildStationId] of this.inFlightBuildStationIdByNation) {
-      expansions.push({ nationId, currentBuildStationId });
-    }
-    return expansions;
-  }
-
-  fromSnapshot(expansions: NationExpansionSnapshot[]): void {
-    this.inFlightBuildStationIdByNation.clear();
-    for (const snapshot of expansions) {
-      this.inFlightBuildStationIdByNation.set(snapshot.nationId, snapshot.currentBuildStationId);
-    }
-  }
-
-  reset(): void {
-    this.inFlightBuildStationIdByNation.clear();
+    return this.findBuildingStationFor(nationId)?.id;
   }
 }
 
@@ -359,11 +341,7 @@ function groupZonesBySectorId(candidateZones: StationZone[]): Map<string, Statio
   return zonesBySectorId;
 }
 
-function addOnlineProductionAndConsumption(
-  station: Station,
-  production: Map<string, number>,
-  consumption: Map<string, number>,
-): void {
+function addStationProduction(station: Station, production: Map<string, number>): void {
   for (const producedWareId of station.stationType.produces) {
     const produced = getWareTemplate(producedWareId);
     if (produced.productionOutput > 0) {
@@ -372,6 +350,12 @@ function addOnlineProductionAndConsumption(
         (production.get(producedWareId) ?? 0) + produced.productionOutput * station.sizeMultiplier,
       );
     }
+  }
+}
+
+function addStationInputConsumption(station: Station, consumption: Map<string, number>): void {
+  for (const producedWareId of station.stationType.produces) {
+    const produced = getWareTemplate(producedWareId);
     for (const input of produced.productionInputs) {
       consumption.set(
         input.wareId,

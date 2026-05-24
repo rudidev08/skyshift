@@ -3,7 +3,7 @@
 // sprite picks up exactly where the flight ended.
 
 import { type Scene } from "phaser";
-import { getNationShipTypeTemplate } from "../sim-ships";
+import { getShipTypeTemplate } from "../sim-ship-template";
 import type { TradeManager } from "../sim-trade-manager";
 import type { TradeShip } from "../sim-trade-types";
 import { isTradeShipIdle, isTradeShipDeploying } from "../sim-trade-log";
@@ -13,10 +13,10 @@ import {
   destroyShipTravelVisualBundle,
   type ShipTravelVisualBundle,
 } from "./ship-travel-visual-bundle";
-import { createFlightRenderData } from "./flight-render-data";
+import { createFlightCurveGeometry } from "./flight-render-data";
 import type { FlightData } from "../sim-travel";
 import type { Station } from "../sim-station-types";
-import { ORBIT_APPROACH_RADIUS } from "../../data/ship-travel";
+import { orbitApproachRadiusPixels } from "../../data/ship-travel";
 import { getOrbitingShipPose } from "./ship-orbit-pool";
 import { hideShipUi } from "./ship-ui";
 import type { ShipVisualBundle } from "./ship-visual-bundle";
@@ -28,7 +28,7 @@ interface FreshFlightOverridesContext {
   flight: FlightData;
   originStation: Station;
   destinationStation: Station;
-  timeSec: number;
+  timeSeconds: number;
 }
 
 /** Fresh flights (progress === 0) align takeoff/landing with the actual orbit
@@ -40,13 +40,13 @@ function alignFreshFlightEndpointsToOrbitSprite(context: FreshFlightOverridesCon
   originOverride: { x: number; y: number } | undefined;
   destinationOverride: { x: number; y: number } | undefined;
 } {
-  const { bundle, flight, originStation, destinationStation, timeSec } = context;
+  const { bundle, flight, originStation, destinationStation, timeSeconds } = context;
   if (flight.progress !== 0) return { originOverride: undefined, destinationOverride: undefined };
 
   let originOverride: { x: number; y: number } | undefined;
   let destinationOverride: { x: number; y: number } | undefined;
   if (flight.origin.surfaceOrOrbit === "orbit") {
-    const orbitPosition = getOrbitingShipPose(bundle.ship, bundle.orbit, timeSec);
+    const orbitPosition = getOrbitingShipPose(bundle.ship, bundle.orbit, timeSeconds);
     originOverride = { x: orbitPosition.x, y: orbitPosition.y };
   }
   if (flight.destination.surfaceOrOrbit === "orbit") {
@@ -54,7 +54,6 @@ function alignFreshFlightEndpointsToOrbitSprite(context: FreshFlightOverridesCon
       originStation,
       destinationStation,
       originOverride,
-      flight.origin.surfaceOrOrbit === "orbit",
     );
   }
   return { originOverride, destinationOverride };
@@ -67,16 +66,15 @@ function pullDestinationBackToOrbitRing(
   originStation: Station,
   destinationStation: Station,
   originOverride: { x: number; y: number } | undefined,
-  originIsOrbit: boolean,
 ): { x: number; y: number } {
-  const startX = originOverride?.x ?? originStation.x + (originIsOrbit ? ORBIT_APPROACH_RADIUS : 0);
+  const startX = originOverride?.x ?? originStation.x;
   const startY = originOverride?.y ?? originStation.y;
-  const endRawX = destinationStation.x + ORBIT_APPROACH_RADIUS;
+  const endRawX = destinationStation.x + orbitApproachRadiusPixels;
   const endRawY = destinationStation.y;
   const approachHeading = Math.atan2(endRawY - startY, endRawX - startX);
   return {
-    x: endRawX - Math.cos(approachHeading) * ORBIT_APPROACH_RADIUS,
-    y: endRawY - Math.sin(approachHeading) * ORBIT_APPROACH_RADIUS,
+    x: endRawX - Math.cos(approachHeading) * orbitApproachRadiusPixels,
+    y: endRawY - Math.sin(approachHeading) * orbitApproachRadiusPixels,
   };
 }
 
@@ -85,7 +83,7 @@ function startFlightVisuals(
   bundle: ShipVisualBundle,
   tradeShip: TradeShip,
   tradeManager: TradeManager,
-  timeSec: number,
+  timeSeconds: number,
 ) {
   const existingTravelBundle = bundle.travelBundle;
   if (existingTravelBundle) {
@@ -94,7 +92,7 @@ function startFlightVisuals(
   }
 
   const station = bundle.ship.station;
-  const shipType = getNationShipTypeTemplate(station.nation);
+  const shipType = getShipTypeTemplate(bundle.ship.shipTypeId);
   const flight = tradeShip.flight!;
   // Soft-lookup so a save with a mid-flight ferry from a demolished home doesn't crash here.
   // The sim still lands and decommissions the flight; we just skip building visuals when
@@ -110,10 +108,10 @@ function startFlightVisuals(
     flight,
     originStation,
     destinationStation,
-    timeSec,
+    timeSeconds,
   });
 
-  const flightRender = createFlightRenderData(
+  const flightRender = createFlightCurveGeometry(
     { endpoint: flight.origin, station: originStation, spritePositionOverride: originOverride },
     {
       endpoint: flight.destination,
@@ -141,10 +139,10 @@ function startFlightVisuals(
   bundle.orbitSprite.setVisible(false);
 }
 
-function endFlightVisuals(bundle: ShipVisualBundle, timeSec: number) {
+function endFlightVisuals(bundle: ShipVisualBundle, timeSeconds: number) {
   const existingTravelBundle = bundle.travelBundle!;
   if (existingTravelBundle.flight.destination.surfaceOrOrbit === "orbit") {
-    seedOrbitFromFlightEnd(bundle, existingTravelBundle, timeSec);
+    seedOrbitFromFlightEnd(bundle, existingTravelBundle, timeSeconds);
   }
   destroyShipTravelVisualBundle(existingTravelBundle);
   bundle.travelBundle = null;
@@ -156,16 +154,15 @@ function endFlightVisuals(bundle: ShipVisualBundle, timeSec: number) {
 function seedOrbitFromFlightEnd(
   bundle: ShipVisualBundle,
   flightBundle: ShipTravelVisualBundle,
-  timeSec: number,
+  timeSeconds: number,
 ) {
   const station = bundle.ship.station;
   const deltaX = flightBundle.flightRender.endX - station.x;
   const deltaY = flightBundle.flightRender.endY - station.y;
   if (deltaX === 0 && deltaY === 0) return;
   const targetAngle = Math.atan2(deltaY, deltaX);
-  // angle(t) = orbitAngleAtZero + orbitSpeedRadPerSec * t
-  // solve for orbitAngleAtZero so that angle(timeSec) === targetAngle.
-  bundle.orbit.orbitAngleAtZero = targetAngle - bundle.orbit.orbitSpeedRadPerSec * timeSec;
+  // Back-compute orbitAngleAtZero so the orbit formula (orbitAngleAtZero + orbitSpeedRadiansPerSec * t) yields targetAngle at the current time.
+  bundle.orbit.orbitAngleAtZero = targetAngle - bundle.orbit.orbitSpeedRadiansPerSec * timeSeconds;
   bundle.orbit.orbitRadius = Math.hypot(deltaX, deltaY);
 }
 
@@ -174,15 +171,15 @@ export function updateFlightLifecycle(
   bundle: ShipVisualBundle,
   tradeShip: TradeShip,
   tradeManager: TradeManager,
-  timeSec: number,
+  timeSeconds: number,
 ) {
   const hasActiveFlight = tradeShip.flight !== null;
   const existingTravelBundle = bundle.travelBundle;
   const flightStarted =
     hasActiveFlight && (!existingTravelBundle || existingTravelBundle.flight !== tradeShip.flight);
 
-  if (flightStarted) startFlightVisuals(scene, bundle, tradeShip, tradeManager, timeSec);
-  if (!hasActiveFlight && existingTravelBundle) endFlightVisuals(bundle, timeSec);
+  if (flightStarted) startFlightVisuals(scene, bundle, tradeShip, tradeManager, timeSeconds);
+  if (!hasActiveFlight && existingTravelBundle) endFlightVisuals(bundle, timeSeconds);
   if (isTradeShipIdle(tradeShip)) bundle.orbitSprite.setVisible(true);
   if (isTradeShipDeploying(tradeShip) && !tradeShip.flight) applyDeployingVisibility(bundle);
 }

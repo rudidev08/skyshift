@@ -3,21 +3,17 @@
 
 import { type Scene } from "phaser";
 import { closeViewAlpha } from "./camera-fade";
-import { bodyRadiusBySize } from "../../data/stations";
-import { selectionRingVisuals, stationVisuals } from "../../data/station-visuals";
+import { selectionRingVisuals, stationOrbitRingRadius } from "../../data/station-visuals";
 import { Layer } from "../../data/visuals-layers";
 import type { Selection } from "./selection-input";
 
 export class SelectionRingRender {
   readonly ring: Phaser.GameObjects.Arc;
   private readonly selection: Selection;
-  /** Forces the ring hidden regardless of selection/zoom. Set by the
-   *  blocking-toast path while a modal has the player's attention. */
-  private hiddenByToast = false;
 
   constructor(scene: Scene, selection: Selection) {
     this.selection = selection;
-    this.ring = scene.add.circle(0, 0, bodyRadiusBySize.L + stationVisuals.inventoryRingDistanceFromBody);
+    this.ring = scene.add.circle(0, 0, stationOrbitRingRadius);
     this.ring.isFilled = false;
     this.ring.setStrokeStyle(selectionRingVisuals.width, selectionRingVisuals.color);
     this.ring.setDepth(Layer.SelectionRing);
@@ -25,10 +21,6 @@ export class SelectionRingRender {
   }
 
   update(zoom: number): void {
-    if (this.hiddenByToast) {
-      this.ring.setVisible(false);
-      return;
-    }
     const target = this.selection.selectedTarget;
 
     // Ring fades at close zoom so it doesn't overlap station detail; opt-in
@@ -45,10 +37,6 @@ export class SelectionRingRender {
     this.ring.setPosition(mapPosition.x, mapPosition.y);
     this.ring.setAlpha(ringAlpha);
     this.ring.setVisible(true);
-  }
-
-  setHiddenByToast(hidden: boolean): void {
-    this.hiddenByToast = hidden;
   }
 
   destroy(): void {

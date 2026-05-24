@@ -18,10 +18,9 @@ export class WareStationIndex {
   private producersByWare = new Map<WareId, Station[]>();
   private consumersByWare = new Map<WareId, Station[]>();
 
-  /** Rebuild from the given station roster. Swaps maps in place at the end so readers never see a partially-built index. */
   rebuild(stations: readonly Station[]): void {
-    const producers = new Map<WareId, Station[]>();
-    const consumers = new Map<WareId, Station[]>();
+    this.producersByWare.clear();
+    this.consumersByWare.clear();
 
     for (const station of stations) {
       if (!canStationTrade(station)) continue;
@@ -30,7 +29,7 @@ export class WareStationIndex {
 
       for (const slot of getAllInventorySlots(station)) {
         const isOutputSlot = !isUnderConstruction && produces.includes(slot.ware.id);
-        const target = isOutputSlot ? producers : consumers;
+        const target = isOutputSlot ? this.producersByWare : this.consumersByWare;
         let list = target.get(slot.ware.id);
         if (!list) {
           list = [];
@@ -39,24 +38,19 @@ export class WareStationIndex {
         list.push(station);
       }
     }
-
-    this.producersByWare = producers;
-    this.consumersByWare = consumers;
   }
 
-  /** Empty if none. */
   getProducers(wareId: WareId): readonly Station[] {
     return this.producersByWare.get(wareId) ?? EMPTY_STATION_LIST;
   }
 
-  /** Includes every slot on a station under construction. Empty if none. */
+  /** Includes every slot on a station under construction. */
   getConsumers(wareId: WareId): readonly Station[] {
     return this.consumersByWare.get(wareId) ?? EMPTY_STATION_LIST;
   }
 
-  /** Iterate (wareId, producerStations) entries. Wares with zero producers are
-   *  absent — producer-to-consumer edges require at least one producer. */
-  producersByWareEntries(): IterableIterator<[WareId, readonly Station[]]> {
+  /** Wares with no producers are absent — the map only gains a key when a station is added. */
+  producedWaresWithStations(): IterableIterator<[WareId, readonly Station[]]> {
     return this.producersByWare.entries();
   }
 }

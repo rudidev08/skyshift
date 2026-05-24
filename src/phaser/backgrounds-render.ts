@@ -1,6 +1,7 @@
 import { type Scene } from "phaser";
 import type { Nebula } from "../../data/map-types";
 import { backgroundConfig } from "../../data/visuals-map-background";
+import { starfieldOversizeZoomFloor } from "../../data/controls-camera";
 import { Layer } from "../../data/visuals-layers";
 
 import starsFarUrl from "../assets/backgrounds/stars-far.png";
@@ -23,12 +24,9 @@ import darkNebulaMUrl from "../assets/backgrounds/dark-nebula-density-m.png";
 import darkNebulaLUrl from "../assets/backgrounds/dark-nebula-density-l.png";
 import darkNebulaXLUrl from "../assets/backgrounds/dark-nebula-density-xl.png";
 
-const starfieldTextures: ReadonlyArray<readonly [string, string]> = [
+const backgroundTextures: ReadonlyArray<readonly [string, string]> = [
   ["stars-far", starsFarUrl],
   ["stars-near", starsNearUrl],
-];
-
-const nebulaTextures: ReadonlyArray<readonly [string, string]> = [
   ["nebula-core", nebulaCoreUrl],
   ["nebula-skyshift", nebulaSkyshiftUrl],
   ["nebula-mining", nebulaMiningUrl],
@@ -49,8 +47,7 @@ const nebulaTextures: ReadonlyArray<readonly [string, string]> = [
 ];
 
 export function preloadBackgrounds(scene: Scene) {
-  for (const [textureKey, url] of starfieldTextures) scene.load.image(textureKey, url);
-  for (const [textureKey, url] of nebulaTextures) scene.load.image(textureKey, url);
+  for (const [textureKey, url] of backgroundTextures) scene.load.image(textureKey, url);
 }
 
 export interface BackgroundVisualBundle {
@@ -59,28 +56,31 @@ export interface BackgroundVisualBundle {
   nebulaImages: Phaser.GameObjects.Image[];
 }
 
+function createParallaxStarLayer(
+  scene: Scene,
+  textureKey: string,
+  layer: (typeof Layer)[keyof typeof Layer],
+): Phaser.GameObjects.TileSprite {
+  const width = scene.scale.width;
+  const height = scene.scale.height;
+  // Oversize the star tile so its edges stay outside the viewport at the
+  // furthest zoom-out. Without this, zooming out reveals the tile boundary.
+  const maxCover = 1 / starfieldOversizeZoomFloor;
+  const tileScale = backgroundConfig.tileScale;
+
+  return scene.add
+    .tileSprite(width / 2, height / 2, width * maxCover, height * maxCover, textureKey)
+    .setScrollFactor(0)
+    .setDepth(layer)
+    .setTileScale(tileScale, tileScale);
+}
+
 function createStarfieldTileSprites(scene: Scene): {
   starsFar: Phaser.GameObjects.TileSprite;
   starsNear: Phaser.GameObjects.TileSprite;
 } {
-  const width = scene.scale.width;
-  const height = scene.scale.height;
-  // Oversize the star tile so its edges stay outside the viewport at the
-  // furthest zoom-out (cameraMinZoomPhaserClamp is 0.2 in data/controls-camera.ts; 0.15
-  // leaves headroom). Without this, zooming out reveals the tile boundary.
-  const maxCover = 1 / 0.15;
-  const tileScale = backgroundConfig.tileScale;
-
-  const starsFar = scene.add
-    .tileSprite(width / 2, height / 2, width * maxCover, height * maxCover, "stars-far")
-    .setScrollFactor(0)
-    .setDepth(Layer.BackgroundStarsFar)
-    .setTileScale(tileScale, tileScale);
-  const starsNear = scene.add
-    .tileSprite(width / 2, height / 2, width * maxCover, height * maxCover, "stars-near")
-    .setScrollFactor(0)
-    .setDepth(Layer.BackgroundStarsNear)
-    .setTileScale(tileScale, tileScale);
+  const starsFar = createParallaxStarLayer(scene, "stars-far", Layer.BackgroundStarsFar);
+  const starsNear = createParallaxStarLayer(scene, "stars-near", Layer.BackgroundStarsNear);
   return { starsFar, starsNear };
 }
 

@@ -9,7 +9,6 @@
 //      flip state to "producing", swap the orbiting fleet.
 
 import type {
-  BuildWaresRequired,
   PlacedStation,
   StationTypeId,
   StationSize,
@@ -19,7 +18,7 @@ import type { Station } from "./sim-station-types";
 import { getNationById, type Nation } from "./sim-nation";
 import type { ShipTypeId } from "../data/ship-types";
 import {
-  assembleStation,
+  finalizeStation,
   createStation,
   createInventorySlot,
   getInventorySlot,
@@ -28,6 +27,7 @@ import {
 } from "./sim-station";
 import { getWareTemplate } from "./sim-ware-template";
 import { getStationTypeTemplate, computeBuildWares } from "./sim-station-template";
+import { generateUniqueId } from "./util-ids";
 import type { Ship } from "./sim-ships";
 import type { ShipManager } from "./sim-ship-manager";
 
@@ -106,6 +106,9 @@ export class StationManager {
   getStation(id: string): Station | undefined {
     return this.byId.get(id);
   }
+  getStationsForNation(nationId: string): Station[] {
+    return this.stations.filter((station) => station.nation.id === nationId);
+  }
 
   onAdd(callback: StationAddObserver): () => void {
     this.addObservers.add(callback);
@@ -139,9 +142,8 @@ export class StationManager {
     this.fireStateChange(station, oldState, newState);
   }
 
-  /** Batch state change. Fires the batch observer once for the whole batch
-   *  so cache rebuilds (e.g. trade path cache) coalesce instead of running
-   *  N times. */
+  /** Batch state change — fires the batch observer once for the whole group
+   *  so the trade path cache rebuilds once instead of once per station. */
   setStationStates(stations: readonly Station[], newState: StationState): void {
     const transitions: Array<{ station: Station; oldState: StationState }> = [];
     for (const station of stations) {
@@ -160,12 +162,7 @@ export class StationManager {
 
   /** Register a station, spawn its fleet (optionally overriding ship type for
    *  build-site traders), rebuild the trade path cache, fire add observers. */
-  addStation(
-    station: Station,
-    options?: { shipTypeOverride?: ShipTypeId },
-  ): {
-    ships: Ship[];
-  } {
+  addStation(station: Station, options?: { shipTypeOverride?: ShipTypeId }): Ship[] {
     const id = station.id;
     if (this.byId.has(id)) throw new Error(`addStation: ${id} already registered`);
     this.stations.push(station);
@@ -175,7 +172,7 @@ export class StationManager {
 
     this.rebuildWareIndex(this.stations);
     for (const callback of this.addObservers) callback(station, ships);
-    return { ships };
+    return ships;
   }
 
   /** Remove a station — despawn fleet, clear reservations, fire remove
@@ -236,13 +233,13 @@ export class StationManager {
     // Trade/economy/HUD gate off station.state, so attaching the real
     // StationTypeTemplate up front advertises future output while only inbound
     // construction wares are accepted. See `canStationTrade` / `isStationProducing`.
-    const station = createStationUnderConstruction(placedStation, waresRequired);
+    const station = createStationUnderConstruction(placedStation);
 
     // Build-site uses the nation's stationConstructionShipTypeId (default
     // "trader") so the fleet can carry both provisions and hulls. On flip
     // these are despawned and the regular fleet spawns.
     const shipTypeOverride = nation.stationConstructionShipTypeId ?? undefined;
-    const { ships } = this.addStation(station, { shipTypeOverride });
+    const ships = this.addStation(station, { shipTypeOverride });
 
     return { station, ships };
   }
@@ -261,10 +258,10 @@ export class StationManager {
     const provisionsSlot = getInventorySlot(station, "provisions");
     const hullsSlot = getInventorySlot(station, "hulls");
     if (!provisionsSlot || !hullsSlot) return false;
-    // The `reservedIncoming === 0` gate is defensive — the reservation invariant
+    // The `reservedIncoming === 0` gate is defensive — the reservation rule
     // makes it true once `current === max === waresRequired`. It catches drift
     // where a trader would arrive post-flip; that cargo gets silently discarded
-    // by processDepositAction's missing-slot guard.
+    // by applyDepositAction's missing-slot guard.
     return (
       provisionsSlot.current >= build.waresRequired.provisions &&
       provisionsSlot.reservedIncoming === 0 &&
@@ -289,25 +286,9 @@ export class StationManager {
 
   private rebuildStationFromTemplate(station: Station): Station {
     const oldInventory = getAllInventorySlots(station);
-    // createStation expects a PlacedStation (template shape) where
-    // `stationTypeId` is an id string; the runtime station holds a resolved
-    // template object, so re-emit the id here.
-    const rebuilt = createStation(
-      {
-        id: station.id,
-        name: station.name,
-        x: station.x,
-        y: station.y,
-        nation: station.nation,
-        size: station.size,
-        stationTypeId: station.stationType.id,
-        state: station.state,
-        build: station.build,
-        zoneId: station.zoneId,
-      },
-      0.0,
-    );
-    // Carry reservations forward; the rebuilt inventory starts at zero.
+    const emptyStockFill = 0.0;
+    const rebuilt = createStation(placedStationFromStation(station), emptyStockFill);
+    // Carry reservations forward across the rebuild.
     for (const oldSlot of oldInventory) {
       const newSlot = getInventorySlot(rebuilt, oldSlot.ware.id);
       if (newSlot) {
@@ -323,12 +304,11 @@ export class StationManager {
     station.stationType = rebuilt.stationType;
     replaceStationInventoryAndIndex(station, rebuilt.inventory);
     station.sizeMultiplier = rebuilt.sizeMultiplier;
-    station.typeAndSizeLabel = rebuilt.typeAndSizeLabel;
     station.state = "producing";
     station.build = undefined;
   }
 
-  getBuildsInProgress(): Station[] {
+  getBuildingStations(): Station[] {
     return this.stations.filter((station) => station.state === "building");
   }
 
@@ -344,50 +324,55 @@ export class StationManager {
 
   /** Generate a unique nation-prefixed station id (e.g. "BIO-7AZ"). Throws only when 46656 stations of one nation are alive at once — ids return to the pool when a station leaves. */
   private generateStationIdForNation(nation: Nation): string {
-    const random = this.findRandomFreeStationIdForNation(nation);
-    if (random !== undefined) return random;
-    const sequential = this.findFirstFreeStationIdForNation(nation);
-    if (sequential !== undefined) return sequential;
-    throw new Error(`Station id pool exhausted for nation ${nation.codeName}: 46656 stations alive`);
+    return generateUniqueId({
+      prefix: nation.codeName,
+      randomSuffix: () =>
+        Math.floor(Math.random() * 46656)
+          .toString(36)
+          .toUpperCase()
+          .padStart(3, "0"),
+      randomAttempts: 200,
+      takenIds: this.byId,
+      fallback: () => {
+        for (let index = 0; index < 46656; index++) {
+          const id = `${nation.codeName}-${index.toString(36).toUpperCase().padStart(3, "0")}`;
+          if (!this.byId.has(id)) return id;
+        }
+        throw new Error(
+          `Station id pool exhausted for nation ${nation.codeName}: 46656 stations alive`,
+        );
+      },
+    });
   }
+}
 
-  private findRandomFreeStationIdForNation(nation: Nation): string | undefined {
-    for (let attempt = 0; attempt < 200; attempt++) {
-      const suffix = Math.floor(Math.random() * 46656)
-        .toString(36)
-        .toUpperCase()
-        .padStart(3, "0");
-      const id = `${nation.codeName}-${suffix}`;
-      if (!this.byId.has(id)) return id;
-    }
-    return undefined;
-  }
-
-  private findFirstFreeStationIdForNation(nation: Nation): string | undefined {
-    for (let index = 0; index < 46656; index++) {
-      const id = `${nation.codeName}-${index.toString(36).toUpperCase().padStart(3, "0")}`;
-      if (!this.byId.has(id)) return id;
-    }
-    return undefined;
-  }
+/** Re-emit a runtime Station as a PlacedStation. `createStation` expects the
+ *  template shape where `stationTypeId` is an id string; the runtime station
+ *  holds a resolved template object. */
+function placedStationFromStation(station: Station): PlacedStation {
+  return {
+    id: station.id,
+    name: station.name,
+    x: station.x,
+    y: station.y,
+    nation: station.nation,
+    size: station.size,
+    stationTypeId: station.stationType.id,
+    state: station.state,
+    build: station.build,
+    zoneId: station.zoneId,
+  };
 }
 
 /** Create a Station for an under-construction placement. Real StationTypeTemplate so rate math
  *  and HUD see the right produces list, but inventory holds only the two
  *  construction-ware slots — full inventory is created on flip. */
-function createStationUnderConstruction(
-  placement: PlacedStation,
-  waresRequired: BuildWaresRequired,
-): Station {
+function createStationUnderConstruction(placement: PlacedStation): Station {
   const stationType = getStationTypeTemplate(placement.stationTypeId);
+  const waresRequired = placement.build!.waresRequired;
   const inventory = [
     createInventorySlot(getWareTemplate("provisions"), 0, waresRequired.provisions),
     createInventorySlot(getWareTemplate("hulls"), 0, waresRequired.hulls),
   ];
-  return assembleStation(
-    placement,
-    stationType,
-    inventory,
-    `Building ${stationType.name} (${placement.size})`,
-  );
+  return finalizeStation(placement, stationType, inventory);
 }

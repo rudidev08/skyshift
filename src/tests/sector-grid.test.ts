@@ -1,12 +1,15 @@
 import type { Sector } from "../sim-map-types.ts";
 import {
+  buildSectorLabelText,
   createSectorGrid,
   resetAutoSectorGridState,
   updateSectorCorners,
   type SectorGrid,
 } from "../phaser/sector-grid.ts";
+import { sectorEnvironmentById } from "../../data/map-sector-environments.ts";
 import { test, assertEqual, assertTrue } from "./test-utils.ts";
 import { makeSector } from "./factories.ts";
+import { createMapBackedStorage } from "./local-storage-test-fixtures.ts";
 
 class FakeGraphics {
   visible = false;
@@ -114,7 +117,6 @@ type TrackedText = Phaser.GameObjects.Text & { _visible: boolean; _alpha: number
 type GraphicsStub = {
   _visible: boolean;
   _alpha: number;
-  depth: number;
   setDepth(): GraphicsStub;
   setVisible(value: boolean): GraphicsStub;
   setAlpha(value: number): GraphicsStub;
@@ -135,90 +137,75 @@ type TextStub = {
   setAlpha(value: number): TextStub;
 };
 
-function makeGraphicsStub(): GraphicsStub {
-  const g: GraphicsStub = {
+function createFakeGraphics(): GraphicsStub {
+  const graphics: GraphicsStub = {
     _visible: true,
     _alpha: 1,
-    depth: 0,
     setDepth() {
-      return g;
+      return graphics;
     },
     setVisible(value: boolean) {
-      g._visible = value;
-      return g;
+      graphics._visible = value;
+      return graphics;
     },
     setAlpha(value: number) {
-      g._alpha = value;
-      return g;
+      graphics._alpha = value;
+      return graphics;
     },
     clear() {
-      return g;
+      return graphics;
     },
     lineStyle() {
-      return g;
+      return graphics;
     },
     moveTo() {
-      return g;
+      return graphics;
     },
     lineTo() {
-      return g;
+      return graphics;
     },
     strokePath() {
-      return g;
+      return graphics;
     },
   };
-  return g;
+  return graphics;
 }
 
-function makeTextStub(): TextStub {
-  const t: TextStub = {
+function createFakeText(): TextStub {
+  const text: TextStub = {
     _visible: true,
     _alpha: 1,
     setOrigin() {
-      return t;
+      return text;
     },
     setDepth() {
-      return t;
+      return text;
     },
     setLineSpacing() {
-      return t;
+      return text;
     },
     setVisible(value: boolean) {
-      t._visible = value;
-      return t;
+      text._visible = value;
+      return text;
     },
     setAlpha(value: number) {
-      t._alpha = value;
-      return t;
+      text._alpha = value;
+      return text;
     },
   };
-  return t;
+  return text;
 }
 
-function buildTrackedScene(): Phaser.Scene {
+function createFakeScene(): Phaser.Scene {
   return {
-    add: { graphics: makeGraphicsStub, text: makeTextStub },
+    add: { graphics: createFakeGraphics, text: createFakeText },
   } as unknown as Phaser.Scene;
 }
 
 function withFakeLocalStorage(run: () => void): void {
   const globalObject = globalThis as unknown as { localStorage?: unknown };
   const previous = globalObject.localStorage;
-  const store = new Map<string, string>();
-  globalObject.localStorage = {
-    getItem(key: string): string | null {
-      return store.get(key) ?? null;
-    },
-    setItem(key: string, value: string): void {
-      store.set(key, value);
-    },
-    removeItem(key: string): void {
-      store.delete(key);
-    },
-    clear(): void {
-      store.clear();
-    },
-  };
+  globalObject.localStorage = createMapBackedStorage().storage;
   try {
     run();
   } finally {
@@ -227,14 +214,45 @@ function withFakeLocalStorage(run: () => void): void {
   }
 }
 
+test("buildSectorLabelText pins the exact label after the render-sector-header inline", () => {
+  // The "<name> (<gridX>, <gridY>)" header was a single-consumer formatter in
+  // the deleted render-sector-header.ts; it's now inlined here. Pin the exact
+  // string both with and without an environment so the inline is provably
+  // behavior-preserving at the one consumer.
+  const withEnvironment = makeSector({
+    name: "Underleaf",
+    gridX: 3,
+    gridY: 7,
+    environment: "deep-space",
+  });
+  assertEqual(
+    buildSectorLabelText(withEnvironment),
+    `Underleaf (3, 7)\n${sectorEnvironmentById["deep-space"].name}`,
+    "header line + environment line",
+  );
+
+  const withoutEnvironment = makeSector({
+    name: "Underleaf",
+    gridX: 3,
+    gridY: 7,
+    environment: "" as never,
+  });
+  assertEqual(
+    buildSectorLabelText(withoutEnvironment),
+    "Underleaf (3, 7)",
+    "header line only when no environment",
+  );
+});
+
 test("createSectorGrid parses persisted invalid gridMode strings back to 'auto'", () => {
   withFakeLocalStorage(() => {
     // Plant a corrupt persisted value so parseGridMode hits the fallback branch.
     (globalThis as unknown as { localStorage: Storage }).localStorage.setItem("sectorGridMode", "garbage");
-    // Pin parseGridMode's fallback. Mutating `: "auto"` to any other mode would
-    // surface the corrupt-value branch's choice — e.g. "off" would silently
-    // hide the grid for users with stale localStorage from older builds.
-    const sectorGrid = createSectorGrid(buildTrackedScene(), sectors, {
+    // Pin parseGridMode's fallback, now sourced from
+    // uiPreferenceDefaults.sectorGridMode. Mutating that default to a mode that
+    // hides the grid (e.g. "off") would silently blank the grid for users with
+    // stale/corrupt localStorage from older builds.
+    const sectorGrid = createSectorGrid(createFakeScene(), sectors, {
       gridSizeX: 1,
       gridSizeY: 1,
       sectorSize: 200,
@@ -249,7 +267,7 @@ test("createSectorGrid persists setMode to localStorage by default (persistMode 
     // `?? false` would skip the savePreference call and leave localStorage
     // empty after setMode.
     const sectorGrid = createSectorGrid(
-      buildTrackedScene(),
+      createFakeScene(),
       sectors,
       { gridSizeX: 1, gridSizeY: 1, sectorSize: 200 },
       { initialMode: "auto" },
@@ -262,10 +280,10 @@ test("createSectorGrid persists setMode to localStorage by default (persistMode 
   });
 });
 
-test("createSectorGrid setMode emits to subscribers and is idempotent for the same mode", () => {
+test("createSectorGrid setMode emits to subscribers and does nothing on a same-mode call", () => {
   withFakeLocalStorage(() => {
     const sectorGrid = createSectorGrid(
-      buildTrackedScene(),
+      createFakeScene(),
       sectors,
       { gridSizeX: 1, gridSizeY: 1, sectorSize: 200 },
       { initialMode: "auto", persistMode: false },
@@ -275,12 +293,12 @@ test("createSectorGrid setMode emits to subscribers and is idempotent for the sa
     const unsubscribe = sectorGrid.onModeChange((mode) => observed.push(mode));
 
     sectorGrid.setMode("on");
-    sectorGrid.setMode("on"); // Pin idempotency: same mode must not re-emit.
+    sectorGrid.setMode("on"); // Pin same-mode call: setting the current mode must not re-emit.
     sectorGrid.setMode("off");
     unsubscribe();
     sectorGrid.setMode("auto"); // Pin unsubscribe: detached listener must not fire.
 
-    assertEqual(observed.length, 2, "setMode emits exactly once per real change, never on no-op");
+    assertEqual(observed.length, 2, "setMode emits exactly once per real change, never on a same-mode call");
     assertEqual(observed[0], "on", "first emission is the on-mode flip");
     assertEqual(observed[1], "off", "second emission is the off-mode flip");
     assertEqual(sectorGrid.gridMode, "auto", "later setMode still updates gridMode after unsubscribe");
@@ -290,7 +308,7 @@ test("createSectorGrid setMode emits to subscribers and is idempotent for the sa
 test("createSectorGrid setMode auto path resets the auto-fade state", () => {
   withFakeLocalStorage(() => {
     const sectorGrid = createSectorGrid(
-      buildTrackedScene(),
+      createFakeScene(),
       sectors,
       { gridSizeX: 1, gridSizeY: 1, sectorSize: 200 },
       { initialMode: "on", persistMode: false },
@@ -313,7 +331,7 @@ test("createSectorGrid setMode auto path resets the auto-fade state", () => {
 test("createSectorGrid setMode 'on' shows the grid + labels at full alpha", () => {
   withFakeLocalStorage(() => {
     const sectorGrid = createSectorGrid(
-      buildTrackedScene(),
+      createFakeScene(),
       sectors,
       { gridSizeX: 1, gridSizeY: 1, sectorSize: 200 },
       { initialMode: "off", persistMode: false },
@@ -451,11 +469,11 @@ test("on mode pins fade at 1 and redraws corners every frame", () => {
 
 function withFakePerformanceNow(run: (advance: (deltaMilliseconds: number) => void) => void): void {
   const originalNow = performance.now.bind(performance);
-  let fakeTime = 1_000_000;
-  performance.now = () => fakeTime;
+  let fakeNowMilliseconds = 1_000_000;
+  performance.now = () => fakeNowMilliseconds;
   try {
     run((delta) => {
-      fakeTime += delta;
+      fakeNowMilliseconds += delta;
     });
   } finally {
     performance.now = originalNow;

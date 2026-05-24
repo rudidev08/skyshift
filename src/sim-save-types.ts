@@ -2,10 +2,19 @@ import type { WareId } from "../data/ware-types";
 import type { TravelEndpoint, TravelMode } from "./sim-travel-types";
 import type { FlightData } from "./sim-travel";
 import type { TradeReservation, TradeDirection } from "./sim-trade-types";
-import type { BuildWaresRequired, StationTypeId, StationSize, StationState } from "../data/station-types";
+import type { StationBuild, StationTypeId, StationSize, StationState } from "../data/station-types";
+import type { StationEmigration, StationGenerationalShipBuild } from "./sim-station-types";
 import type { StationLifecycleEvent } from "./sim-station-history";
 
+/** Save schema is permanently 1 during pre-release development — edit snapshot
+ *  shapes in place rather than bumping this. `captureSnapshot`'s `version`
+ *  field and `validateSnapshot`'s rejection check both come from this constant,
+ *  so a bump would round-trip cleanly inside one process. The pin in
+ *  `src/tests/save-slots.test.ts` catches drift. */
 export const SAVE_VERSION = 1;
+
+/** How a save slot was written: an auto-save tick, a manual save, or an explicit export. */
+export type SaveSource = "auto" | "manual" | "export";
 
 // Snapshot shapes are `Pick<>` from runtime types so a new runtime-only field
 // can't accidentally land in saves via spread (e.g. `flight: { ...ts.flight }`
@@ -19,35 +28,29 @@ export type FlightSnapshot = Pick<
   | "destination"
   | "phaseStartSeconds"
   | "totalElapsedSeconds"
-  | "flightDuration"
+  | "flightDurationSeconds"
   | "departDistanceFraction"
   | "flightDistanceFraction"
   | "arriveDistanceFraction"
   | "travelMode"
-  | "previousHeading"
+  | "previousHeadingRadians"
 >;
 
 export type TravelEndpointSnapshot = Pick<TravelEndpoint, "stationId" | "surfaceOrOrbit">;
 
-export interface ReservationSnapshot {
-  stationId: string;
-  wareId: TradeReservation["wareId"];
-  amount: number;
-  cargoDirection: TradeReservation["cargoDirection"];
-}
+export type ReservationSnapshot = Omit<TradeReservation, "station"> & { stationId: string };
 
 export interface GameSnapshot {
   version: typeof SAVE_VERSION;
-  savedAt: number; // Date.now()
+  savedAtMilliseconds: number;
   simulationTick: number;
-  source?: "auto" | "manual" | "export";
-  /** Preset id the run started from ("settled" / "frontier"). Breadcrumb
-   *  only — used in the export filename in savegame-manager.ts; not used to route loads. */
+  source?: SaveSource;
+  /** Preset id the run started from ("settled" / "frontier"). Display breadcrumb
+   *  only — shown in the slot label and export filename; not used to route loads. */
   presetId: string;
   stations: StationSnapshot[];
   ships: ShipSnapshot[];
   tradeShips: TradeShipSnapshot[];
-  nationManager: NationExpansionSnapshot[];
   emigrationManager: EmigrationManagerSnapshot;
   tradeManager: TradeManagerSnapshot;
   /** Per-station lifecycle events powering the Stations Timelapse Log.
@@ -59,10 +62,10 @@ export interface GameSnapshot {
  *  indices in sim-trade-manager.ts rebuild from the restored trade ships;
  *  trade-route delivery history is intentionally not persisted (overview restarts at load). */
 export interface TradeManagerSnapshot {
-  /** Origin clock for scheduledTimers[].fireTime. */
-  tradeTime: number;
-  /** Pending ship wake-ups, absolute against tradeTime. */
-  scheduledTimers: { shipId: string; fireTime: number }[];
+  /** Origin clock for scheduledTimers[].fireTimeSeconds. */
+  tradeTimeSeconds: number;
+  /** Pending ship wake-ups, absolute against tradeTimeSeconds. */
+  scheduledTimers: { shipId: string; fireTimeSeconds: number }[];
 }
 
 /** Full-identity station record. After game start, the snapshot is the source of truth;
@@ -83,30 +86,23 @@ export interface StationSnapshot {
   emigrationEvent?: StationEmigrationSnapshot;
   /** Set on a generational-ship station while an emigration event is active. */
   generationalShipBuild?: StationGenerationalShipBuildSnapshot;
-  // `didProduceLastTick` and `secondsSinceLastTick` are NOT saved — derived / re-staggered on load.
+  // `didProduceLastTick` and `secondsSinceLastTick` are NOT saved — both restart at 0 with a fresh stagger on load.
 }
 
 /** Excludes runtime `progressFraction` — sim-emigration-manager.ts recomputes it
- *  on its first post-load tick (and likewise `arrivalFraction` on the generational-ship build below). */
-export interface StationEmigrationSnapshot {
-  eventId: string;
-  destinationName: string;
-  initialHomedShipIds: string[];
-  totalEmigrants: number;
-  launched: number;
-  secondsUntilNextLaunch: number;
-}
+ *  on its first post-load tick (and likewise `arrivalFraction` on the generational-ship build below).
+ *  `initialHomedShipIdSet` serializes as an array since JSON has no Set. */
+export type StationEmigrationSnapshot = Pick<
+  StationEmigration,
+  "eventId" | "destinationName" | "totalEmigrants" | "launched" | "secondsUntilNextLaunch"
+> & { initialHomedShipIds: string[] };
 
-export interface StationBuildSnapshot {
-  waresRequired: BuildWaresRequired;
-  contractingNationId?: string;
-}
+export type StationBuildSnapshot = Pick<StationBuild, "waresRequired" | "contractingNationId">;
 
-export interface StationGenerationalShipBuildSnapshot {
-  eventId: string;
-  destinationName: string;
-  emigratingStationCount: number;
-}
+export type StationGenerationalShipBuildSnapshot = Pick<
+  StationGenerationalShipBuild,
+  "eventId" | "destinationName" | "emigratingStationCount"
+>;
 
 /** Inventory slot persistence. `max` is re-derived on load (or, for building
  *  stations, from `build.waresRequired`) so capacities follow the current
@@ -123,7 +119,6 @@ export interface ShipSnapshot {
   stationId: string;
   shipTypeId: string;
   shipName: string;
-  inFlight: boolean;
 }
 
 export interface TradeShipSnapshot {
@@ -136,7 +131,7 @@ export interface TradeShipSnapshot {
   tradeDirection: TradeDirection | null;
   reservations: ReservationSnapshot[];
   lastFlightHeadingRadians: number | null;
-  idleSinceTradeTime: number;
+  idleSinceTradeTimeSeconds: number;
 }
 
 export type ShipActionSnapshot =
@@ -147,17 +142,12 @@ export type ShipActionSnapshot =
       travelMode: TravelMode;
       deploying?: boolean;
       label: string;
-      route?: { fromStationId: string; toStationId: string };
+      isTradeFlight?: boolean;
     }
-  | { type: "wait"; duration: number; label: string }
+  | { type: "wait"; durationSeconds: number; label: string }
   | { type: "cargo-withdrawal"; stationId: string; wareId: WareId; amount: number }
   | { type: "cargo-deposit"; stationId: string; wareId: WareId; amount: number }
   | { type: "decommission"; stationId: string; label: string };
-
-export interface NationExpansionSnapshot {
-  nationId: string;
-  currentBuildStationId: string | undefined;
-}
 
 export interface EmigrationEventSnapshot {
   id: string;
@@ -169,7 +159,6 @@ export interface EmigrationEventSnapshot {
   /** Total ships expected at the generational ship. Locked at trigger; reduced by retireUnlaunched if a launch budget is abandoned. */
   totalExpectedShips: number;
   destinationName: string;
-  startAt: number;
 }
 
 export interface EmigrationManagerSnapshot {
@@ -180,8 +169,8 @@ export interface EmigrationManagerSnapshot {
   mode: "auto" | "manual";
   intensity: "low" | "medium" | "high";
   usedDestinations: string[];
-  nextGenerationalShipArrivalAt: number | null; // sim-time of next arrival; null = one is present
-  /** Private monotonic clock for event deadlines. Must round-trip or deadlines drift. */
+  nextGenerationalShipArrivalAtSeconds: number | null; // null = one is already present
+  /** Monotonic clock for event deadlines. Must round-trip or deadlines drift. */
   clockSeconds: number;
   /** WAY-NNN generational-ship id counter. Persisted to avoid post-load id collisions. */
   nextGenerationalShipCounter: number;

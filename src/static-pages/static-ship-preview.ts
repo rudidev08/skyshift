@@ -1,12 +1,11 @@
 /* 2D canvas ship silhouette for the sector scene.
  *
- * SYNC: src/render-ship-hull.ts — mirrors drawShipSilhouetteFilled / tintColor.
- * Two intentional deltas:
- *   1. Rotates around center (translate + rotate) instead of stern-corner offset.
- *   2. Curve bulge is *0.25 (half the game's *0.5) — less convex on these
- *      smaller previews.
- * Mirror any hull-shape change here when updating ship-hull.ts. */
+ * Wraps the canonical hull drawer with a rotate-around-center transform and
+ * the static-page's flatter curve scale (0.25 vs the in-game 0.5). */
 
+import { STERN_DIM_FACTOR, drawShipSilhouetteFilled, tintHexColor } from "../render-ship-hull";
+
+/** Hull geometry and flight behavior for one ship type in the static-page sector scene. */
 export interface SectorShipHull {
   taperFront: number;
   taperBack: number;
@@ -18,87 +17,10 @@ export interface SectorShipHull {
   speed: number;
 }
 
-const tintCache = new Map<string, string>();
+/** Half the in-game bulge — preview silhouettes are smaller and read better with flatter side curves. */
+const PREVIEW_HULL_CURVE_SCALE = 0.25;
 
-function tintColorRgbString(hex: string, factor: number): string {
-  const key = hex + factor;
-  const cached = tintCache.get(key);
-  if (cached) return cached;
-  const rgbInt = parseInt(hex.replace("#", ""), 16);
-  const r = Math.round(((rgbInt >> 16) & 0xff) * factor);
-  const g = Math.round(((rgbInt >> 8) & 0xff) * factor);
-  const b = Math.round((rgbInt & 0xff) * factor);
-  const rgb = `rgb(${r},${g},${b})`;
-  tintCache.set(key, rgb);
-  return rgb;
-}
-
-function drawSternHalf(
-  context: CanvasRenderingContext2D,
-  squareSize: number,
-  backInset: number,
-  ship: SectorShipHull,
-): void {
-  context.beginPath();
-  context.moveTo(-squareSize, -squareSize / 2 + backInset);
-  if (ship.taperBackCurve) {
-    context.quadraticCurveTo(
-      -squareSize / 2,
-      -squareSize / 2 + backInset * 0.5 - ship.taperBackCurve * squareSize * 0.25,
-      0,
-      -squareSize / 2,
-    );
-  } else {
-    context.lineTo(0, -squareSize / 2);
-  }
-  context.lineTo(0, squareSize / 2);
-  if (ship.taperBackCurve) {
-    context.quadraticCurveTo(
-      -squareSize / 2,
-      squareSize / 2 - backInset * 0.5 + ship.taperBackCurve * squareSize * 0.25,
-      -squareSize,
-      squareSize / 2 - backInset,
-    );
-  } else {
-    context.lineTo(-squareSize, squareSize / 2 - backInset);
-  }
-  context.closePath();
-  context.fill();
-}
-
-function drawNoseHalf(
-  context: CanvasRenderingContext2D,
-  squareSize: number,
-  frontInset: number,
-  ship: SectorShipHull,
-): void {
-  context.beginPath();
-  context.moveTo(0, -squareSize / 2);
-  if (ship.taperFrontCurve) {
-    context.quadraticCurveTo(
-      squareSize / 2,
-      -squareSize / 2 + frontInset * 0.5 - ship.taperFrontCurve * squareSize * 0.25,
-      squareSize,
-      -squareSize / 2 + frontInset,
-    );
-  } else {
-    context.lineTo(squareSize, -squareSize / 2 + frontInset);
-  }
-  context.lineTo(squareSize, squareSize / 2 - frontInset);
-  if (ship.taperFrontCurve) {
-    context.quadraticCurveTo(
-      squareSize / 2,
-      squareSize / 2 - frontInset * 0.5 + ship.taperFrontCurve * squareSize * 0.25,
-      0,
-      squareSize / 2,
-    );
-  } else {
-    context.lineTo(0, squareSize / 2);
-  }
-  context.closePath();
-  context.fill();
-}
-
+/** Parameters for a single ship draw call: canvas position, orientation, color, and scale. */
 export interface ShipDrawRequest {
   x: number;
   y: number;
@@ -108,21 +30,19 @@ export interface ShipDrawRequest {
   scale: number;
 }
 
+/** Draw a two-tone ship silhouette at the requested position, rotation, and scale. */
 export function drawShipPreview(context: CanvasRenderingContext2D, request: ShipDrawRequest): void {
   const { x, y, rotation, nationColor, ship, scale } = request;
   context.save();
   context.translate(x, y);
   context.rotate(rotation);
   const squareSize = 5 * scale;
-  const frontInset = (squareSize * (1 - ship.taperFront)) / 2;
-  const backInset = (squareSize * (1 - ship.taperBack)) / 2;
-  const sternColor = tintColorRgbString(nationColor, 0.8);
-
-  context.fillStyle = sternColor;
-  drawSternHalf(context, squareSize, backInset, ship);
-
-  context.fillStyle = nationColor;
-  drawNoseHalf(context, squareSize, frontInset, ship);
-
+  drawShipSilhouetteFilled(
+    context,
+    ship,
+    { x: -squareSize, y: -squareSize / 2, squareSize },
+    { back: tintHexColor(nationColor, STERN_DIM_FACTOR), front: nationColor },
+    PREVIEW_HULL_CURVE_SCALE,
+  );
   context.restore();
 }

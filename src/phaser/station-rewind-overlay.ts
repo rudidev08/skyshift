@@ -1,17 +1,16 @@
-// Renders a TimelapseFrame's stations on the overview map while hiding the
-// live station bundles. Used by the Stations Timelapse Log tab while scrubbed
+// Renders a past station set on the overview map while hiding the live
+// station bundles. Used by the Stations Timelapse Log tab while scrubbed
 // to a past moment. Activate on first scrub-back; deactivate on tab-leave or
 // scrub-back-to-now.
 
 import type { Scene } from "phaser";
 import { StationDiscPool } from "./station-disc-pool";
-import type { TimelapseFrame } from "../sim-timelapse-state";
-import type { StationVisualBundle } from "./station-visual-bundle";
+import type { TimelapseStation } from "../sim-timelapse-state";
+import { setStationVisualBundleVisible, type StationVisualBundle } from "./station-visual-bundle";
 
 export interface StationRewindOverlay {
-  /** Hides live bundles + draws the snapshot. Safe to call repeatedly with a new frame as the user scrubs. */
-  show(frame: TimelapseFrame): void;
-  /** Restores live bundles + clears the snapshot. */
+  /** Redraws the overlay for a new station set; skips rehiding live bundles if already showing. */
+  show(stations: TimelapseStation[]): void;
   hide(): void;
   destroy(): void;
 }
@@ -24,38 +23,26 @@ export interface StationRewindOverlayOptions {
 
 export function createStationRewindOverlay(options: StationRewindOverlayOptions): StationRewindOverlay {
   const { scene, getLiveBundles } = options;
+  // Non-null while the overlay is showing — implies the live bundles are hidden.
   let pool: StationDiscPool | null = null;
-  let active = false;
 
   function setLiveBundlesVisible(visible: boolean): void {
-    for (const bundle of getLiveBundles()) {
-      bundle.baseImage.setVisible(visible);
-      bundle.overlayImage.setVisible(visible);
-      bundle.iconImage.setVisible(visible);
-      bundle.ringImage.setVisible(visible);
-      bundle.graphics.setVisible(visible);
-      bundle.nameLabel.setVisible(visible);
-      for (const label of bundle.inventoryLabels) label.setVisible(visible);
-      bundle.statusBadgeCircle?.setVisible(visible);
-      bundle.statusBadgeText?.setVisible(visible);
-    }
+    for (const bundle of getLiveBundles()) setStationVisualBundleVisible(bundle, visible);
   }
 
-  function show(frame: TimelapseFrame): void {
-    if (!active) {
+  function show(stations: TimelapseStation[]): void {
+    if (!pool) {
       setLiveBundlesVisible(false);
-      active = true;
+      pool = new StationDiscPool(scene);
     }
-    if (!pool) pool = new StationDiscPool(scene);
-    pool.draw(frame.stations);
+    pool.draw(stations);
   }
 
   function hide(): void {
-    if (!active) return;
-    pool?.destroy();
+    if (!pool) return;
+    pool.destroy();
     pool = null;
     setLiveBundlesVisible(true);
-    active = false;
   }
 
   function destroy(): void {

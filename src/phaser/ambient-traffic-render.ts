@@ -40,13 +40,7 @@ export interface AmbientTraffic {
   secondsSinceLastRedraw: number;
 }
 
-interface AmbientTrafficRenderFrameOptions {
-  advanceSeconds: number;
-  timeMilliseconds: number;
-  camera: Phaser.Cameras.Scene2D.Camera;
-}
-
-/** Build route cache and create all ambient dots. Call once at scene init. */
+/** Call once at scene init to build routes and populate the dot pool. */
 export function createAmbientTraffic(
   scene: Scene,
   stations: AmbientStation[],
@@ -182,40 +176,32 @@ function spawnAmbientDots(routes: AmbientRoute[]): AmbientDot[] {
   return dots;
 }
 
-/** Advance dots and redraw at a fixed rate. Call every frame — skips work between redraws. */
+/** Call every frame. Throttles redraws to a fixed rate; dots advance by the full accumulated time each redraw. */
 export function updateAmbientTraffic(
-  system: AmbientTraffic,
+  ambientTraffic: AmbientTraffic,
   deltaSeconds: number,
   timeMilliseconds: number,
   camera: Phaser.Cameras.Scene2D.Camera,
 ) {
   // Skip work between redraws — the previous frame's circles stay on screen until the next redraw tick.
   const redrawInterval = 1 / ambientTrafficConfig.redrawsPerSecond;
-  system.secondsSinceLastRedraw += deltaSeconds;
-  if (system.secondsSinceLastRedraw < redrawInterval) return;
+  ambientTraffic.secondsSinceLastRedraw += deltaSeconds;
+  if (ambientTraffic.secondsSinceLastRedraw < redrawInterval) return;
 
   // Advance by the full accumulated delta so dots don't lose the time we skipped between redraws.
-  const effectiveDelta = system.secondsSinceLastRedraw;
-  system.secondsSinceLastRedraw = 0;
-  renderAmbientTrafficFrame(system, {
-    advanceSeconds: effectiveDelta,
-    timeMilliseconds,
-    camera,
-  });
+  const effectiveDelta = ambientTraffic.secondsSinceLastRedraw;
+  ambientTraffic.secondsSinceLastRedraw = 0;
+  renderAmbientTrafficFrame(ambientTraffic, effectiveDelta, timeMilliseconds, camera);
 }
 
 /** Redraw without advancing dots. Used when a view mode hid the pool and the
  *  sim is still paused. */
 export function redrawAmbientTraffic(
-  system: AmbientTraffic,
+  ambientTraffic: AmbientTraffic,
   timeMilliseconds: number,
   camera: Phaser.Cameras.Scene2D.Camera,
 ) {
-  renderAmbientTrafficFrame(system, {
-    advanceSeconds: 0,
-    timeMilliseconds,
-    camera,
-  });
+  renderAmbientTrafficFrame(ambientTraffic, 0, timeMilliseconds, camera);
 }
 
 function computeDotRadiusForZoom(camera: Phaser.Cameras.Scene2D.Camera): number {
@@ -236,35 +222,38 @@ function advanceDotProgress(dot: AmbientDot, advanceSeconds: number): void {
   }
 }
 
-function renderAmbientTrafficFrame(system: AmbientTraffic, options: AmbientTrafficRenderFrameOptions) {
-  system.dotPool.releaseAll();
+function renderAmbientTrafficFrame(
+  ambientTraffic: AmbientTraffic,
+  advanceSeconds: number,
+  timeMilliseconds: number,
+  camera: Phaser.Cameras.Scene2D.Camera,
+) {
+  ambientTraffic.dotPool.releaseAll();
 
-  const timeSeconds = options.timeMilliseconds / 1000;
-  const dotRadius = computeDotRadiusForZoom(options.camera);
+  const timeSeconds = timeMilliseconds / 1000;
+  const dotRadius = computeDotRadiusForZoom(camera);
 
   const { alphaMin, alphaMax } = ambientTrafficConfig;
   const alphaRange = alphaMax - alphaMin;
 
-  for (const dot of system.dots) {
+  for (const dot of ambientTraffic.dots) {
     // A route is visible if either endpoint is in the viewport. Bounds are
     // cached per frame, so calling isVisibleInViewport per dot is cheap.
     const route = dot.route;
     const routeVisible =
-      isVisibleInViewport(options.camera, { x: route.startX, y: route.startY }) ||
-      isVisibleInViewport(options.camera, { x: route.endX, y: route.endY });
+      isVisibleInViewport(camera, { x: route.startX, y: route.startY }) ||
+      isVisibleInViewport(camera, { x: route.endX, y: route.endY });
     if (!routeVisible) continue;
 
-    advanceDotProgress(dot, options.advanceSeconds);
+    advanceDotProgress(dot, advanceSeconds);
 
     // Continuous sine wave between alphaMin and alphaMax — dots never disappear
     const pulseFraction = (Math.sin((timeSeconds * dot.pulseSpeed + dot.pulsePhase) * Math.PI * 2) + 1) / 2;
     const alpha = alphaMin + pulseFraction * alphaRange;
 
-    const mapX =
-      dot.route.startX + dot.route.directionX * dot.progress + dot.route.directionY * dot.laneOffset;
-    const mapY =
-      dot.route.startY + dot.route.directionY * dot.progress - dot.route.directionX * dot.laneOffset;
-    const circle = system.dotPool.acquire();
+    const mapX = route.startX + route.directionX * dot.progress + route.directionY * dot.laneOffset;
+    const mapY = route.startY + route.directionY * dot.progress - route.directionX * dot.laneOffset;
+    const circle = ambientTraffic.dotPool.acquire();
     circle.setPosition(mapX, mapY);
     if (circle.radius !== dotRadius) circle.radius = dotRadius;
     circle.setAlpha(alpha);

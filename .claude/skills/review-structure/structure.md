@@ -1,5 +1,12 @@
 ## Structure
 
+Two questions govern this file and `structure-comments.md`:
+
+1. **Should this code exist?** (Restraint.) Don't write defensive guards for cases that can't happen, abstractions for reuse you don't have yet, half-finished scaffolding, or work outside the task. See "Don't write code that doesn't need to exist" below.
+2. **Is the code clear?** (Clarity.) When code does need to exist, make it explain itself — shape first (split, flatten, lay it out well), then names, then a comment as the last resort. The rest of this file covers shape and names; `structure-comments.md` covers comments.
+
+Apply in order: not writing the code beats a good name; a good name beats a comment.
+
 ### Decision
 
 Before writing or growing a function, ask:
@@ -14,7 +21,7 @@ Before writing or growing a function, ask:
 
 1. **Functions should fit in your head.** If you can't see the start and end of the body without scrolling, consider splitting.
 2. **One thing per function.** If you can't name a function without "and," it is two functions.
-3. **Extract instead of explaining a block.** When a block needs a `// what this does` comment to explain itself, pull it into a named function. The function name becomes the comment. Exception: keep section labels in HTML/DOM-building code and scenario narration in tests, even when they appear to restate the next line — mirrors the `coding/comments.md` exception.
+3. **Extract instead of explaining a block.** When a block needs a `// what this does` comment to explain itself, pull it into a named function. The function name becomes the comment. Exception: keep section labels in HTML/DOM-building code and scenario narration in tests, even when they appear to restate the next line — mirrors the `structure-comments.md` exception.
 4. **Three similar lines is fine.** The bar for extraction is "I'm writing it a fourth time" or "the function name would replace a redundant comment" — not raw repetition count. Extracting too early is more painful than extracting late.
 5. **No abstractions for hypothetical reuse.** Wait until the second or third real call site before generalizing. This applies to extracting/generalizing helpers and APIs, not to renaming existing code for current clarity.
 6. **Parameter count is a signal.** Functions with four or more parameters often mean either too much responsibility, or that some arguments belong together as one structured argument. Reach for the structured argument only when its fields form a coherent domain concept (e.g. a `ManagerDeps` with interdependent services) or call sites gain material readability from labeled keys — don't use one merely to dodge the four-parameter threshold.
@@ -31,7 +38,7 @@ Before writing or growing a function, ask:
 #### Naming
 
 1. **No short names, abbreviations, or acronyms by default.** Use full, easy-to-read names — for parameters, locals, fields, and types, not just exported APIs. Avoid shortenings like `snap` (→ `snapshot`), `cb` (→ `callback`), `idx` (→ `index`), `s` (→ `station`), `ts` (→ `tradeShip`), `orb` (→ `orbiting…`). Codebase-wide precedent doesn't override this. Exceptions: established technical vocabulary universally understood outside the repo (`Id`, `URL`, `JSON`, `HTML`, `DOM`, `UI`, `SVG`, `HUD`), loop counters (`i`, `j`), standard generic type variables (`T`, `K`, `V`), and math-convention single letters in geometry/physics code (`x`, `y`, `dx`, `dy`, `dt`).
-2. **Rename instead of commenting.** A well-named function or variable replaces a comment. Reach for renaming first; see also `coding/comments.md`.
+2. **Rename instead of commenting.** A well-named function or variable replaces a comment. Reach for renaming first; see also `structure-comments.md`.
 3. **Match in-repo precedent.** When a naming or structural convention isn't documented, prefer existing in-repo precedent over inventing a new one. If precedent is conflicting, ask.
 4. **Pair operations should look paired.** load/save, register/unregister, attach/detach — same word root, same parameter shape, same return shape. Exception: serialize/deserialize and inverse transformations (e.g. `toSnapshot`/`fromSnapshot`) may have asymmetric return shapes by nature — serialization returns data, deserialization returns the reconstructed value. Asymmetry in non-inverse pairs is a sign something is off, or a missing rule.
 5. **Make mutation visible in the name.** `addShip`, `clearQueue`, `setPhase` for functions that mutate. `withShip`, `nextPhase` for functions that return new values. If `getShip()` mutates anything, rename it.
@@ -49,7 +56,7 @@ Before writing or growing a function, ask:
 #### Layout within a function
 
 1. **Declare close to first use.** Variables go near where they're used, not at the top of the function.
-2. **Blank lines beat dividers.** Group related statements; use a blank line between groups instead of a section-divider comment. (See `coding/comments.md` for the dividers-must-carry-information rule.)
+2. **Blank lines beat dividers.** Group related statements; use a blank line between groups instead of a section-divider comment. (See `structure-comments.md` for the dividers-must-carry-information rule.)
 3. **One concept per line.** Don't pack three transforms into one expression when separate steps read better.
 
 #### Side effects
@@ -213,17 +220,17 @@ Prefer also `getProducedWareIdsForStationType(stationType): Set<WareId>` — sam
 
 Avoid `shipCanTradeForStation` or `shipFitsStation` — terser but lossy. "Trade for" doesn't preserve the "any ware overlap with any side of the economy" semantic; "fits" is too vague to test against without opening the body.
 
-Lesson: a long predicate name is fine when every word in it does real work. Don't abbreviate a name to the point where the reader has to open the body to understand the predicate. The bar for shortening is "every dropped word was redundant," not "the name is X characters long."
+Lesson: a long predicate name is fine when every word in it conveys specific meaning. Don't abbreviate a name to the point where the reader has to open the body to understand the predicate. The bar for shortening is "every dropped word was redundant," not "the name is X characters long."
 
 Additional prefer/avoid example: `cargoAmountByWareId` / `cargoEntries` (quantity and key both matter).
 
 ### Example 12
 
-Prefer `createZoneFromDefinition(definition, sectorsById, takenCodes)` — plain "create Y from X" naming for a data-hydration helper (authored data → runtime instance). Reads as English at the call site. Matches `createStation(placement)` already in the codebase, where the JSDoc reads "Create a full runtime `Station` from an authored `StationPlacement`."
+Prefer `createZoneFromTemplate(template, sectorsById, takenCodes)` — plain "create Y from X" naming for a data-hydration helper (template → runtime instance). Reads as English at the call site. Matches `createStation(placement)` already in the codebase, where the JSDoc reads "Create a full runtime `Station` from a `PlacedStation`."
 
-Avoid `buildStationZone(definition, ...)` — when a project reserves a verb for a specific operation (here `build` is reserved for station-construction-action vocabulary like `placeBuild`, `startNextStationBuild`, `Station.build`), reusing that verb for unrelated operations makes both meanings ambiguous. A reader can't tell from the name whether the helper produces a runtime instance or kicks off the reserved action.
+Avoid `buildStationZone(template, ...)` — when a project reserves a verb for a specific operation (here `build` is reserved for station-construction-action vocabulary like `placeBuild`, `startNextStationBuild`, `Station.build`), reusing that verb for unrelated operations makes both meanings ambiguous. A reader can't tell from the name whether the helper produces a runtime instance or kicks off the reserved action.
 
-Lesson: name data-hydration helpers `createXFromY`, and write their JSDoc as "Create runtime X from authored Y." Don't reuse a verb your project reserves for another concept; avoid programmer jargon ("inflate", "hydrate") when a plain verb fits. (Project-specific reserved/rejected vocabulary: see AGENTS.md.)
+Lesson: name data-hydration helpers `createXFromY`, and write their JSDoc as "Create runtime X from Y." Don't reuse a verb your project reserves for another concept; avoid programmer jargon ("inflate", "hydrate") when a plain verb fits. (Project-specific reserved/rejected vocabulary: see AGENTS.md.)
 
 ### Example 13
 
@@ -239,7 +246,7 @@ Lesson: with a small closed set of two or three literal values, naming the field
 
 Prefer `export const iconSvgByStationType: Record<StationTypeId, string> = { ... }` — TypeScript enforces "every station type has an icon" at compile time, in one place. Adding a new station type without an icon fails the build at the registry literal.
 
-Avoid `Partial<Record<StationTypeId, string>>` — the `Partial` says "some keys might be missing." Even if every key IS present today, the `| undefined` return propagates through every consumer: `renderStationIconDataUri` returns `string | undefined` → `getStationIconTextureKey` mirrors → `buildStationIcon` mirrors → `getStationHudIcon` adds `?? ""` (silent empty string, would set `<img src="">`) → `createStationIconImage` adds an invisible-placeholder branch with a comment explaining "stations that have no authored icon." Five files all defending against a state the registry literally constructs.
+Avoid `Partial<Record<StationTypeId, string>>` — the `Partial` says "some keys might be missing." Even if every key IS present today, the `| undefined` return propagates through every consumer: `renderStationIconDataUri` returns `string | undefined` → `getStationIconTextureKey` mirrors → `buildStationIcon` mirrors → `getStationHudIcon` adds `?? ""` (silent empty string, would set `<img src="">`) → `createStationIconImage` adds an invisible-placeholder branch with a comment explaining "stations that have no icon entry." Five files all defending against a state the registry literally constructs.
 
 Lesson: when an object literal IS the canonical mapping for every value in a union, type it as `Record<X, Y>` and let the compiler enforce completeness at the registry. Reserve `Partial<Record<X, Y>>` for genuinely sparse mappings; for those, consider whether `Map<X, Y>` reads cleaner. The cost of `Partial` is `undefined` propagation through every consumer + scattered defensive guards in places where the registry's own data already says the value exists.
 
@@ -260,4 +267,3 @@ Avoid `subTickTimeDebt` — "Sub-tick time" doesn't carry a unit (seconds? milli
 Lesson: prefer unit + meaning ("seconds since last tick", "pixels per second", "milliseconds until expiry") when they read clearer than a mechanism word. Mechanism names sometimes work but can imply constraints that don't match — "Debt" implies a sign convention, "Buffer" implies bounded capacity.
 
 Additional prefer/avoid example: `mirrorSimEntitiesInRender` / `wireEntityRenderObservers` (purpose, not mechanism).
-

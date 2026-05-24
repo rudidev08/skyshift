@@ -8,7 +8,7 @@
 import type { Scene } from "phaser";
 import { allWares } from "../../data/wares";
 import type { WareId } from "../../data/ware-types";
-import { getWareTradeTotals, type RouteStats } from "../sim-trade-route-statistics";
+import { sumWareTradeTotals, type RouteStats } from "../sim-trade-route-statistics";
 import type { TradeManager } from "../sim-trade-manager";
 import { createOverviewTradeSidebar, type OverviewTradeSidebar } from "../ui-overview-trade-sidebar";
 import {
@@ -20,7 +20,7 @@ import {
   type WareSelection,
 } from "./overview-trade-render";
 
-const DATA_REFRESH_MS = 500;
+const DATA_REFRESH_INTERVAL_MILLISECONDS = 500;
 // The overview always shows the last 2 hours of trade deliveries.
 const OVERVIEW_TRADE_WINDOW_SECONDS = 2 * 60 * 60;
 
@@ -50,7 +50,7 @@ function mapStationPositionsById(stations: ReadonlyArray<StationPosition>): Map<
   return stationById;
 }
 
-/** Filter the full ware list down to wares the fleet can carry on at least one producer-to-consumer route. */
+/** Filter the full ware list to wares at least one ship in the fleet can transport, preserving data/wares order. */
 function computeTradeableWares(tradeManager: TradeManager) {
   const transportableIds = new Set(tradeManager.getShipTransportableWares());
   return [...allWares].filter((ware) => transportableIds.has(ware.id));
@@ -61,7 +61,7 @@ interface TradeRouteOverlayOptions {
   sidebarParent: HTMLElement;
   tradeManager: TradeManager;
   getStations: () => ReadonlyArray<StationPosition>;
-  getSimTime: () => number;
+  getSimTimeSeconds: () => number;
 }
 
 export interface TradeRouteOverlay {
@@ -76,10 +76,9 @@ export interface TradeRouteOverlay {
  *  is open so the dropdown totals stay fresh). `setTradeLinesActive` toggles
  *  the map overlay (Trading tab only). */
 export function createTradeRouteOverlay(options: TradeRouteOverlayOptions): TradeRouteOverlay {
-  const { scene, sidebarParent, tradeManager, getStations, getSimTime } = options;
+  const { scene, sidebarParent, tradeManager, getStations, getSimTimeSeconds } = options;
 
-  // Sidebar wares list — only wares the fleet can carry on some route,
-  // preserving the order written in data/wares.
+  // Preserves the order written in data/wares.
   const tradeableWares = computeTradeableWares(tradeManager);
 
   let selectedWare: WareSelection = NONE;
@@ -103,15 +102,14 @@ export function createTradeRouteOverlay(options: TradeRouteOverlayOptions): Trad
 
   function refreshData(): void {
     if (!panelOpen) return;
-    const now = getSimTime();
+    const nowSeconds = getSimTimeSeconds();
     stationById = mapStationPositionsById(getStations());
 
-    // Fixed 2h window for both the dim baseline and the green overlay:
-    // deliveries that actually happened in the window.
-    const tradeWindowStats = tradeManager.getTradedRoutes(now, OVERVIEW_TRADE_WINDOW_SECONDS);
+    // Both the dim-gray baseline and the green ware-filter overlay draw from this same window.
+    const tradeWindowStats = tradeManager.getTradedRoutes(nowSeconds, OVERVIEW_TRADE_WINDOW_SECONDS);
     baselineRoutes = buildTradeRoutesFromRouteStats(tradeWindowStats, stationById);
-    // Dropdown totals weight partial loads by activity (fill-equivalent), not whole trades — matches the route-label math in getWareTradeTotals.
-    tradeSidebar.setWareTotals(getWareTradeTotals(tradeWindowStats));
+    // Dropdown totals weight partial loads by activity (fill-equivalent), not whole trades — matches the route-label math in sumWareTradeTotals.
+    tradeSidebar.setWareTotals(sumWareTradeTotals(tradeWindowStats));
 
     redraw();
   }
@@ -132,7 +130,7 @@ export function createTradeRouteOverlay(options: TradeRouteOverlayOptions): Trad
     panelOpen = nextOpen;
     if (nextOpen) {
       refreshData();
-      refreshTimer = window.setInterval(refreshData, DATA_REFRESH_MS);
+      refreshTimer = window.setInterval(refreshData, DATA_REFRESH_INTERVAL_MILLISECONDS);
     } else {
       tradeSidebar.closeDropdown();
       stopRefreshTimer();

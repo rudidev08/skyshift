@@ -9,14 +9,16 @@ import { shipsPerStationBySize } from "../../data/stations";
 import { economyConfig } from "../../data/economy-config";
 import { shipTravel } from "../../data/ship-travel";
 import { formatQuantity } from "../util-quantity-format";
-import { createSimulation } from "../sim-lifecycle";
-import { createStation, getStationRates } from "../sim-station";
+import { createSimulation, type Simulation } from "../sim-lifecycle";
+import { buildStationRateRecords } from "./util-station-rates";
 import type { ShipTypeTemplate } from "../../data/ship-types";
 import type { WareId } from "../../data/ware-types";
 import type { PlacedStation } from "../../data/station-types";
 import type { Station } from "../sim-station-types";
 import type { Nation } from "../sim-nation";
+import type { TradeTransferEvent } from "../sim-trade-types";
 import type { MapEditorState } from "./map-editor-state";
+import { closePanel, openPanel } from "./panel-chrome";
 import type { EditorSimulationSession } from "./simulation-session";
 
 interface FleetStationSummary {
@@ -24,9 +26,7 @@ interface FleetStationSummary {
   production: Map<WareId, number>;
   shipCount: number;
   shipTypeId: string;
-  /** `PlacedStation` — id/x/y/nation/size source. */
   placement: PlacedStation;
-  /** Runtime station — inventory/stationType/rates source. */
   station: Station;
 }
 
@@ -35,12 +35,9 @@ const fleetSimulationHours = 1;
 export function buildFleetStationSummaries(stations: PlacedStation[]): FleetStationSummary[] {
   const summaries: FleetStationSummary[] = [];
 
-  for (const placement of stations) {
+  for (const { placement, station, rates } of buildStationRateRecords(stations)) {
     const shipTypeId = placement.nation.shipTypeId;
     if (!shipTypeId) continue;
-
-    const station = createStation(placement);
-    const rates = getStationRates(station);
 
     summaries.push({
       placement,
@@ -91,7 +88,7 @@ function estimateStationWareTransportPerHour(
 }
 
 function estimateTradeCycleSeconds(shipTemplate: ShipTypeTemplate, distance: number): number {
-  const interStationSpeed = shipTravel.baseFlightSpeed * shipTravel.globalSpeed * shipTemplate.speed;
+  const interStationSpeed = shipTravel.baseFlightSpeedPixelsPerSecond * shipTravel.globalSpeed * shipTemplate.speed;
   const oneWayLegSeconds =
     shipTravel.accelerationDurationSeconds + distance / interStationSpeed + shipTravel.dockingDurationSeconds;
   const averageTradeWaitSeconds = (economyConfig.tradeWaitMinSeconds + economyConfig.tradeWaitMaxSeconds) / 2;
@@ -100,27 +97,34 @@ function estimateTradeCycleSeconds(shipTemplate: ShipTypeTemplate, distance: num
   return averageTradeWaitSeconds + groundedDelayPerCycleSeconds + roundTripTravelSeconds;
 }
 
+function recordDeliveryIntoRowTotals(
+  event: TradeTransferEvent,
+  simulation: Simulation,
+  results: Map<string, Map<WareId, number>>,
+): void {
+  if (event.cargoDirection !== "incoming" || event.amount <= 0) return;
+
+  const homeStation = simulation.stationManager.getStation(event.ship.homeStationId);
+  const orbitingShip = simulation.shipManager.getShip(event.ship.orbitingShipId);
+  if (!homeStation || !orbitingShip) return;
+  const rowKey = `${homeStation.nation.id}:${orbitingShip.shipTypeId}`;
+  let wareTotals = results.get(rowKey);
+  if (!wareTotals) {
+    wareTotals = new Map();
+    results.set(rowKey, wareTotals);
+  }
+  wareTotals.set(event.wareId, (wareTotals.get(event.wareId) ?? 0) + event.amount);
+}
+
 export function simulateFleetTransportByRow(mapState: MapEditorState): Map<string, Map<WareId, number>> {
   const results = new Map<string, Map<WareId, number>>();
   const simulation = createSimulation(mapState.currentMap(), { ignoreCargoCompatibility: true });
   const totalSeconds = fleetSimulationHours * 3600;
   const tick = economyConfig.simulationIntervalSeconds;
 
-  const tradeTransferUnsubscribe = simulation.tradeManager.addTradeTransferObserver((event) => {
-    if (event.cargoDirection !== "incoming" || event.amount <= 0) return;
-
-    const homeStation = simulation.stationManager.getStation(event.ship.homeStationId);
-    const orbitingShip = simulation.shipManager.getShip(event.ship.orbitingShipId);
-    if (!homeStation || !orbitingShip) return;
-    const rowKey = `${homeStation.nation.id}:${orbitingShip.shipTypeId}`;
-    let wareTotals = results.get(rowKey);
-    if (!wareTotals) {
-      wareTotals = new Map();
-      results.set(rowKey, wareTotals);
-    }
-
-    wareTotals.set(event.wareId, (wareTotals.get(event.wareId) ?? 0) + event.amount);
-  });
+  const tradeTransferUnsubscribe = simulation.tradeManager.addTradeTransferObserver((event) =>
+    recordDeliveryIntoRowTotals(event, simulation, results),
+  );
 
   try {
     for (let elapsedSeconds = 0; elapsedSeconds < totalSeconds; elapsedSeconds += tick) {
@@ -128,13 +132,13 @@ export function simulateFleetTransportByRow(mapState: MapEditorState): Map<strin
     }
   } finally {
     tradeTransferUnsubscribe();
-    simulation.dispose();
+    simulation.destroy();
   }
 
   return results;
 }
 
-function getFleetSummaryNote(simulationSession: EditorSimulationSession): string {
+function formatFleetSummaryNote(simulationSession: EditorSimulationSession): string {
   const estimateText =
     "Est / h uses current ship stats, average trade wait, grounded delay, and the nearest eligible route from each home station.";
 
@@ -150,7 +154,7 @@ function getFleetSummaryNote(simulationSession: EditorSimulationSession): string
 }
 
 interface FleetRow {
-  actualByWare: Map<WareId, number>;
+  simulatedByWare: Map<WareId, number>;
   cargoEach: number;
   count: number;
   nationCode: string;
@@ -161,20 +165,31 @@ interface FleetRow {
 
 interface FleetTotals {
   fleetRows: Map<string, FleetRow>;
-  totalActualByWare: Map<WareId, number>;
+  totalSimulatedByWare: Map<WareId, number>;
   totalCargo: number;
   totalShipCount: number;
   totalTransportByWare: Map<WareId, number>;
 }
 
-function buildFleetRowsFromSummaries(
+function sumSimulatedWareTotalsAcrossRows(fleetRows: Map<string, FleetRow>): Map<WareId, number> {
+  const totals = new Map<WareId, number>();
+  for (const [, row] of fleetRows) {
+    for (const ware of allWares) {
+      const simulatedDelivered = row.simulatedByWare.get(ware.id) ?? 0;
+      if (simulatedDelivered <= 0) continue;
+      totals.set(ware.id, (totals.get(ware.id) ?? 0) + simulatedDelivered);
+    }
+  }
+  return totals;
+}
+
+function buildFleetTotalsFromSummaries(
   stationSummaries: FleetStationSummary[],
   simulatedTransportByRow: Map<string, Map<WareId, number>>,
 ): FleetTotals {
   const fleetRows = new Map<string, FleetRow>();
   let totalShipCount = 0;
   let totalCargo = 0;
-  const totalActualByWare = new Map<WareId, number>();
   const totalTransportByWare = new Map<WareId, number>();
 
   for (const summary of stationSummaries) {
@@ -185,7 +200,7 @@ function buildFleetRowsFromSummaries(
     let row = fleetRows.get(rowKey);
     if (!row) {
       row = {
-        actualByWare: simulatedTransportByRow.get(rowKey) ?? new Map(),
+        simulatedByWare: simulatedTransportByRow.get(rowKey) ?? new Map(),
         nationColor: summary.placement.nation.color,
         nationCode: summary.placement.nation.codeName,
         shipLabel: shipTemplate.name,
@@ -213,15 +228,8 @@ function buildFleetRowsFromSummaries(
     }
   }
 
-  for (const [, row] of fleetRows) {
-    for (const ware of allWares) {
-      const actualDelivered = row.actualByWare.get(ware.id) ?? 0;
-      if (actualDelivered <= 0) continue;
-      totalActualByWare.set(ware.id, (totalActualByWare.get(ware.id) ?? 0) + actualDelivered);
-    }
-  }
-
-  return { fleetRows, totalActualByWare, totalCargo, totalShipCount, totalTransportByWare };
+  const totalSimulatedByWare = sumSimulatedWareTotalsAcrossRows(fleetRows);
+  return { fleetRows, totalSimulatedByWare, totalCargo, totalShipCount, totalTransportByWare };
 }
 
 function sortFleetRowsByNation(
@@ -263,7 +271,7 @@ function buildFleetRowHtml(row: FleetRow): string {
   html += `<td class="numeric-cell">${(row.count * row.cargoEach).toLocaleString()}</td>`;
   for (const ware of allWares) {
     const estimatedRate = row.transportByWare.get(ware.id) ?? 0;
-    const simulatedRate = row.actualByWare.get(ware.id) ?? 0;
+    const simulatedRate = row.simulatedByWare.get(ware.id) ?? 0;
     html += `<td class="numeric-cell calculated-cell">${estimatedRate > 0 ? formatQuantity(estimatedRate) : "—"}</td>`;
     html += `<td class="numeric-cell calculated-cell">${simulatedRate > 0 ? formatQuantity(simulatedRate) : "—"}</td>`;
   }
@@ -275,7 +283,7 @@ function buildFleetTotalsRowHtml(totals: FleetTotals): string {
   let html = `<tr class="summary-row"><td></td><td>Total</td><td class="numeric-cell">${totals.totalShipCount}</td><td></td><td class="numeric-cell">${totals.totalCargo.toLocaleString()}</td>`;
   for (const ware of allWares) {
     const estimatedRate = totals.totalTransportByWare.get(ware.id) ?? 0;
-    const simulatedRate = totals.totalActualByWare.get(ware.id) ?? 0;
+    const simulatedRate = totals.totalSimulatedByWare.get(ware.id) ?? 0;
     html += `<td class="numeric-cell calculated-cell">${estimatedRate > 0 ? formatQuantity(estimatedRate) : "—"}</td>`;
     html += `<td class="numeric-cell calculated-cell">${simulatedRate > 0 ? formatQuantity(simulatedRate) : "—"}</td>`;
   }
@@ -288,9 +296,8 @@ function buildFleetSummaryHtml(
   sortedRows: Array<[string, FleetRow]>,
   simulationSession: EditorSimulationSession,
 ): string {
-  let html = '<div class="panel">';
-  html += '<div class="panel-header"><h2>Fleet Summary</h2></div>';
-  html += `<div class="fleet-summary-note">${getFleetSummaryNote(simulationSession)}</div>`;
+  let html = openPanel("Fleet Summary");
+  html += `<div class="fleet-summary-note">${formatFleetSummaryNote(simulationSession)}</div>`;
   html += '<div class="table-scroll table-scroll-fleet">';
   html += '<table class="fleet-table">';
   html += buildFleetTableHeaderHtml();
@@ -300,7 +307,7 @@ function buildFleetSummaryHtml(
   }
 
   html += buildFleetTotalsRowHtml(totals);
-  html += "</table></div></div>";
+  html += `</table></div>${closePanel()}`;
   return html;
 }
 
@@ -313,7 +320,7 @@ export function renderFleetSummary(
   const stationSummaries = buildFleetStationSummaries(mapState.editableStations);
   const simulatedTransportByRow =
     simulationSession.lastFleetTransportByRow ?? new Map<string, Map<WareId, number>>();
-  const totals = buildFleetRowsFromSummaries(stationSummaries, simulatedTransportByRow);
+  const totals = buildFleetTotalsFromSummaries(stationSummaries, simulatedTransportByRow);
   const sortedRows = sortFleetRowsByNation(totals.fleetRows, allPlayableNations);
 
   document.getElementById("fleet-container")!.innerHTML = buildFleetSummaryHtml(

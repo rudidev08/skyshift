@@ -1,14 +1,15 @@
 import { economyConfig } from "../../data/economy-config";
-import type { EconomyFieldName } from "./snapshot-state";
+import { closePanel, openPanel } from "./panel-chrome";
+import { baselineEconomyConfig, type EconomyFieldName } from "./edit-baselines";
 
-interface EconomyFieldTemplate {
+interface EconomyFieldRow {
   description: string;
   field: EconomyFieldName;
   label: string;
   step: number;
 }
 
-const economyFieldTemplates: EconomyFieldTemplate[] = [
+const economyFieldRows: EconomyFieldRow[] = [
   {
     field: "minimumCargoFillThreshold",
     label: "Ship Min Fill %",
@@ -61,17 +62,16 @@ export function fromDisplayUnit(field: EconomyFieldName, value: number): number 
 }
 
 export function buildEconomyConfigHtml(): string {
-  let html = '<div class="panel">';
-  html += '<div class="panel-header"><h2>Economy</h2></div>';
+  let html = openPanel("Economy");
   html += '<table class="metric-table">';
   html += '<tr><th>Setting</th><th class="numeric-column">Value</th><th>What It Does</th></tr>';
-  for (const field of economyFieldTemplates) {
+  for (const field of economyFieldRows) {
     html += "<tr>";
     html += `<td class="label-cell">${field.label}</td>`;
-    html += `<td class="numeric-cell input-cell"><input type="number" data-target="config" data-field="${field.field}" value="${toDisplayUnit(field.field, economyConfig[field.field])}" step="${field.step}"></td>`;
+    html += `<td class="numeric-cell input-cell"><input type="number" data-target="config" data-field="${field.field}" value="${toDisplayUnit(field.field, economyConfig[field.field])}" data-baseline="${toDisplayUnit(field.field, baselineEconomyConfig[field.field])}" step="${field.step}"></td>`;
     html += `<td class="description-cell">${field.description}</td>`;
     html += "</tr>";
   }
-  html += "</table></div>";
+  html += `</table>${closePanel()}`;
   return html;
 }

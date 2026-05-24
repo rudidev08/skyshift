@@ -13,8 +13,15 @@ function findMostCommonColor(data) {
     const key = `${data[i]},${data[i + 1]},${data[i + 2]}`;
     pixelCountByColor[key] = (pixelCountByColor[key] || 0) + 1;
   }
-  const bgColorKey = Object.entries(pixelCountByColor).sort((a, b) => b[1] - a[1])[0][0];
-  const [r, g, b] = bgColorKey.split(",").map(Number);
+  let backgroundColorKey = "";
+  let maxCount = 0;
+  for (const [key, count] of Object.entries(pixelCountByColor)) {
+    if (count > maxCount) {
+      maxCount = count;
+      backgroundColorKey = key;
+    }
+  }
+  const [r, g, b] = backgroundColorKey.split(",").map(Number);
   return { r, g, b };
 }
 
@@ -47,5 +54,5 @@ for (const file of files) {
     .toFile(path.join(tilesDir, file));
 
   const { r, g, b } = backgroundColor;
-  console.log(`${file}: replaced ${replaced} pixels of bg (${r},${g},${b})`);
+  console.log(`${file}: replaced ${replaced} pixels of background color (${r},${g},${b})`);
 }

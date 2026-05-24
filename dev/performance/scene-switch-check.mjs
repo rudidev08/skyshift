@@ -20,10 +20,15 @@
 //   --out     dev/performance/snapshots.local
 //   --headed  visible browser (default: headless)
 
-import puppeteer from "puppeteer";
-import { createWriteStream, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import {
+  formatRunId,
+  ensureOutDir,
+  launchInstrumentedBrowser,
+  gotoGameUrlAndSettle,
+  takeHeapSnapshot,
+} from "./puppeteer-helpers.mjs";
 
 const { values: args } = parseArgs({
   options: {
@@ -51,18 +56,14 @@ const urls = args.urls
   .filter(Boolean);
 if (urls.length === 0) throw new Error(`--urls must list at least one URL`);
 
-const runId = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
-const outDir = join(args.out, `scene-switch-${runId}`);
-if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+const outDir = join(args.out, `scene-switch-${formatRunId()}`);
+ensureOutDir(outDir);
 
 console.log(
   `[scene-switch] urls=[${urls.join(", ")}] cycles=${cycleCount} wait=${waitSeconds}s out=${outDir}`,
 );
 
-const browser = await puppeteer.launch({
-  headless: !args.headed,
-  args: ["--enable-precise-memory-info", "--js-flags=--max-old-space-size=2048"],
-});
+const browser = await launchInstrumentedBrowser({ headless: !args.headed });
 
 const measurements = [];
 
@@ -74,26 +75,10 @@ try {
 
   async function navigateAndSnapshot(label, url) {
     console.log(`[${label}] navigating to ${url}`);
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 60_000 });
-    await page.waitForSelector("canvas", { timeout: 30_000 });
-    await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
-
-    await client.send("HeapProfiler.collectGarbage");
-
+    await gotoGameUrlAndSettle(page, url, waitSeconds);
     const file = join(outDir, `${label}.heapsnapshot`);
-    const stream = createWriteStream(file);
-    const onChunk = ({ chunk }) => stream.write(chunk);
-    client.on("HeapProfiler.addHeapSnapshotChunk", onChunk);
-    await client.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
-    client.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
-    await new Promise((resolve, reject) => {
-      stream.end((error) => (error ? reject(error) : resolve()));
-    });
-
-    const metrics = await page.metrics();
-    const heapMB = metrics.JSHeapUsedSize / 1024 / 1024;
-    measurements.push({ label, url, heapMB, file });
-    console.log(`[${label}] heap=${heapMB.toFixed(2)}MB → ${file}`);
+    const measurement = await takeHeapSnapshot(client, page, file, label);
+    measurements.push({ ...measurement, url });
   }
 
   await navigateAndSnapshot("cycle0", urls[0]);
@@ -105,8 +90,8 @@ try {
 }
 
 console.log("\n=== Heap measurements per cycle ===");
-for (const m of measurements) {
-  console.log(`  ${m.label.padEnd(8)}  ${m.heapMB.toFixed(2).padStart(7)} MB  (${m.url})`);
+for (const measurement of measurements) {
+  console.log(`  ${measurement.label.padEnd(8)}  ${measurement.heapMB.toFixed(2).padStart(7)} MB  (${measurement.url})`);
 }
 
 const baseline = measurements[0].heapMB;

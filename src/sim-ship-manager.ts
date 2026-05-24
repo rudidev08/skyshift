@@ -15,7 +15,7 @@ export class ShipManager {
   private byId = new Map<string, Ship>();
   private addObservers = new Set<ShipAddObserver>();
   private removeObservers = new Set<ShipRemoveObserver>();
-  /** Per-simulation name draw — injected at construction. */
+  /** Used by spawnFleetForStation to claim unique ship names from the simulation's pool. */
   private readonly namePool: NamePool;
 
   constructor(namePool: NamePool) {
@@ -29,12 +29,11 @@ export class ShipManager {
     for (const ship of ships) this.byId.set(ship.id, ship);
   }
 
-  /** O(1) id→Ship lookup, used by sim-trade-manager to resolve `orbitingShipId`. */
+  /** Look up a ship by id. sim-trade-manager calls this to resolve a TradeShip's `orbitingShipId` back to a live Ship. */
   getShip(shipId: string): Ship | undefined {
     return this.byId.get(shipId);
   }
 
-  /** Read-only view of every ship the manager owns. */
   getAllShips(): readonly Ship[] {
     return this.ships;
   }
@@ -81,17 +80,12 @@ export class ShipManager {
   spawnFleetForStation(station: Station, options?: { shipTypeOverride?: ShipTypeId }): Ship[] {
     const ships = createStationShips({
       station,
-      takenShipIds: this.getTakenShipIds(),
+      takenShipIds: new Set(this.byId.keys()),
       namePool: this.namePool,
       options: { shipTypeOverride: options?.shipTypeOverride },
     });
     this.addShips(ships);
     return ships;
-  }
-
-  /** Fresh snapshot for generation-time collision checks. */
-  getTakenShipIds(): ReadonlySet<string> {
-    return new Set(this.byId.keys());
   }
 
   reset(): void {

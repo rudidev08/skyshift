@@ -4,8 +4,8 @@
 
 import puppeteer from "puppeteer";
 
-export const BASE_URL = process.env.BASE_URL?.replace(/\/$/, "") || "http://localhost:5173";
-export const HEADED = process.argv.includes("--headed");
+const BASE_URL = process.env.BASE_URL?.replace(/\/$/, "") || "http://localhost:5173";
+const HEADED = process.argv.includes("--headed");
 
 export const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

@@ -2,6 +2,7 @@ import { createCanvas } from "canvas";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { phaseRng, splatDensity, compositeLayer } from "./nebula-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outDir = path.join(__dirname, "../..", "src/assets/backgrounds");
@@ -9,67 +10,7 @@ const outDir = path.join(__dirname, "../..", "src/assets/backgrounds");
 const SIZE = 3000;
 const CENTER = SIZE / 2;
 
-function mulberry32(seed) {
-  let s = seed | 0;
-  return () => {
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function hashStr(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-  return h;
-}
-
-function phaseRng(id, phase) {
-  return mulberry32(hashStr(id + "-" + phase));
-}
-
-function splatDensity(buf, cx, cy, radius, intensity) {
-  const r2 = radius * radius;
-  const x0 = Math.max(0, Math.floor(cx - radius));
-  const x1 = Math.min(SIZE - 1, Math.ceil(cx + radius));
-  const y0 = Math.max(0, Math.floor(cy - radius));
-  const y1 = Math.min(SIZE - 1, Math.ceil(cy + radius));
-  for (let py = y0; py <= y1; py++) {
-    for (let px = x0; px <= x1; px++) {
-      const dx = px - cx,
-        dy = py - cy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < r2) {
-        const f = 1 - d2 / r2;
-        buf[py * SIZE + px] += f * f * intensity;
-      }
-    }
-  }
-}
-
-function compositeLayer(canvas, buf, r, g, b, peakAlpha) {
-  let maxVal = 0;
-  for (let i = 0; i < buf.length; i++) if (buf[i] > maxVal) maxVal = buf[i];
-  if (maxVal === 0) return;
-  const layer = createCanvas(SIZE, SIZE);
-  const layerCtx = layer.getContext("2d");
-  const imageData = layerCtx.createImageData(SIZE, SIZE);
-  for (let i = 0; i < buf.length; i++) {
-    const v = Math.max(0, buf[i]) / maxVal;
-    const curved = v * v;
-    imageData.data[i * 4] = r;
-    imageData.data[i * 4 + 1] = g;
-    imageData.data[i * 4 + 2] = b;
-    imageData.data[i * 4 + 3] = Math.round(curved * peakAlpha * 255);
-  }
-  layerCtx.putImageData(imageData, 0, 0);
-  const ctx = canvas.getContext("2d");
-  ctx.globalAlpha = 1;
-  ctx.drawImage(layer, 0, 0);
-}
-
-function densityToCanvas(buf, r, g, b, peakAlpha) {
+function densityToCanvas(buf, { r, g, b, peakAlpha }) {
   let maxVal = 0;
   for (let i = 0; i < buf.length; i++) if (buf[i] > maxVal) maxVal = buf[i];
   const canvas = createCanvas(SIZE, SIZE);
@@ -123,18 +64,18 @@ function buildDensityL() {
     const cx = anchor.x + (rng1() - 0.5) * 700;
     const cy = anchor.y + (rng1() - 0.5) * 700;
     const radius = 100 + rng1() * 400;
-    splatDensity(buf, cx, cy, radius, 0.3 + rng1() * 0.7);
+    splatDensity(buf, { cx, cy, radius, intensity: 0.3 + rng1() * 0.7 }, SIZE);
   }
 
   for (let v = 0; v < 12; v++) {
     const cx = CENTER + (rng1() - 0.5) * SIZE * 0.6;
     const cy = CENTER + (rng1() - 0.5) * SIZE * 0.6;
-    splatDensity(buf, cx, cy, 150 + rng1() * 350, -(0.3 + rng1() * 0.5));
+    splatDensity(buf, { cx, cy, radius: 150 + rng1() * 350, intensity: -(0.3 + rng1() * 0.5) }, SIZE);
   }
 
   applyEdgeFade(buf);
 
-  return densityToCanvas(buf, 0, 0, 0, 0.7);
+  return densityToCanvas(buf, { r: 0, g: 0, b: 0, peakAlpha: 0.7 });
 }
 
 // ---- DENSITY M: wispy dark tendrils reaching across ----
@@ -151,23 +92,23 @@ function buildDensityM() {
     { x: CENTER - 500, y: CENTER + 300, angle: 5.5, len: 1000 },
   ];
 
-  for (const t of tendrils) {
+  for (const tendril of tendrils) {
     const curve = (rng1() - 0.5) * 400;
     for (let s = 0; s < 150; s++) {
       const frac = rng1();
       const curveOffset = Math.sin(frac * Math.PI) * curve;
-      const perpX = -Math.sin(t.angle);
-      const perpY = Math.cos(t.angle);
-      const cx = t.x + Math.cos(t.angle) * (frac - 0.5) * t.len + perpX * curveOffset + (rng1() - 0.5) * 120;
-      const cy = t.y + Math.sin(t.angle) * (frac - 0.5) * t.len + perpY * curveOffset + (rng1() - 0.5) * 120;
+      const perpX = -Math.sin(tendril.angle);
+      const perpY = Math.cos(tendril.angle);
+      const cx = tendril.x + Math.cos(tendril.angle) * (frac - 0.5) * tendril.len + perpX * curveOffset + (rng1() - 0.5) * 120;
+      const cy = tendril.y + Math.sin(tendril.angle) * (frac - 0.5) * tendril.len + perpY * curveOffset + (rng1() - 0.5) * 120;
       const radius = 60 + rng1() * 200;
       const edgeFade = Math.sin(frac * Math.PI);
-      splatDensity(tendrilBuf, cx, cy, radius, (0.3 + rng1() * 0.7) * edgeFade);
+      splatDensity(tendrilBuf, { cx, cy, radius, intensity: (0.3 + rng1() * 0.7) * edgeFade }, SIZE);
     }
   }
 
   applyEdgeFade(tendrilBuf);
-  compositeLayer(canvas, tendrilBuf, 0, 0, 0, 0.6);
+  compositeLayer(canvas, tendrilBuf, { r: 0, g: 0, b: 0, peakAlpha: 0.6 }, SIZE);
 
   return canvas;
 }
@@ -193,18 +134,18 @@ function buildDensityS() {
     const cx = clump.x + (rng1() - 0.5) * 500;
     const cy = clump.y + (rng1() - 0.5) * 500;
     const radius = 40 + rng1() * 200;
-    splatDensity(buf, cx, cy, radius, (0.2 + rng1() * 0.8) * clump.weight);
+    splatDensity(buf, { cx, cy, radius, intensity: (0.2 + rng1() * 0.8) * clump.weight }, SIZE);
   }
 
   for (let v = 0; v < 18; v++) {
     const cx = CENTER + (rng1() - 0.5) * SIZE * 0.7;
     const cy = CENTER + (rng1() - 0.5) * SIZE * 0.7;
-    splatDensity(buf, cx, cy, 100 + rng1() * 300, -(0.4 + rng1() * 0.5));
+    splatDensity(buf, { cx, cy, radius: 100 + rng1() * 300, intensity: -(0.4 + rng1() * 0.5) }, SIZE);
   }
 
   applyEdgeFade(buf);
 
-  return densityToCanvas(buf, 0, 0, 0, 0.8);
+  return densityToCanvas(buf, { r: 0, g: 0, b: 0, peakAlpha: 0.8 });
 }
 
 // ---- DENSITY XL: large diffuse dark region with subtle deep-blue tint ----
@@ -225,18 +166,18 @@ function buildDensityXL() {
     const cx = anchor.x + (rng1() - 0.5) * 900;
     const cy = anchor.y + (rng1() - 0.5) * 900;
     const radius = 200 + rng1() * 600;
-    splatDensity(buf, cx, cy, radius, 0.2 + rng1() * 0.6);
+    splatDensity(buf, { cx, cy, radius, intensity: 0.2 + rng1() * 0.6 }, SIZE);
   }
 
   for (let v = 0; v < 6; v++) {
     const cx = CENTER + (rng1() - 0.5) * SIZE * 0.5;
     const cy = CENTER + (rng1() - 0.5) * SIZE * 0.5;
-    splatDensity(buf, cx, cy, 200 + rng1() * 400, -(0.2 + rng1() * 0.4));
+    splatDensity(buf, { cx, cy, radius: 200 + rng1() * 400, intensity: -(0.2 + rng1() * 0.4) }, SIZE);
   }
 
   applyEdgeFade(buf);
 
-  const canvas = densityToCanvas(buf, 0, 0, 0, 0.9);
+  const canvas = densityToCanvas(buf, { r: 0, g: 0, b: 0, peakAlpha: 0.9 });
 
   // Subtle deep-blue tint overlay
   const tintBuf = new Float32Array(SIZE * SIZE);
@@ -246,11 +187,11 @@ function buildDensityXL() {
     const cx = anchor.x + (rng2() - 0.5) * 600;
     const cy = anchor.y + (rng2() - 0.5) * 600;
     const radius = 100 + rng2() * 400;
-    splatDensity(tintBuf, cx, cy, radius, 0.3 + rng2() * 0.7);
+    splatDensity(tintBuf, { cx, cy, radius, intensity: 0.3 + rng2() * 0.7 }, SIZE);
   }
 
   applyEdgeFade(tintBuf);
-  compositeLayer(canvas, tintBuf, 5, 5, 15, 0.1);
+  compositeLayer(canvas, tintBuf, { r: 5, g: 5, b: 15, peakAlpha: 0.1 }, SIZE);
 
   return canvas;
 }

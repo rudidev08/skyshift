@@ -1,20 +1,18 @@
 import { test, assertEqual } from "./test-utils.ts";
 import { createInventorySlot } from "../sim-station.ts";
 import { effectiveSpace } from "../sim-trade-decision.ts";
-import { withdrawCargo, depositCargo, processDepositAction } from "../sim-trade-queue.ts";
+import { withdrawCargo, depositCargo, applyDepositAction } from "../sim-trade-queue.ts";
 import { addReservation, fulfillReservation, clearReservations } from "../sim-trade-reservation.ts";
 import { ice } from "../../data/wares.ts";
-import { makeEmptyTradeShip, withMockManager } from "./trade-test-fixtures.ts";
-
-// --- Cargo transfer ---
+import { loadShipCargo, makeEmptyTradeShip, withMockManager } from "./trade-test-fixtures.ts";
 
 test("depositCargo clamps to max", () => {
   withMockManager(() => {
-    const iceSlot = createInventorySlot(ice, 480, 500);
+    const destinationSlot = createInventorySlot(ice, 480, 500);
 
-    depositCargo(iceSlot, 50);
+    depositCargo(destinationSlot, 50);
 
-    assertEqual(iceSlot.current, 500, "clamped to max");
+    assertEqual(destinationSlot.current, 500, "clamped to max");
   });
 });
 
@@ -23,12 +21,12 @@ test("depositCargo does nothing when slot is already over capacity", () => {
   // slot (e.g. station max shrank after a reservation) would deliver a negative
   // amount and silently drain the slot below current — known-bug shape.
   withMockManager(() => {
-    const iceSlot = createInventorySlot(ice, 510, 500);
+    const destinationSlot = createInventorySlot(ice, 510, 500);
 
-    const delivered = depositCargo(iceSlot, 100);
+    const delivered = depositCargo(destinationSlot, 100);
 
     assertEqual(delivered, 0, "no delivery when over capacity");
-    assertEqual(iceSlot.current, 510, "current untouched, not driven negative");
+    assertEqual(destinationSlot.current, 510, "current untouched, not driven negative");
   });
 });
 
@@ -38,11 +36,11 @@ test("full deposit releases only the delivered amount, not the original reservat
   // delivered === amount (60 === 60) — must take the non-shrunk-capacity branch
   // and release only 60. A `< → <=` mutation would release the full 100, leaving
   // a phantom -40 incoming on the (still-100-reserved) slot.
-  withMockManager(({ manager, makeMockStation }) => {
+  withMockManager(({ manager, makeRegisteredStation }) => {
     const ship = makeEmptyTradeShip();
     const destinationSlot = createInventorySlot(ice, 0, 500);
-    const destinationStation = makeMockStation([destinationSlot]);
-    ship.cargoAmountByWareId = new Map([[ice.id, 60]]);
+    const destinationStation = makeRegisteredStation([destinationSlot]);
+    loadShipCargo(ship, ice.id, 60);
 
     addReservation(ship, {
       station: destinationStation,
@@ -51,7 +49,7 @@ test("full deposit releases only the delivered amount, not the original reservat
       cargoDirection: "incoming",
     });
 
-    processDepositAction(
+    applyDepositAction(
       ship,
       {
         type: "cargo-deposit",
@@ -68,16 +66,14 @@ test("full deposit releases only the delivered amount, not the original reservat
   });
 });
 
-// --- Bug scenarios ---
-
 test("partial withdrawal should not leak destination reservation", () => {
   // Ship reserves 100 outgoing/incoming, but source only has 60 at withdrawal.
-  withMockManager(({ makeMockStation }) => {
+  withMockManager(({ makeRegisteredStation }) => {
     const ship = makeEmptyTradeShip();
     const sourceSlot = createInventorySlot(ice, 60, 500);
     const destinationSlot = createInventorySlot(ice, 50, 500);
-    const sourceStation = makeMockStation([sourceSlot]);
-    const destinationStation = makeMockStation([destinationSlot]);
+    const sourceStation = makeRegisteredStation([sourceSlot]);
+    const destinationStation = makeRegisteredStation([destinationSlot]);
 
     // Reserve the full planned trade amount.
     addReservation(ship, {
@@ -94,22 +90,22 @@ test("partial withdrawal should not leak destination reservation", () => {
     });
 
     // Withdraw clamps to the 60 actually present (production ate the rest).
-    const taken = withdrawCargo(sourceSlot, 100);
-    assertEqual(taken, 60, "withdraw clamped to 60");
-    ship.cargoAmountByWareId = taken > 0 ? new Map([[ice.id, taken]]) : new Map();
+    const withdrawnAmount = withdrawCargo(sourceSlot, 100);
+    assertEqual(withdrawnAmount, 60, "withdraw clamped to 60");
+    loadShipCargo(ship, ice.id, withdrawnAmount);
     fulfillReservation(ship, {
       station: sourceStation,
       wareId: "ice",
-      amount: taken,
+      amount: withdrawnAmount,
       cargoDirection: "outgoing",
     });
 
     // Deposit the actual cargo at destination.
-    depositCargo(destinationSlot, taken);
+    depositCargo(destinationSlot, withdrawnAmount);
     fulfillReservation(ship, {
       station: destinationStation,
       wareId: "ice",
-      amount: taken,
+      amount: withdrawnAmount,
       cargoDirection: "incoming",
     });
     ship.cargoAmountByWareId = new Map();
@@ -132,12 +128,12 @@ test("partial withdrawal should not leak destination reservation", () => {
 test("partial withdrawal leaves phantom reservations visible to other ships", () => {
   // Ship A reserves 100 from source + 100 incoming at dest, but source
   // only has 60 (economy bug ate reserved cargo).
-  withMockManager(({ makeMockStation }) => {
+  withMockManager(({ makeRegisteredStation }) => {
     const shipA = makeEmptyTradeShip();
     const sourceSlot = createInventorySlot(ice, 60, 500);
     const destinationSlot = createInventorySlot(ice, 50, 500);
-    const sourceStation = makeMockStation([sourceSlot]);
-    const destinationStation = makeMockStation([destinationSlot]);
+    const sourceStation = makeRegisteredStation([sourceSlot]);
+    const destinationStation = makeRegisteredStation([destinationSlot]);
 
     addReservation(shipA, {
       station: sourceStation,
@@ -153,12 +149,12 @@ test("partial withdrawal leaves phantom reservations visible to other ships", ()
     });
 
     // Ship A withdraws only 60.
-    const taken = withdrawCargo(sourceSlot, 100);
-    shipA.cargoAmountByWareId = taken > 0 ? new Map([[ice.id, taken]]) : new Map();
+    const withdrawnAmount = withdrawCargo(sourceSlot, 100);
+    loadShipCargo(shipA, ice.id, withdrawnAmount);
     fulfillReservation(shipA, {
       station: sourceStation,
       wareId: "ice",
-      amount: taken,
+      amount: withdrawnAmount,
       cargoDirection: "outgoing",
     });
 
@@ -168,11 +164,11 @@ test("partial withdrawal leaves phantom reservations visible to other ships", ()
     assertEqual(effectiveSpace(destinationSlot), 350, "dest space with phantom reservation");
 
     // After the trade completes and clears, real space should be higher.
-    depositCargo(destinationSlot, taken);
+    depositCargo(destinationSlot, withdrawnAmount);
     fulfillReservation(shipA, {
       station: destinationStation,
       wareId: "ice",
-      amount: taken,
+      amount: withdrawnAmount,
       cargoDirection: "incoming",
     });
     shipA.cargoAmountByWareId = new Map();

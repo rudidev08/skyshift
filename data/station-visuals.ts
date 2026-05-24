@@ -1,6 +1,5 @@
-// Visual-only station render constants.
-
 import type { StationSize } from "./station-types";
+import { bodyRadiusBySize } from "./stations";
 
 export const stationVisuals = {
   /** Pixel size for station labels in map space. */
@@ -19,6 +18,13 @@ export const stationVisuals = {
   /** Thickness of the nation-colored atmosphere ring around the body. */
   atmosphereRingWidth: 3,
 };
+
+/** Radius where ships orbit a station, in map units. Size-independent — always
+ *  the L body radius plus the ring distance, so S/M/L stations share one orbit
+ *  ring. Shared by the ring texture, the selection ring, station name-label
+ *  placement, and the ship cargo ring. */
+export const stationOrbitRingRadius =
+  bodyRadiusBySize.L + stationVisuals.inventoryRingDistanceFromBody;
 
 /** Twinkle particles that ride along the zoomed-out inventory ring. */
 export const ringTwinkles = {

@@ -1,24 +1,18 @@
-// Spoken announcements on selection — chains per-word clips with short
-// pauses ("[nation]. [name]. [type]."). Off by default; enableAudio()
-// triggers lazy fetch/decode of every clip.
+// Spoken announcements on ship/station selection — chains per-word clips with
+// short pauses ("[nation]. [name]. [type]."). Off until enableAudio() opts in
+// (new-game default in data/ui-preference-defaults.ts).
 
-import {
-  collectVoiceKeysFromMapStations,
-  collectCoreVoiceKeys,
-  nameToVoiceKey,
-  textToVoiceKey,
-} from "./audio-voice-keys";
+import { nameToVoiceKey, textToVoiceKey } from "./audio-voice-keys";
 import type { Nation } from "./sim-nation";
 
 let audioEnabled = false;
-let announcementsMuted = false;
 
 // Populated on first opt-in. URL strings are bundled at build time, but the
 // Map population and all fetch/decode work is deferred until then.
 const audioUrlByKey = new Map<string, string>();
-const preloadKeys = new Set<string>();
-let assetsResolved = false;
+let audioUrlsRegistered = false;
 
+// browser is loaded lazily because audio playback isn't allowed without user interaction
 let audioContext: AudioContext | null = null;
 const audioBufferByKey = new Map<string, AudioBuffer>();
 const activeSources: AudioBufferSourceNode[] = [];
@@ -29,23 +23,10 @@ function isStillCurrentSequence(capturedSequenceId: number): boolean {
   return audioEnabled && capturedSequenceId === currentSequenceId;
 }
 
-function registerPreloadKey(audioKey: string) {
-  if (preloadKeys.has(audioKey)) return;
-  preloadKeys.add(audioKey);
-
-  // Keys registered after startBackgroundPreload's loop already ran (e.g.
-  // lazy-loaded preset names) won't be picked up by it, so kick off their
-  // fetch here — otherwise the first selection that needs them stalls
-  // waiting on a load that nothing started.
-  if (audioEnabled && preloadStarted && audioUrlByKey.has(audioKey)) {
-    void loadAudioBufferForKey(audioKey);
-  }
-}
-
-/** Build the preload key set from bundled WAV URLs. Runs once on first opt-in. */
+/** Populate the key→URL map from bundled WAV assets. Runs once on first opt-in. */
 function registerBundledAudioUrls() {
-  if (assetsResolved) return;
-  assetsResolved = true;
+  if (audioUrlsRegistered) return;
+  audioUrlsRegistered = true;
 
   // import.meta.glob with eager:true returns string URLs only; no network/decode until loadAudioBufferForKey runs.
   const audioFileUrls = import.meta.glob("./assets/voices/*.wav", {
@@ -58,18 +39,6 @@ function registerBundledAudioUrls() {
     const key = path.split("/").pop()!.replace(".wav", "");
     audioUrlByKey.set(key, url);
   }
-
-  for (const key of collectCoreVoiceKeys()) {
-    registerPreloadKey(key);
-  }
-
-  // Lazy preset import keeps presets out of the core bundle. Settled covers
-  // the union of names across presets today (Frontier is a subset).
-  import("../data/map-preset-settled").then(({ settledPreset }) => {
-    for (const key of collectVoiceKeysFromMapStations(settledPreset.presetStations)) {
-      registerPreloadKey(key);
-    }
-  });
 }
 
 function ensureAudioContext(): AudioContext {
@@ -77,16 +46,16 @@ function ensureAudioContext(): AudioContext {
   return audioContext;
 }
 
-/** Map a display name to clip keys. "Accord II" splits into base + suffix
+/** Map a name to clip keys. "Accord II" splits into base + suffix
  *  so both clips play; unsuffixed names return one key. */
-function splitNameIntoVoiceKeys(displayName: string): string[] {
-  const fullKey = nameToVoiceKey(displayName);
+function splitNameIntoVoiceKeys(name: string): string[] {
+  const fullKey = nameToVoiceKey(name);
   if (audioUrlByKey.has(fullKey)) return [fullKey];
 
-  const lastSpaceIndex = displayName.lastIndexOf(" ");
+  const lastSpaceIndex = name.lastIndexOf(" ");
   if (lastSpaceIndex > 0) {
-    const baseName = displayName.substring(0, lastSpaceIndex);
-    const suffix = displayName.substring(lastSpaceIndex + 1);
+    const baseName = name.substring(0, lastSpaceIndex);
+    const suffix = name.substring(lastSpaceIndex + 1);
     const baseKey = nameToVoiceKey(baseName);
     const suffixKey = textToVoiceKey(suffix);
     const keys: string[] = [];
@@ -97,7 +66,7 @@ function splitNameIntoVoiceKeys(displayName: string): string[] {
 
   // Bare tokens like "I" / "IV" may be Roman numeral suffixes — try the
   // TTS override path before giving up.
-  const suffixKey = textToVoiceKey(displayName);
+  const suffixKey = textToVoiceKey(name);
   if (audioUrlByKey.has(suffixKey)) return [suffixKey];
 
   return [fullKey];
@@ -123,13 +92,11 @@ async function loadAudioBufferForKey(key: string): Promise<AudioBuffer | null> {
   }
 }
 
-/** Background-load every preload key. Runs once on first selection. */
+/** Fetch+decode every bundled clip in the background. Runs once on first opt-in. */
 function startBackgroundPreload() {
   if (preloadStarted) return;
   preloadStarted = true;
-  for (const key of preloadKeys) {
-    if (audioUrlByKey.has(key)) loadAudioBufferForKey(key);
-  }
+  for (const key of audioUrlByKey.keys()) loadAudioBufferForKey(key);
 }
 
 /** Cancel the previous announcement's audio — both clips already playing and
@@ -153,9 +120,9 @@ function cancelInFlightSequence() {
 
 /** Play phrase groups back-to-back, separated by short pauses for sentence rhythm. */
 async function playSequence(phrases: string[][]): Promise<void> {
+  if (!audioEnabled) return;
   cancelInFlightSequence();
   const capturedSequenceId = currentSequenceId;
-  startBackgroundPreload();
 
   const allKeys = phrases.flat();
   await Promise.all(allKeys.map(loadAudioBufferForKey));
@@ -196,10 +163,9 @@ export function enableAudio(): void {
   startBackgroundPreload();
 }
 
-/** Opt out. Stops in-flight playback and prevents future late-arriving keys from kicking off fetch/decode. */
+/** Opt out. Stops in-flight playback. */
 export function disableAudio(): void {
   audioEnabled = false;
-  preloadStarted = false;
   cancelInFlightSequence();
 }
 
@@ -207,14 +173,8 @@ export function isAudioEnabled(): boolean {
   return audioEnabled;
 }
 
-export function setAnnouncementsMuted(muted: boolean): void {
-  announcementsMuted = muted;
-}
-
 /** Announce a station selection: "nation. name. type." */
 export function announceStation(name: string, stationTypeName: string, nation: Nation): void {
-  if (!audioEnabled || announcementsMuted) return;
-
   playSequence([
     [nameToVoiceKey(nation.shortName)],
     splitNameIntoVoiceKeys(name),
@@ -224,8 +184,6 @@ export function announceStation(name: string, stationTypeName: string, nation: N
 
 /** Announce a ship selection: "nation. name. type." */
 export function announceShip(name: string, shipTypeName: string, nation: Nation): void {
-  if (!audioEnabled || announcementsMuted) return;
-
   playSequence([
     [nameToVoiceKey(nation.shortName)],
     splitNameIntoVoiceKeys(name),
@@ -235,8 +193,6 @@ export function announceShip(name: string, shipTypeName: string, nation: Nation)
 
 /** Announce a station zone selection: "Unclaimed. [sector name]. [suffix]." */
 export function announceStationZone(sectorName: string, suffix: string): void {
-  if (!audioEnabled || announcementsMuted) return;
-
   playSequence([
     [nameToVoiceKey("Unclaimed")],
     splitNameIntoVoiceKeys(sectorName),

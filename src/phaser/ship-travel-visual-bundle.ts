@@ -4,12 +4,12 @@
 import { type Scene } from "phaser";
 import type { ShipTypeTemplate } from "../../data/ship-types";
 import { SHIP_SQUARE, TEXTURE_SCALE } from "../render-ship-hull";
-import { ensureShipTexture } from "./texture-cache";
+import { getOrCreateShipTexture } from "./texture-cache";
 import { shipTravel } from "../../data/ship-travel";
 import { shipVisuals } from "../../data/ship-visuals";
 import { type FlightData } from "../sim-travel";
-import { getPointOnCurve, getFlightHeading, type FlightRenderData } from "./flight-render-data";
-import { hexToNumber } from "../util-hex-color";
+import { getPointOnCurve, getFlightHeading, type FlightCurveGeometry } from "./flight-render-data";
+import { hexToColorNumber } from "../util-hex-color";
 import { Layer } from "../../data/visuals-layers";
 
 const SHIP_BASE_SCALE = 1 / TEXTURE_SCALE;
@@ -17,7 +17,7 @@ const TRAIL_INTERVAL = 1 / shipVisuals.trailSegmentsPerSecond;
 
 export interface ShipTravelVisualBundle {
   flight: FlightData;
-  flightRender: FlightRenderData;
+  flightRender: FlightCurveGeometry;
   sprite: Phaser.GameObjects.Image;
   trail: Phaser.GameObjects.Graphics;
   engine: Phaser.GameObjects.Arc;
@@ -39,15 +39,15 @@ export interface ShipTravelVisualBundle {
   trailFadeState: "pending" | "started" | "completed";
 }
 
-/** Compute the rotation angle for a ship sprite, with smooth turning during departure. */
-function getFlightRotation(flight: FlightData, flightRender: FlightRenderData): number {
+/** During departure, lerps from the ship's previous heading to the curve heading so the sprite doesn't snap to a new direction at launch. */
+function getFlightRotation(flight: FlightData, flightRender: FlightCurveGeometry): number {
   const curveHeading = getFlightHeading(flight, flightRender);
 
-  if (flight.phase === "departing" && flight.previousHeading !== null) {
+  if (flight.phase === "departing" && flight.previousHeadingRadians !== null) {
     const departDuration = shipTravel.accelerationDurationSeconds;
     const turnProgress = Math.min(1, flight.totalElapsedSeconds / departDuration);
     const eased = turnProgress * turnProgress * (3 - 2 * turnProgress);
-    return lerpAngle(flight.previousHeading, curveHeading, eased);
+    return lerpAngle(flight.previousHeadingRadians, curveHeading, eased);
   }
 
   return curveHeading;
@@ -89,7 +89,7 @@ function updateEngine(
 export interface ShipTravelVisualBundleInput {
   scene: Scene;
   flight: FlightData;
-  flightRender: FlightRenderData;
+  flightRender: FlightCurveGeometry;
   color: string;
   shipType: ShipTypeTemplate;
 }
@@ -101,7 +101,7 @@ export function createShipTravelVisualBundleForFreshFlight(
 ): ShipTravelVisualBundle {
   const surfaceLaunch = input.flight.origin.surfaceOrOrbit === "surface";
   const startScale = surfaceLaunch ? SHIP_BASE_SCALE * shipVisuals.takeoffScale : SHIP_BASE_SCALE;
-  return buildShipTravelVisualBundle(input, {
+  return createShipTravelVisualBundle(input, {
     startScale,
     lastTrailProgress: -1,
     ringPulseState: "pending",
@@ -113,7 +113,7 @@ export function createShipTravelVisualBundleForFreshFlight(
 export function createShipTravelVisualBundleForFlightInProgress(
   input: ShipTravelVisualBundleInput,
 ): ShipTravelVisualBundle {
-  return buildShipTravelVisualBundle(input, {
+  return createShipTravelVisualBundle(input, {
     startScale: SHIP_BASE_SCALE,
     lastTrailProgress: input.flight.progress,
     ringPulseState: "fired",
@@ -126,14 +126,14 @@ interface ShipTravelVisualBundleInitialFields {
   ringPulseState: "pending" | "fired";
 }
 
-function buildShipTravelVisualBundle(
+function createShipTravelVisualBundle(
   input: ShipTravelVisualBundleInput,
   initial: ShipTravelVisualBundleInitialFields,
 ): ShipTravelVisualBundle {
   const { scene, flight, flightRender, color, shipType } = input;
-  const colorNumber = hexToNumber(color);
+  const colorNumber = hexToColorNumber(color);
 
-  const textureKey = ensureShipTexture(scene, shipType);
+  const textureKey = getOrCreateShipTexture(scene, shipType);
   const sprite = scene.add.image(flightRender.startX, flightRender.startY, textureKey);
   sprite.setScale(initial.startScale);
   sprite.setTint(colorNumber);
@@ -171,11 +171,11 @@ export function updateShipTravelVisualBundle(
   bundle: ShipTravelVisualBundle,
 ): { x: number; y: number } {
   const { flight, flightRender } = bundle;
-  const departEnd = flight.departDistanceFraction;
+  const departEndFraction = flight.departDistanceFraction;
 
   tickTakeoffScale(bundle);
-  tickHyperjumpRingPulse(scene, bundle, departEnd);
-  tickHyperjumpTrail(bundle, departEnd);
+  tickHyperjumpRingPulse(scene, bundle, departEndFraction);
+  tickHyperjumpTrail(bundle, departEndFraction);
   tickArrivingTrailFade(scene, bundle);
   tickLandingScale(bundle);
 
@@ -201,7 +201,11 @@ function tickTakeoffScale(bundle: ShipTravelVisualBundle): void {
 }
 
 /** Spawn the one-shot ring-pulse tween at the moment the ship enters hyperjump. */
-function tickHyperjumpRingPulse(scene: Scene, bundle: ShipTravelVisualBundle, departEnd: number): void {
+function tickHyperjumpRingPulse(
+  scene: Scene,
+  bundle: ShipTravelVisualBundle,
+  departEndFraction: number,
+): void {
   const flight = bundle.flight;
   if (
     flight.phase !== "hyperjump" ||
@@ -211,7 +215,7 @@ function tickHyperjumpRingPulse(scene: Scene, bundle: ShipTravelVisualBundle, de
     return;
   bundle.ringPulseState = "fired";
   bundle.sprite.setScale(SHIP_BASE_SCALE);
-  const position = getPointOnCurve(bundle.flightRender, departEnd);
+  const position = getPointOnCurve(bundle.flightRender, departEndFraction);
   bundle.ringPulse = scene.add.circle(
     position.x,
     position.y,
@@ -233,26 +237,33 @@ function tickHyperjumpRingPulse(scene: Scene, bundle: ShipTravelVisualBundle, de
 }
 
 /** Append one trail segment per `TRAIL_INTERVAL` while in hyperjump — never clear or redraw. */
-function tickHyperjumpTrail(bundle: ShipTravelVisualBundle, departEnd: number): void {
+function tickHyperjumpTrail(bundle: ShipTravelVisualBundle, departEndFraction: number): void {
   const flight = bundle.flight;
   if (flight.phase !== "hyperjump" || flight.travelMode !== "interStation") return;
   if (flight.totalElapsedSeconds - bundle.lastTrailTime < TRAIL_INTERVAL) return;
   bundle.lastTrailTime = flight.totalElapsedSeconds;
 
   const currentPosition = getPointOnCurve(bundle.flightRender, flight.progress);
-  const prevProgress =
-    bundle.lastTrailProgress >= 0 ? bundle.lastTrailProgress : Math.max(departEnd, flight.progress - 0.02);
-  const prevPosition = getPointOnCurve(bundle.flightRender, prevProgress);
+  const previousProgress =
+    bundle.lastTrailProgress >= 0
+      ? bundle.lastTrailProgress
+      : Math.max(departEndFraction, flight.progress - 0.02);
+  const previousPosition = getPointOnCurve(bundle.flightRender, previousProgress);
   bundle.lastTrailProgress = flight.progress;
 
   // Alpha gradient from departure to arrival baked into each segment — trail is never redrawn, so we can't tween it later.
-  const normalizedProgress = (flight.progress - departEnd) / flight.flightDistanceFraction;
+  const normalizedProgress = (flight.progress - departEndFraction) / flight.flightDistanceFraction;
   const departureAlpha = shipVisuals.trailDepartureAlpha * bundle.trailDepartureAlphaMultiplier;
   const arrivalAlpha = shipVisuals.trailArrivalAlpha * bundle.trailArrivalAlphaMultiplier;
   const alpha = departureAlpha + (arrivalAlpha - departureAlpha) * normalizedProgress;
 
   bundle.trail.lineStyle(shipVisuals.trailWidth * bundle.trailWidthMultiplier, bundle.color, alpha);
-  bundle.trail.lineBetween(prevPosition.x, prevPosition.y, currentPosition.x, currentPosition.y);
+  bundle.trail.lineBetween(
+    previousPosition.x,
+    previousPosition.y,
+    currentPosition.x,
+    currentPosition.y,
+  );
 }
 
 /** Fire the trail-fade tween once when the ship enters the arriving phase. */

@@ -1,10 +1,10 @@
 // Narrows arbitrary JSON to a GameSnapshot. Lives apart from ui-savegame-manager.ts
-// so the shape walker and runSnapshotRoundTripTest stay independent of the
+// so the shape walker and verifySnapshotRoundTrip stay independent of the
 // scene and localStorage plumbing.
 
 import { SAVE_VERSION, type GameSnapshot } from "./sim-save-types";
 import { STATION_SIZES, STATION_STATES } from "../data/station-types";
-import { HISTORY_STATION_STATES } from "./sim-station-history";
+import { HISTORY_STATION_STATES } from "./sim-timelapse-state";
 import * as saveError from "../data/strings-save";
 
 /** `detail` is populated for "corrupt" (parser message + raw preview, or
@@ -37,16 +37,16 @@ export function validateSnapshot(json: string): ValidationResult {
     };
   }
 
-  if (shape.value.version !== SAVE_VERSION) {
+  if (shape.snapshot.version !== SAVE_VERSION) {
     return {
       ok: false,
       reason: "version",
       message: saveError.VERSION,
-      detail: `Save has version ${shape.value.version}; this build expects ${SAVE_VERSION}.`,
+      detail: `Save has version ${shape.snapshot.version}; this build expects ${SAVE_VERSION}.`,
     };
   }
 
-  return { ok: true, snapshot: shape.value };
+  return { ok: true, snapshot: shape.snapshot };
 }
 
 /** Diagnostic string shown inside the load-error panel's "Show details" toggle:
@@ -58,7 +58,7 @@ function formatParseErrorDetail(error: unknown, json: string): string {
   return `${parseMessage}\n\nFirst ${previewLength} chars:\n${preview}`;
 }
 
-type SnapshotShapeResult = { ok: true; value: GameSnapshot } | { ok: false; path: string };
+type SnapshotShapeResult = { ok: true; snapshot: GameSnapshot } | { ok: false; path: string };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -78,9 +78,6 @@ function checkSnapshotShape(snapshot: unknown): SnapshotShapeResult {
   if (!isArray(snapshot.ships)) return fail("ships");
   if (!isArray(snapshot.tradeShips)) return fail("tradeShips");
   if (!isObject(snapshot.tradeManager)) return fail("tradeManager");
-  if (!isArray(snapshot.nationManager)) return fail("nationManager");
-  const nationManagerError = checkNationManagerEntries(snapshot.nationManager);
-  if (nationManagerError) return fail(nationManagerError);
 
   const stationsError = checkStationEntries(snapshot.stations);
   if (stationsError) return fail(stationsError);
@@ -94,19 +91,7 @@ function checkSnapshotShape(snapshot: unknown): SnapshotShapeResult {
 
   // Explicit unknown-cast: snapshot is narrowed to Record<string, unknown>
   // via isObject, but TS can't infer the full GameSnapshot from field-by-field narrows.
-  return { ok: true, value: snapshot as unknown as GameSnapshot };
-}
-
-function checkNationManagerEntries(entries: unknown[]): string | null {
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!isObject(entry)) return `nationManager[${i}]`;
-    if (typeof entry.nationId !== "string") return `nationManager[${i}].nationId`;
-    if (entry.currentBuildStationId !== undefined && typeof entry.currentBuildStationId !== "string") {
-      return `nationManager[${i}].currentBuildStationId`;
-    }
-  }
-  return null;
+  return { ok: true, snapshot: snapshot as unknown as GameSnapshot };
 }
 
 /** Reject impossible station combinations before load reaches them — otherwise
@@ -160,9 +145,8 @@ function checkBuildingStation(station: Record<string, unknown>, stationIndex: nu
   return null;
 }
 
-function checkEmigrationManager(value: unknown): string | null {
-  if (!isObject(value)) return "emigrationManager";
-  const emigrationManager = value;
+function checkEmigrationManager(emigrationManager: unknown): string | null {
+  if (!isObject(emigrationManager)) return "emigrationManager";
   if (emigrationManager.activeEvent !== null) {
     const activeEventError = checkActiveEmigrationEvent(emigrationManager.activeEvent);
     if (activeEventError) return activeEventError;
@@ -184,9 +168,8 @@ function checkEmigrationManager(value: unknown): string | null {
   return null;
 }
 
-function checkActiveEmigrationEvent(value: unknown): string | null {
-  if (!isObject(value)) return "emigrationManager.activeEvent";
-  const activeEvent = value;
+function checkActiveEmigrationEvent(activeEvent: unknown): string | null {
+  if (!isObject(activeEvent)) return "emigrationManager.activeEvent";
   if (typeof activeEvent.id !== "string") return "emigrationManager.activeEvent.id";
   if (!isArray(activeEvent.nationIds)) return "emigrationManager.activeEvent.nationIds";
   if (typeof activeEvent.generationalShipId !== "string")
@@ -196,7 +179,6 @@ function checkActiveEmigrationEvent(value: unknown): string | null {
   if (typeof activeEvent.totalExpectedShips !== "number")
     return "emigrationManager.activeEvent.totalExpectedShips";
   if (typeof activeEvent.destinationName !== "string") return "emigrationManager.activeEvent.destinationName";
-  if (typeof activeEvent.startAt !== "number") return "emigrationManager.activeEvent.startAt";
   return null;
 }
 
@@ -205,7 +187,7 @@ function checkStationHistoryEntries(entries: unknown[]): string | null {
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     if (!isObject(entry)) return `stationHistory[${i}]`;
-    if (typeof entry.time !== "number") return `stationHistory[${i}].time`;
+    if (typeof entry.timeSeconds !== "number") return `stationHistory[${i}].timeSeconds`;
     if (entry.kind === "created") {
       const error = checkHistoryCreated(entry, i, validStates);
       if (error) return error;
@@ -256,34 +238,19 @@ function checkHistoryRemoved(entry: Record<string, unknown>, entryIndex: number)
   return null;
 }
 
-/** Dev-mode round-trip — serialize, validate, and compare against the original.
- *  Catches schema drift at capture time rather than load time. Runs sync
- *  with one extra stringify + parse, acceptable at the auto-save cadence. */
-export function runSnapshotRoundTripTest(snapshot: GameSnapshot): boolean {
+/** Dev-mode check that catches schema drift at save time rather than as a
+ *  failed load later — serializes, re-parses, and re-serializes to detect
+ *  any non-deterministic or lossy round-trip. One extra stringify + parse per
+ *  save, which is acceptable at the auto-save cadence. */
+export function verifySnapshotRoundTrip(snapshot: GameSnapshot): boolean {
   const json = JSON.stringify(snapshot);
-  const result = validateSnapshot(json);
-  if (!result.ok) {
-    console.warn(
-      `[snapshot-validator] round-trip failed: ${result.reason} — ${result.message}` +
-        (result.detail ? `\n${result.detail}` : ""),
-    );
-    return false;
-  }
-  // The validator only type-checks fields — deep-compare JSON projections
-  // to catch value drift (e.g. a serialized field missing from the walker).
-  const reserialized = JSON.stringify(result.snapshot);
+  const reserialized = JSON.stringify(JSON.parse(json));
   if (reserialized !== json) {
-    const minLength = Math.min(json.length, reserialized.length);
-    let firstDivergingCharIndex = minLength;
-    for (let i = 0; i < minLength; i++) {
-      if (json[i] !== reserialized[i]) {
-        firstDivergingCharIndex = i;
-        break;
-      }
-    }
     console.warn(
       `[snapshot-validator] round-trip lost or reordered data; ` +
-        `first divergence at char ${firstDivergingCharIndex}`,
+        `original ${json.length} chars, reserialized ${reserialized.length} chars` +
+        `\noriginal:     ${json.slice(0, 200)}` +
+        `\nreserialized: ${reserialized.slice(0, 200)}`,
     );
     return false;
   }

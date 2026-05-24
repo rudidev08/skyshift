@@ -11,6 +11,18 @@ export function formatQuantity(value: number): string {
   return String(rounded);
 }
 
+/** Format a 0-1 fraction as "X.X%". */
+export function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+/** Trade magnitude: one decimal below 10 (the tenths matter at low volumes,
+ *  e.g. 2.3 vs 2.7), rounded to an integer at 10 and above. Callers keep
+ *  their own zero/empty/pluralization handling around this. */
+export function formatTradeMagnitude(value: number): string {
+  return value < 10 ? value.toFixed(1) : String(Math.round(value));
+}
+
 /** Keeps two significant digits across rate magnitudes: "1.2k", "12", "1.2", "0.12", "0". */
 function formatRateValue(value: number): string {
   const absoluteRate = Math.abs(value);
@@ -41,7 +53,7 @@ function formatReservationLine(reservation: number | undefined): string {
   return `<br><span class="cargo-reserve">${verb} ${plusMinusCharacter(reservation)}${formatQuantity(Math.abs(reservation))}</span>`;
 }
 
-export interface CargoBarFormat {
+export interface CargoBarFormatInput {
   wareName: string;
   current: number;
   max: number;
@@ -51,7 +63,7 @@ export interface CargoBarFormat {
 }
 
 /** Format a cargo bar as a `.cargo-row` for use inside a `.cargo-grid`. */
-export function formatCargoBar(input: CargoBarFormat): string {
+export function formatCargoBar(input: CargoBarFormatInput): string {
   const { wareName, current, max, rate, rateLabel, reservation } = input;
   const percent = max > 0 ? (current / max) * 100 : 0;
   const currentDisplay = formatQuantity(current);

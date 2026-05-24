@@ -1,13 +1,11 @@
-import { test, assertEqual, assertTrue, assertNotUndefined } from "./test-utils.ts";
-import { createSimulation, type Simulation } from "../sim-lifecycle.ts";
-import { createMapFromTemplate } from "../sim-map-create.ts";
-import { map as settledUniverse } from "../../data/map.ts";
-import { settledPreset } from "../../data/map-preset-settled.ts";
-import { findRoundTradeTrip } from "../sim-trade-decision.ts";
+import { test, assertEqual, assertTrue, assertNotUndefined, assertActionType } from "./test-utils.ts";
+import { type Simulation } from "../sim-lifecycle.ts";
+import { createSettledSimulation } from "./sim-test-fixtures.ts";
 import { startTrip } from "../sim-trade-queue.ts";
 import { getInventorySlot } from "../sim-station.ts";
 import type { TradeShip, TradeTransferEvent } from "../sim-trade-types.ts";
 import type { TradeTripLeg } from "../sim-trade-types.ts";
+import { findShipHomedAt, findShipWithRoundTrip } from "./trade-test-fixtures.ts";
 
 // End-to-end trade chain crossing multiple sim ticks. Exercises the full
 // pipeline: trade decision → queue building → travel → cargo transfer ×
@@ -21,24 +19,9 @@ import type { TradeTripLeg } from "../sim-trade-types.ts";
 // via startTrip (which only checks slot existence, not direction sanity).
 // 1-leg natural trips still exercise most of the queue + reservation logic.
 
-function createSettledSimulation(): Simulation {
-  return createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
-    ignoreCargoCompatibility: true,
-    initialStaggerDurationSeconds: 0,
-  });
-}
-
-function findShipWithNaturalTrip(simulation: Simulation): { ship: TradeShip; legs: TradeTripLeg[] } | null {
-  for (const ship of simulation.tradeManager.tradeShips) {
-    const legs = findRoundTradeTrip(ship, simulation.tradeManager);
-    if (legs) return { ship, legs };
-  }
-  return null;
-}
-
 /** Build a synthetic 2-leg round trip between a medical-lab home and a habitat
  *  target — both have `medicine` and `food` slots, so startTrip's slot-existence
- *  check passes. Caller picks the first medical-lab ship in the simulation. */
+ *  check passes. */
 function createSyntheticTwoLegTrip(simulation: Simulation): { ship: TradeShip; legs: TradeTripLeg[] } | null {
   // BIO-M (Rootspire, medical-lab) — produces medicine, consumes mineral + food.
   // BIO-H (Thornvale, habitat) — produces provisions, consumes food + medicine.
@@ -47,13 +30,7 @@ function createSyntheticTwoLegTrip(simulation: Simulation): { ship: TradeShip; l
   const target = simulation.stationManager.getStation("BIO-H");
   if (!home || !target) return null;
   // Find a trade ship homed at BIO-M.
-  let ship: TradeShip | null = null;
-  for (const candidate of simulation.tradeManager.tradeShips) {
-    if (candidate.homeStationId === "BIO-M") {
-      ship = candidate;
-      break;
-    }
-  }
+  const ship = findShipHomedAt(simulation, "BIO-M");
   if (!ship) return null;
   // Confirm both wares' slots exist at both stations (sanity check).
   if (!getInventorySlot(home, "medicine") || !getInventorySlot(home, "food")) return null;
@@ -65,15 +42,46 @@ function createSyntheticTwoLegTrip(simulation: Simulation): { ship: TradeShip; l
   return { ship, legs };
 }
 
+function requireNaturalTrip(simulation: Simulation): { ship: TradeShip; legs: TradeTripLeg[] } {
+  const candidate = findShipWithRoundTrip(simulation);
+  return assertNotUndefined(candidate ?? undefined, "natural trip available");
+}
+
+function requireSyntheticTwoLegTrip(simulation: Simulation): { ship: TradeShip; legs: TradeTripLeg[] } {
+  const candidate = createSyntheticTwoLegTrip(simulation);
+  return assertNotUndefined(candidate ?? undefined, "synthetic two-leg trip available");
+}
+
+interface CargoActionCounts {
+  homeDeposits: number;
+  targetDeposits: number;
+  homeWithdrawals: number;
+  targetWithdrawals: number;
+}
+
+function countCargoActionsByStation(ship: TradeShip): CargoActionCounts {
+  const counts: CargoActionCounts = {
+    homeDeposits: 0,
+    targetDeposits: 0,
+    homeWithdrawals: 0,
+    targetWithdrawals: 0,
+  };
+  for (const action of ship.actionQueue) {
+    if (action.type === "cargo-deposit") {
+      if (action.station.id === ship.homeStationId) counts.homeDeposits++;
+      else counts.targetDeposits++;
+    }
+    if (action.type === "cargo-withdrawal") {
+      if (action.station.id === ship.homeStationId) counts.homeWithdrawals++;
+      else counts.targetWithdrawals++;
+    }
+  }
+  return counts;
+}
+
 test("startTrip with 2 legs places 4 reservations (outgoing + incoming for each)", () => {
   const simulation = createSettledSimulation();
-  const candidate = createSyntheticTwoLegTrip(simulation);
-  assertTrue(candidate !== null, "synthetic 2-leg trip available");
-  if (!candidate) {
-    simulation.tradeManager.dispose();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = requireSyntheticTwoLegTrip(simulation);
 
   const reservationsBefore = ship.reservations.length;
   startTrip(ship, legs, simulation.tradeManager);
@@ -91,7 +99,7 @@ test("startTrip with 2 legs places 4 reservations (outgoing + incoming for each)
   assertEqual(outgoing, 2, "2 outgoing reservations (source per leg)");
   assertEqual(incoming, 2, "2 incoming reservations (destination per leg)");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("2-leg trip queue: contains both home withdrawals and home deposits (round trip with backhaul)", () => {
@@ -99,50 +107,25 @@ test("2-leg trip queue: contains both home withdrawals and home deposits (round 
   // Pin the queue's high-level shape: home dock + withdrawal, fly to target,
   // target dock + deposit + withdrawal, fly home, home dock + deposit, orbit home.
   const simulation = createSettledSimulation();
-  const candidate = createSyntheticTwoLegTrip(simulation);
-  assertTrue(candidate !== null, "synthetic 2-leg trip");
-  if (!candidate) {
-    simulation.tradeManager.dispose();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = requireSyntheticTwoLegTrip(simulation);
 
   startTrip(ship, legs, simulation.tradeManager);
 
   // Count actions by type. Pin the structure that distinguishes 2-leg from 1-leg:
   // a 2-leg trip has cargo-deposits at BOTH home and target (one for each leg's
   // toStation). A 1-leg trip has only one of them.
-  let homeDeposits = 0;
-  let targetDeposits = 0;
-  let homeWithdrawals = 0;
-  let targetWithdrawals = 0;
-  for (const action of ship.actionQueue) {
-    if (action.type === "cargo-deposit") {
-      if (action.station.id === ship.homeStationId) homeDeposits++;
-      else targetDeposits++;
-    }
-    if (action.type === "cargo-withdrawal") {
-      if (action.station.id === ship.homeStationId) homeWithdrawals++;
-      else targetWithdrawals++;
-    }
-  }
-  assertEqual(homeWithdrawals, 1, "leg 0 fromStation=home → 1 home withdrawal");
-  assertEqual(targetDeposits, 1, "leg 0 toStation=target → 1 target deposit");
-  assertEqual(targetWithdrawals, 1, "leg 1 fromStation=target → 1 target withdrawal");
-  assertEqual(homeDeposits, 1, "leg 1 toStation=home → 1 home deposit");
+  const counts = countCargoActionsByStation(ship);
+  assertEqual(counts.homeWithdrawals, 1, "leg 0 fromStation=home → 1 home withdrawal");
+  assertEqual(counts.targetDeposits, 1, "leg 0 toStation=target → 1 target deposit");
+  assertEqual(counts.targetWithdrawals, 1, "leg 1 fromStation=target → 1 target withdrawal");
+  assertEqual(counts.homeDeposits, 1, "leg 1 toStation=home → 1 home deposit");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("startTrip: reservedOutgoing/reservedIncoming counters bump on stations at trip start", () => {
   const simulation = createSettledSimulation();
-  const candidate = findShipWithNaturalTrip(simulation);
-  assertTrue(candidate !== null, "natural trip available");
-  if (!candidate) {
-    simulation.tradeManager.dispose();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = requireNaturalTrip(simulation);
 
   const sourceSlot = assertNotUndefined(getInventorySlot(legs[0].fromStation, legs[0].wareId), "source slot");
   const destinationSlot = assertNotUndefined(
@@ -168,20 +151,14 @@ test("startTrip: reservedOutgoing/reservedIncoming counters bump on stations at 
     "destination slot reservedIncoming bumped by leg amount",
   );
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("trade-transfer observers fire with correct cargoDirection (outgoing at source, incoming at dest)", () => {
   // Source emits "outgoing" event when the ship withdraws; destination emits
-  // "incoming" event when the ship deposits. Pin the cargoDirection invariant.
+  // "incoming" event when the ship deposits. Pin the cargoDirection rule.
   const simulation = createSettledSimulation();
-  const candidate = findShipWithNaturalTrip(simulation);
-  assertTrue(candidate !== null, "natural trip");
-  if (!candidate) {
-    simulation.tradeManager.dispose();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = requireNaturalTrip(simulation);
 
   const events: TradeTransferEvent[] = [];
   const unsubscribe = simulation.tradeManager.addTradeTransferObserver((event) => {
@@ -196,7 +173,7 @@ test("trade-transfer observers fire with correct cargoDirection (outgoing at sou
 
   unsubscribe();
 
-  // Pin the cargoDirection invariant. Mutating the deposit observer's
+  // Pin the cargoDirection rule. Mutating the deposit observer's
   // cargoDirection from "incoming" to "outgoing" would invert direction
   // counters everywhere downstream.
   let outgoingCount = 0;
@@ -208,18 +185,12 @@ test("trade-transfer observers fire with correct cargoDirection (outgoing at sou
   assertTrue(outgoingCount >= 1, "at least one outgoing transfer (cargo loaded at source)");
   assertTrue(incomingCount >= 1, "at least one incoming transfer (cargo delivered at dest)");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("trip end-to-end: ship cargo drained and original reservation cleared", () => {
   const simulation = createSettledSimulation();
-  const candidate = findShipWithNaturalTrip(simulation);
-  assertTrue(candidate !== null, "natural trip");
-  if (!candidate) {
-    simulation.tradeManager.dispose();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = requireNaturalTrip(simulation);
 
   startTrip(ship, legs, simulation.tradeManager);
 
@@ -246,18 +217,12 @@ test("trip end-to-end: ship cargo drained and original reservation cleared", () 
   }
   assertEqual(stillReserved, false, "leg 0 outgoing reservation cleared");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("2-leg trip: per-ware reservations stay isolated to their station/direction (no cross-ware leakage)", () => {
   const simulation = createSettledSimulation();
-  const candidate = createSyntheticTwoLegTrip(simulation);
-  assertTrue(candidate !== null, "synthetic 2-leg trip");
-  if (!candidate) {
-    simulation.tradeManager.dispose();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = requireSyntheticTwoLegTrip(simulation);
 
   // Pin per-ware reservation isolation. After startTrip:
   //   - medicine: outgoing on BIO-M (home), incoming on BIO-H (target)
@@ -287,19 +252,13 @@ test("2-leg trip: per-ware reservations stay isolated to their station/direction
     "trip didn't add incoming on home medicine (would be wrong direction)",
   );
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("startTrip: tradeDirection is 'sell' when first leg starts at home, 'buy' otherwise", () => {
   // Pin the tradeDirection ternary in startTrip.
   const simulation = createSettledSimulation();
-  const candidate = findShipWithNaturalTrip(simulation);
-  assertTrue(candidate !== null, "natural trip");
-  if (!candidate) {
-    simulation.tradeManager.dispose();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = requireNaturalTrip(simulation);
 
   startTrip(ship, legs, simulation.tradeManager);
 
@@ -313,7 +272,7 @@ test("startTrip: tradeDirection is 'sell' when first leg starts at home, 'buy' o
     legs[0].fromStation.id === ship.homeStationId ? legs[0].toStation.id : legs[0].fromStation.id;
   assertEqual(ship.targetStationId, expectedTarget, "targetStationId is the non-home end of leg 0");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("queue ends with an orbit-at-home local hop (ship lands in orbit, not on the surface)", () => {
@@ -321,25 +280,20 @@ test("queue ends with an orbit-at-home local hop (ship lands in orbit, not on th
   // park ships on the surface — visible at game level as idle ships drawn on
   // station bodies.
   const simulation = createSettledSimulation();
-  const candidate = findShipWithNaturalTrip(simulation);
-  assertTrue(candidate !== null, "natural trip");
-  if (!candidate) {
-    simulation.tradeManager.dispose();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = requireNaturalTrip(simulation);
 
   startTrip(ship, legs, simulation.tradeManager);
 
-  const lastAction = ship.actionQueue[ship.actionQueue.length - 1];
-  assertEqual(lastAction.type, "fly", "last action is a fly hop");
-  if (lastAction.type === "fly") {
-    assertEqual(lastAction.destination.stationId, ship.homeStationId, "last hop ends at home");
-    assertEqual(lastAction.destination.surfaceOrOrbit, "orbit", "last hop ends in orbit");
-    assertEqual(lastAction.travelMode, "local", "last hop is a local maneuver");
-  }
+  const lastFly = assertActionType(
+    ship.actionQueue[ship.actionQueue.length - 1],
+    "fly",
+    "last action is a fly hop",
+  );
+  assertEqual(lastFly.destination.stationId, ship.homeStationId, "last hop ends at home");
+  assertEqual(lastFly.destination.surfaceOrOrbit, "orbit", "last hop ends in orbit");
+  assertEqual(lastFly.travelMode, "local", "last hop is a local maneuver");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("queue contains exactly 2 inter-station fly actions (home→target and target→home)", () => {
@@ -348,13 +302,7 @@ test("queue contains exactly 2 inter-station fly actions (home→target and targ
   // stranded at the target; swapping the return-flight's source/destination
   // would route it the wrong direction and never bring the ship home.
   const simulation = createSettledSimulation();
-  const candidate = findShipWithNaturalTrip(simulation);
-  assertTrue(candidate !== null, "natural trip");
-  if (!candidate) {
-    simulation.tradeManager.dispose();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = requireNaturalTrip(simulation);
   const home = legs[0].fromStation.id === ship.homeStationId ? legs[0].fromStation : legs[0].toStation;
   const target = legs[0].fromStation.id === ship.homeStationId ? legs[0].toStation : legs[0].fromStation;
 
@@ -375,7 +323,7 @@ test("queue contains exactly 2 inter-station fly actions (home→target and targ
   assertEqual(interStationFlights[1].from, target.id, "second inter-station fly starts at target");
   assertEqual(interStationFlights[1].to, home.id, "second inter-station fly ends at home");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("save mid-flight: ship.flight survives roundtrip and the queue tail remains intact", () => {
@@ -383,15 +331,9 @@ test("save mid-flight: ship.flight survives roundtrip and the queue tail remains
   // Full save/load roundtrip is exercised in savegame-snapshot.test.ts; here
   // we pin the mid-flight observable shape that a snapshot captures.
   const simulation = createSettledSimulation();
-  const candidate = findShipWithNaturalTrip(simulation);
-  assertTrue(candidate !== null, "natural trip");
-  if (!candidate) {
-    simulation.tradeManager.dispose();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = requireNaturalTrip(simulation);
   if (legs.length === 0) {
-    simulation.tradeManager.dispose();
+    simulation.tradeManager.destroy();
     return;
   }
 
@@ -413,7 +355,7 @@ test("save mid-flight: ship.flight survives roundtrip and the queue tail remains
   assertTrue(["departing", "hyperjump", "arriving"].includes(flight.phase), "flight phase is non-complete");
   assertTrue(ship.actionQueue.length > 0, "queue tail remains for post-flight steps");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("queue handles 1-leg trips: home dock → withdrawal → fly → target dock → deposit → fly → orbit home", () => {
@@ -421,45 +363,26 @@ test("queue handles 1-leg trips: home dock → withdrawal → fly → target doc
   // backhaul leg doesn't exist. Pin that the queue still has all the right
   // pieces: one home withdrawal, one target deposit, no home deposit.
   const simulation = createSettledSimulation();
-  const candidate = findShipWithNaturalTrip(simulation);
-  assertTrue(candidate !== null, "natural trip");
-  if (!candidate) {
-    simulation.tradeManager.dispose();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = requireNaturalTrip(simulation);
   if (legs.length !== 1) {
     // Skip if the natural trip happens to be 2-leg (currently impossible with
     // current data, but future-proof).
-    simulation.tradeManager.dispose();
+    simulation.tradeManager.destroy();
     return;
   }
 
   startTrip(ship, legs, simulation.tradeManager);
 
-  let homeDeposits = 0;
-  let targetDeposits = 0;
-  let homeWithdrawals = 0;
-  let targetWithdrawals = 0;
-  for (const action of ship.actionQueue) {
-    if (action.type === "cargo-deposit") {
-      if (action.station.id === ship.homeStationId) homeDeposits++;
-      else targetDeposits++;
-    }
-    if (action.type === "cargo-withdrawal") {
-      if (action.station.id === ship.homeStationId) homeWithdrawals++;
-      else targetWithdrawals++;
-    }
-  }
+  const counts = countCargoActionsByStation(ship);
   // 1-leg sell trip: home produces, target consumes.
   // Expected: homeWithdrawal=1, targetDeposit=1, no targetWithdrawal, no homeDeposit.
   // 1-leg buy trip: target produces, home consumes.
   // Expected: targetWithdrawal=1, homeDeposit=1, no homeWithdrawal, no targetDeposit.
   // Either way, exactly one withdrawal and one deposit total.
-  assertEqual(homeWithdrawals + targetWithdrawals, 1, "1-leg trip has exactly 1 withdrawal");
-  assertEqual(homeDeposits + targetDeposits, 1, "1-leg trip has exactly 1 deposit");
+  assertEqual(counts.homeWithdrawals + counts.targetWithdrawals, 1, "1-leg trip has exactly 1 withdrawal");
+  assertEqual(counts.homeDeposits + counts.targetDeposits, 1, "1-leg trip has exactly 1 deposit");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("1-leg sell trip: no trailing home-dock wait when there are no home deposits", () => {
@@ -469,16 +392,12 @@ test("1-leg sell trip: no trailing home-dock wait when there are no home deposit
   // last action before the orbit hop should be the return-flight fly, not
   // a wait.
   const simulation = createSettledSimulation();
-  let candidate: { ship: TradeShip; legs: TradeTripLeg[] } | null = null;
-  for (const ship of simulation.tradeManager.tradeShips) {
-    const legs = findRoundTradeTrip(ship, simulation.tradeManager);
-    if (legs && legs.length === 1 && legs[0].fromStation.id === ship.homeStationId) {
-      candidate = { ship, legs };
-      break;
-    }
-  }
+  const candidate = findShipWithRoundTrip(
+    simulation,
+    (ship, legs) => legs.length === 1 && legs[0].fromStation.id === ship.homeStationId,
+  );
   if (!candidate) {
-    simulation.tradeManager.dispose();
+    simulation.tradeManager.destroy();
     return;
   }
   const { ship, legs } = candidate;
@@ -489,13 +408,14 @@ test("1-leg sell trip: no trailing home-dock wait when there are no home deposit
   // inter-station return fly — NOT a Dock: home wait that would only appear
   // when buckets.homeDeposits.length > 0.
   const queue = ship.actionQueue;
-  const penultimate = queue[queue.length - 2];
-  assertEqual(penultimate.type, "fly", "penultimate action is a fly (no spurious home dock-wait at tail)");
-  if (penultimate.type === "fly") {
-    assertEqual(penultimate.travelMode, "interStation", "penultimate fly is the return inter-station hop");
-  }
+  const penultimateFly = assertActionType(
+    queue[queue.length - 2],
+    "fly",
+    "penultimate action is a fly (no spurious home dock-wait at tail)",
+  );
+  assertEqual(penultimateFly.travelMode, "interStation", "penultimate fly is the return inter-station hop");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("1-leg buy trip: outbound fly leaves from orbit (no home cargo to load → no surface dock at home)", () => {
@@ -506,16 +426,12 @@ test("1-leg buy trip: outbound fly leaves from orbit (no home cargo to load → 
   // where the queue must skip the home landing.
   const simulation = createSettledSimulation();
   // Find a ship whose natural trip is a 1-leg buy (target → home).
-  let candidate: { ship: TradeShip; legs: TradeTripLeg[] } | null = null;
-  for (const ship of simulation.tradeManager.tradeShips) {
-    const legs = findRoundTradeTrip(ship, simulation.tradeManager);
-    if (legs && legs.length === 1 && legs[0].fromStation.id !== ship.homeStationId) {
-      candidate = { ship, legs };
-      break;
-    }
-  }
+  const candidate = findShipWithRoundTrip(
+    simulation,
+    (ship, legs) => legs.length === 1 && legs[0].fromStation.id !== ship.homeStationId,
+  );
   if (!candidate) {
-    simulation.tradeManager.dispose();
+    simulation.tradeManager.destroy();
     return;
   }
   const { ship, legs } = candidate;
@@ -541,7 +457,7 @@ test("1-leg buy trip: outbound fly leaves from orbit (no home cargo to load → 
     assertEqual(firstInterStationFly.origin.stationId, ship.homeStationId, "outbound fly leaves from home");
   }
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("Simulation.tick: drives economy production — counter on a non-zero-offset station advances", () => {
@@ -571,5 +487,5 @@ test("Simulation.tick: drives economy production — counter on a non-zero-offse
     `tick advances station counter by 0.1s (was ${offsetBefore}, now ${offsetAfter})`,
   );
 
-  simulation.dispose();
+  simulation.destroy();
 });

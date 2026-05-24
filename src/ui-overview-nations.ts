@@ -11,6 +11,7 @@ import type { Nation } from "./sim-nation";
 import { getStationHudIcon, getSectorHudIcon } from "./render-hud-icon";
 import { morseBarGradient } from "./render-morse-bar";
 import { escapeHtml } from "./util-html-escape";
+import { clamp01 } from "./util-clamp";
 import { formatHoursMinutesSeconds } from "./render-elapsed-time-label";
 import { setHtmlIfChanged } from "./ui-dom-cache";
 
@@ -77,7 +78,7 @@ interface NationsCardPane {
 function createNationsCardPane(
   tabNations: Nation[],
   initialActiveNationId: string,
-  dependencies: NationsPaneContext,
+  context: NationsPaneContext,
 ): NationsCardPane {
   const cardsContainer = document.createElement("div");
   cardsContainer.className = "nations-pane-cards";
@@ -95,7 +96,7 @@ function createNationsCardPane(
     for (const nation of tabNations) {
       const card = cardsByNationId.get(nation.id);
       if (!card) continue;
-      updateCardContent(card, nation, dependencies);
+      updateCardContent(card, nation, context);
     }
   };
   return { root: cardsContainer, setActive, update };
@@ -159,7 +160,7 @@ function createEmptyNationCard(nation: Nation): HTMLElement {
     <div class="id-header">
       <div class="id-title">
         <div class="id-name">${escapeHtml(nation.name)}</div>
-        <div class="nation-desire">${renderNationDesire(nation.desire)}</div>
+        <div class="nation-desire">${nationDesireHtml(nation.desire)}</div>
       </div>
       <div class="icon-code">
         <div class="id-seal" data-seal="nation-${nation.id}"></div>
@@ -182,8 +183,8 @@ function createEmptyNationCard(nation: Nation): HTMLElement {
   return card;
 }
 
-function updateCardContent(card: HTMLElement, nation: Nation, dependencies: NationsPaneContext): void {
-  const { nationManager, emigrationManager, stationManager, sectorNameByZoneId } = dependencies;
+function updateCardContent(card: HTMLElement, nation: Nation, context: NationsPaneContext): void {
+  const { emigrationManager, stationManager } = context;
   const stats = card.querySelector<HTMLElement>('[data-role="stats"]');
   const activity = card.querySelector<HTMLElement>('[data-role="activity"]');
 
@@ -193,33 +194,29 @@ function updateCardContent(card: HTMLElement, nation: Nation, dependencies: Nati
   if (nation.id === "way") {
     setHtmlIfChanged(activity, wayActivityHtml(emigrationManager));
   } else {
-    setHtmlIfChanged(
-      activity,
-      buildingActivityHtml({ nation, nationManager, stationManager, sectorNameByZoneId }),
-    );
+    setHtmlIfChanged(activity, buildingActivityHtml(nation, context));
   }
 }
 
-/** Render a nation's desire field — verb in bold, object in plain text. */
-function renderNationDesire(desire: { verb: string; object: string }): string {
+function nationDesireHtml(desire: { verb: string; object: string }): string {
   return `<b>${escapeHtml(desire.verb)}</b> ${escapeHtml(desire.object)}`;
 }
 
 /** Two-pill stats line — primary station-type count + total station count. WAY's primary is its generational ship, so the line reads "Generational Ships: N · Stations: N". */
 function statsHtml(nation: Nation, stationManager: StationManager): string {
   const primaryType = nation.primaryBuildableStationTypeId;
-  const stationsForNation = stationManager.getStations().filter((station) => station.nation.id === nation.id);
+  const stationsForNation = stationManager.getStationsForNation(nation.id);
   const totalCount = stationsForNation.length;
   const primaryCount = stationsForNation.filter((station) => station.stationType.id === primaryType).length;
   const primaryName = getStationTypeTemplate(primaryType).namePlural;
   return `${escapeHtml(primaryName)}: <span class="pill-cyan">${primaryCount}</span><span class="sep">·</span>Stations: <span class="pill-gold">${totalCount}</span>`;
 }
 
-/** Cooldown countdown row for WAY — shown when no generational ship is docked and no event is active. Two other states (event in progress, ship docked between events) are rendered by wayActivityHtml above this. */
+/** Countdown row for WAY — shown when no generational ship is docked and no event is active. The other two states (emigration in progress; ship docked between events) are rendered inline by wayActivityHtml before it falls through to this function. */
 function wayCountdownHtml(emigrationManager: EmigrationManager): string {
   const totalGap = emigrationManager.getPostJumpGapSeconds();
   const secondsRemaining = Math.ceil(emigrationManager.getSecondsUntilNextGenerationalShip());
-  const progress = totalGap > 0 ? Math.max(0, Math.min(1, 1 - secondsRemaining / totalGap)) : 0;
+  const progress = totalGap > 0 ? clamp01(1 - secondsRemaining / totalGap) : 0;
   const percent = Math.floor(progress * 100);
   return `
     <div class="cargo-row">
@@ -263,15 +260,8 @@ function buildProgressPercent(buildStation: Station): number {
   return Math.floor(((provisionsProgress + hullsProgress) / 2) * 100);
 }
 
-interface BuildingActivityContext {
-  nation: Nation;
-  nationManager: NationManager;
-  stationManager: StationManager;
-  sectorNameByZoneId: Map<string, string>;
-}
-
-function buildingActivityHtml(context: BuildingActivityContext): string {
-  const { nation, nationManager, stationManager, sectorNameByZoneId } = context;
+function buildingActivityHtml(nation: Nation, context: NationsPaneContext): string {
+  const { nationManager, stationManager, sectorNameByZoneId } = context;
   const currentBuildStationId = nationManager.getCurrentBuildStationId(nation.id);
   const buildStation = currentBuildStationId ? stationManager.getStation(currentBuildStationId) : null;
   if (!buildStation || !buildStation.build) {

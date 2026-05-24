@@ -7,15 +7,17 @@ import type { Scene } from "phaser";
 import type { WareId } from "../../data/ware-types";
 import { overviewTradeVisuals } from "../../data/visuals-overview";
 import { Layer } from "../../data/visuals-layers";
-import { MONO_FONT_FAMILY } from "./text-styles";
+import { monoFontFamily } from "../../data/visuals-text";
+import { formatTradeMagnitude } from "../util-quantity-format";
 
 // Arrow head geometry scales with line stroke so the head stays proportional.
-const ARROW_LENGTH = overviewTradeVisuals.lineStroke * overviewTradeVisuals.arrowLengthMultiplier;
-const ARROW_HALF_WIDTH = overviewTradeVisuals.lineStroke * overviewTradeVisuals.arrowHalfWidthMultiplier;
+const ARROW_LENGTH_PIXELS = overviewTradeVisuals.lineStroke * overviewTradeVisuals.arrowLengthMultiplier;
+const ARROW_HALF_WIDTH_PIXELS =
+  overviewTradeVisuals.lineStroke * overviewTradeVisuals.arrowHalfWidthMultiplier;
 
 /** "none" suppresses the green overlay and green station rings; baseline lines still render. */
 export type WareSelection = WareId | "none";
-export const NONE: WareSelection = "none";
+export const NONE = "none";
 
 export interface StationPosition {
   id: string;
@@ -39,7 +41,6 @@ export interface TradeRouteRender {
     stationById: Map<string, StationPosition>,
   ): void;
   setVisible(visible: boolean): void;
-  clear(): void;
   destroy(): void;
 }
 
@@ -51,9 +52,7 @@ interface LabelSlot {
 
 function formatShipmentLabel(activity: number): string | null {
   if (activity < 0.05) return null;
-  // Under 10, show one decimal — the tenths matter at low volumes (2.3 vs 2.7).
-  // ≥10 rounds to an integer.
-  const formatted = activity < 10 ? activity.toFixed(1) : String(Math.round(activity));
+  const formatted = formatTradeMagnitude(activity);
   return `${formatted} shipment${Number(formatted) === 1 ? "" : "s"}`;
 }
 
@@ -129,14 +128,6 @@ interface LineSegment {
   endY: number;
 }
 
-interface ArrowGeometry {
-  tipX: number;
-  tipY: number;
-  /** Unit vector pointing from the line tail toward the tip. */
-  directionX: number;
-  directionY: number;
-}
-
 /** Stepped sub-segments give the alpha gradient that brightens into the destination ring, encoding trade direction. `alphaMultiplier` scales the whole gradient (1 = full; <1 dims, e.g. baseline lines while a ware is selected). */
 function drawGradientLine(
   linesGraphics: Phaser.GameObjects.Graphics,
@@ -150,15 +141,16 @@ function drawGradientLine(
   const alphaMin = overviewTradeVisuals.lineAlphaProducer;
   const alphaMax = overviewTradeVisuals.lineAlphaConsumer;
   for (let i = 0; i < segments; i++) {
-    const t0 = i / segments;
-    const t1 = (i + 1) / segments;
-    const alpha = (alphaMin + (alphaMax - alphaMin) * ((t0 + t1) / 2)) * alphaMultiplier;
+    const fractionStart = i / segments;
+    const fractionEnd = (i + 1) / segments;
+    const alpha =
+      (alphaMin + (alphaMax - alphaMin) * ((fractionStart + fractionEnd) / 2)) * alphaMultiplier;
     linesGraphics.lineStyle(overviewTradeVisuals.lineStroke, color, alpha);
     linesGraphics.lineBetween(
-      segment.startX + segmentDeltaX * t0,
-      segment.startY + segmentDeltaY * t0,
-      segment.startX + segmentDeltaX * t1,
-      segment.startY + segmentDeltaY * t1,
+      segment.startX + segmentDeltaX * fractionStart,
+      segment.startY + segmentDeltaY * fractionStart,
+      segment.startX + segmentDeltaX * fractionEnd,
+      segment.startY + segmentDeltaY * fractionEnd,
     );
   }
 }
@@ -166,20 +158,25 @@ function drawGradientLine(
 /** Filled triangle at the consumer end: tip at (tipX, tipY) along (directionX, directionY); back edge perpendicular at ARROW_LENGTH. `alphaMultiplier` matches the line it caps (1 = full; <1 dims). */
 function drawArrowHead(
   linesGraphics: Phaser.GameObjects.Graphics,
-  arrow: ArrowGeometry,
+  segment: LineSegment,
+  lineGeometry: RouteLineGeometry,
   color: number,
   alphaMultiplier: number,
 ): void {
-  const px = -arrow.directionY,
-    py = arrow.directionX;
-  const baseX = arrow.tipX - arrow.directionX * ARROW_LENGTH;
-  const baseY = arrow.tipY - arrow.directionY * ARROW_LENGTH;
-  const leftX = baseX + px * ARROW_HALF_WIDTH;
-  const leftY = baseY + py * ARROW_HALF_WIDTH;
-  const rightX = baseX - px * ARROW_HALF_WIDTH;
-  const rightY = baseY - py * ARROW_HALF_WIDTH;
+  const tipX = segment.endX,
+    tipY = segment.endY;
+  const directionX = lineGeometry.unitX,
+    directionY = lineGeometry.unitY;
+  const perpendicularX = -directionY,
+    perpendicularY = directionX;
+  const baseX = tipX - directionX * ARROW_LENGTH_PIXELS;
+  const baseY = tipY - directionY * ARROW_LENGTH_PIXELS;
+  const leftX = baseX + perpendicularX * ARROW_HALF_WIDTH_PIXELS;
+  const leftY = baseY + perpendicularY * ARROW_HALF_WIDTH_PIXELS;
+  const rightX = baseX - perpendicularX * ARROW_HALF_WIDTH_PIXELS;
+  const rightY = baseY - perpendicularY * ARROW_HALF_WIDTH_PIXELS;
   linesGraphics.fillStyle(color, overviewTradeVisuals.arrowHeadAlpha * alphaMultiplier);
-  linesGraphics.fillTriangle(arrow.tipX, arrow.tipY, leftX, leftY, rightX, rightY);
+  linesGraphics.fillTriangle(tipX, tipY, leftX, leftY, rightX, rightY);
 }
 
 /** Compute the parallel-line offset for the i-th ware out of `wareCount` lanes on a route. */
@@ -218,12 +215,8 @@ function drawBaselineRoutes(
       drawGradientLine(linesGraphics, segment, overviewTradeVisuals.baselineLineRgb, alphaMultiplier);
       drawArrowHead(
         linesGraphics,
-        {
-          tipX: segment.endX,
-          tipY: segment.endY,
-          directionX: lineGeometry.unitX,
-          directionY: lineGeometry.unitY,
-        },
+        segment,
+        lineGeometry,
         overviewTradeVisuals.baselineLineRgb,
         alphaMultiplier,
       );
@@ -259,17 +252,7 @@ function drawHighlightedRoutes(
     if (lineGeometry === null) continue;
     const segment = offsetLineEndpoints(lineGeometry, laneIndex);
     drawGradientLine(linesGraphics, segment, overviewTradeVisuals.accentRgb, 1);
-    drawArrowHead(
-      linesGraphics,
-      {
-        tipX: segment.endX,
-        tipY: segment.endY,
-        directionX: lineGeometry.unitX,
-        directionY: lineGeometry.unitY,
-      },
-      overviewTradeVisuals.accentRgb,
-      1,
-    );
+    drawArrowHead(linesGraphics, segment, lineGeometry, overviewTradeVisuals.accentRgb, 1);
   }
 }
 
@@ -327,13 +310,12 @@ interface LabelBox {
 interface LabelPool {
   acquire(): LabelSlot;
   /** Pretend the most recently acquired slot was never acquired — used when the caller rejects a placement. */
-  unacquireLast(slot: LabelSlot): void;
+  releaseLast(slot: LabelSlot): void;
   hideUnused(): void;
   clearAll(): void;
   destroy(): void;
 }
 
-/** Builds the label-slot pool plus its acquire/release/cleanup methods. */
 function createLabelPool(scene: Scene): LabelPool {
   // Pool grows monotonically; excess slots hidden between redraws.
   const labelPool: LabelSlot[] = [];
@@ -349,7 +331,7 @@ function createLabelPool(scene: Scene): LabelPool {
     const background = scene.add.graphics();
     background.setDepth(Layer.TradeRouteLabelBackground);
     const text = scene.add.text(0, 0, "", {
-      fontFamily: MONO_FONT_FAMILY,
+      fontFamily: monoFontFamily,
       fontSize: `${overviewTradeVisuals.tradeLabelFontPixels}px`,
       color: "#000000",
       fontStyle: "bold",
@@ -362,7 +344,7 @@ function createLabelPool(scene: Scene): LabelPool {
     return slot;
   }
 
-  function unacquireLast(slot: LabelSlot): void {
+  function releaseLast(slot: LabelSlot): void {
     activeLabelCount--;
     slot.background.setVisible(false);
     slot.text.setVisible(false);
@@ -393,7 +375,7 @@ function createLabelPool(scene: Scene): LabelPool {
     activeLabelCount = 0;
   }
 
-  return { acquire, unacquireLast, hideUnused, clearAll, destroy };
+  return { acquire, releaseLast, hideUnused, clearAll, destroy };
 }
 
 function placeLabel(pool: LabelPool, candidate: LabelCandidate, placedBoxes: LabelBox[]): void {
@@ -411,7 +393,7 @@ function placeLabel(pool: LabelPool, candidate: LabelCandidate, placedBoxes: Lab
       left < placedBox.right && right > placedBox.left && top < placedBox.bottom && bottom > placedBox.top,
   );
   if (overlaps) {
-    pool.unacquireLast(slot);
+    pool.releaseLast(slot);
     return;
   }
   slot.background.clear();
@@ -464,7 +446,7 @@ export function createTradeRouteRender(scene: Scene): TradeRouteRender {
   ): void {
     clear();
 
-    const highlightWare = selectedWare === NONE ? null : (selectedWare as WareId);
+    const highlightWare = selectedWare === NONE ? null : selectedWare;
     const { greenStations, greenRouteKeys } = computeGreenSelectionSets(routes, highlightWare);
 
     // Dim the gray baseline only while a ware is selected, so the green accent
@@ -490,5 +472,5 @@ export function createTradeRouteRender(scene: Scene): TradeRouteRender {
     labelPool.destroy();
   }
 
-  return { redraw, setVisible, clear, destroy };
+  return { redraw, setVisible, destroy };
 }

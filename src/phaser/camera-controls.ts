@@ -2,29 +2,24 @@ import * as Phaser from "phaser";
 import {
   cameraMinZoomPhaserClamp,
   cameraMaxZoomPhaserClamp,
-  cameraZoomLevelMin,
-  cameraZoomLevelMax,
+  cameraZoomLevelSpan,
   cameraWheelZoomLevelStep,
   cameraDragFriction,
 } from "../../data/controls-camera";
 
-const wheelInternalStep =
+const wheelPhaserZoomStep =
   (cameraWheelZoomLevelStep * (cameraMaxZoomPhaserClamp - cameraMinZoomPhaserClamp)) /
-  (cameraZoomLevelMax - cameraZoomLevelMin);
+  cameraZoomLevelSpan;
 
 export interface CameraControlsConfig {
-  minZoom?: number;
-  maxZoom?: number;
-  zoomStep?: number;
-  /** 0-1 velocity multiplier per frame after release; lower = longer glide. */
-  friction?: number;
+  minPhaserZoom?: number;
   onZoom?: () => void;
 }
 
 export interface CameraControlsHandle {
   destroy(): void;
   setEnabled(enabled: boolean): void;
-  setMinZoom(min: number): void;
+  setMinPhaserZoom(minPhaserZoom: number): void;
 }
 
 /** Map-space rectangle defining scroll limits. */
@@ -35,13 +30,6 @@ export interface ScrollBounds {
   maxY: number;
 }
 
-const defaults: Omit<Required<CameraControlsConfig>, "onZoom"> = {
-  minZoom: cameraMinZoomPhaserClamp,
-  maxZoom: cameraMaxZoomPhaserClamp,
-  zoomStep: wheelInternalStep,
-  friction: cameraDragFriction,
-};
-
 interface DragState {
   velocityX: number;
   velocityY: number;
@@ -51,7 +39,7 @@ interface DragState {
 }
 
 interface PinchState {
-  lastPinchDistance: number;
+  lastPinchDistancePixels: number;
 }
 
 interface PinchZoomHandlers {
@@ -60,16 +48,17 @@ interface PinchZoomHandlers {
   onPointerUp: () => void;
 }
 
-type ResolvedCameraOptions = Required<Omit<CameraControlsConfig, "onZoom">> & {
-  onZoom?: () => void;
-};
-
 interface CameraControlsContext {
   scene: Phaser.Scene;
   camera: Phaser.Cameras.Scene2D.Camera;
   clampCamera: () => void;
   isEnabled: () => boolean;
-  options: ResolvedCameraOptions;
+  options: ResolvedCameraControlsConfig;
+}
+
+interface ResolvedCameraControlsConfig {
+  minPhaserZoom: number;
+  onZoom?: () => void;
 }
 
 export function setupCameraControls(
@@ -77,11 +66,14 @@ export function setupCameraControls(
   bounds: ScrollBounds,
   config: CameraControlsConfig = {},
 ): CameraControlsHandle {
-  const options: ResolvedCameraOptions = { ...defaults, ...config };
+  const options: ResolvedCameraControlsConfig = {
+    minPhaserZoom: config.minPhaserZoom ?? cameraMinZoomPhaserClamp,
+    onZoom: config.onZoom,
+  };
   const camera = scene.cameras.main;
   let enabled = true;
   const dragState: DragState = { velocityX: 0, velocityY: 0, lastX: 0, lastY: 0, dragging: false };
-  const pinchState: PinchState = { lastPinchDistance: 0 };
+  const pinchState: PinchState = { lastPinchDistancePixels: 0 };
 
   // Phaser only allocates one pointer by default; pinch-to-zoom needs the second touch.
   scene.input.addPointer(1);
@@ -107,10 +99,10 @@ export function setupCameraControls(
       enabled = nextEnabled;
       resetDragState(dragState);
     },
-    setMinZoom(min: number) {
-      options.minZoom = min;
-      if (camera.zoom < min) {
-        camera.zoom = min;
+    setMinPhaserZoom(minPhaserZoom: number) {
+      options.minPhaserZoom = minPhaserZoom;
+      if (camera.zoom < minPhaserZoom) {
+        camera.zoom = minPhaserZoom;
         clampCamera();
         options.onZoom?.();
       }
@@ -119,8 +111,9 @@ export function setupCameraControls(
 }
 
 /**
- * Build a clamp function that keeps the grid edge at screen center but no further.
- * Phaser 4 world center = scrollX + width/2 (zoom-independent) — DO NOT divide by zoom.
+ * Returns a clamp function that constrains scrollX/scrollY to `bounds` using
+ * Phaser 4's zoom-independent formula: worldCenter = scrollX + width/2.
+ * Dividing by zoom here would misplace the limit at every zoom level.
  */
 function createCameraClamper(camera: Phaser.Cameras.Scene2D.Camera, bounds: ScrollBounds): () => void {
   return () => {
@@ -144,11 +137,11 @@ function updateDragPan(
   context: CameraControlsContext,
   dragState: DragState,
 ): void {
-  const isDown = pointer.isDown && !context.scene.input.pointer2?.isDown;
-  if (isDown && context.isEnabled()) {
+  const panActiveThisFrame = pointer.isDown && !context.scene.input.pointer2?.isDown;
+  if (panActiveThisFrame && context.isEnabled()) {
     applyDragMotion(pointer, context.camera, dragState);
   } else {
-    applyInertiaGlide(context.camera, context.options.friction, dragState);
+    applyInertiaGlide(context.camera, dragState);
   }
   context.clampCamera();
 }
@@ -177,17 +170,13 @@ function applyDragMotion(
   dragState.lastY = pointer.y;
 }
 
-function applyInertiaGlide(
-  camera: Phaser.Cameras.Scene2D.Camera,
-  friction: number,
-  dragState: DragState,
-): void {
+function applyInertiaGlide(camera: Phaser.Cameras.Scene2D.Camera, dragState: DragState): void {
   dragState.dragging = false;
   if (Math.abs(dragState.velocityX) > 0.1 || Math.abs(dragState.velocityY) > 0.1) {
     camera.scrollX -= dragState.velocityX;
     camera.scrollY -= dragState.velocityY;
-    dragState.velocityX *= friction;
-    dragState.velocityY *= friction;
+    dragState.velocityX *= cameraDragFriction;
+    dragState.velocityY *= cameraDragFriction;
   } else {
     dragState.velocityX = 0;
     dragState.velocityY = 0;
@@ -210,7 +199,6 @@ function attachDragPanToSceneUpdate(context: CameraControlsContext, dragState: D
   };
 }
 
-/** Returns a detach function that removes the wheel listener. */
 function setupWheelZoom(context: CameraControlsContext): () => void {
   const { scene, camera, clampCamera, options } = context;
   const onWheel = (
@@ -220,8 +208,8 @@ function setupWheelZoom(context: CameraControlsContext): () => void {
     deltaY: number,
   ) => {
     if (!context.isEnabled()) return;
-    const newZoom = camera.zoom - Math.sign(deltaY) * options.zoomStep;
-    camera.zoom = Phaser.Math.Clamp(newZoom, options.minZoom, options.maxZoom);
+    const newZoom = camera.zoom - Math.sign(deltaY) * wheelPhaserZoomStep;
+    camera.zoom = Phaser.Math.Clamp(newZoom, options.minPhaserZoom, cameraMaxZoomPhaserClamp);
     clampCamera();
     options.onZoom?.();
   };
@@ -229,7 +217,6 @@ function setupWheelZoom(context: CameraControlsContext): () => void {
   return () => scene.input.off("wheel", onWheel);
 }
 
-/** Returns a detach function that removes the three pointer listeners. */
 function setupPinchZoom(context: CameraControlsContext, pinchState: PinchState): () => void {
   const { scene, camera, clampCamera, options } = context;
   const handlers: PinchZoomHandlers = {
@@ -237,7 +224,7 @@ function setupPinchZoom(context: CameraControlsContext, pinchState: PinchState):
       const pointer1 = scene.input.pointer1;
       const pointer2 = scene.input.pointer2;
       if (pointer1.isDown && pointer2.isDown) {
-        pinchState.lastPinchDistance = Phaser.Math.Distance.Between(
+        pinchState.lastPinchDistancePixels = Phaser.Math.Distance.Between(
           pointer1.x,
           pointer1.y,
           pointer2.x,
@@ -250,17 +237,22 @@ function setupPinchZoom(context: CameraControlsContext, pinchState: PinchState):
       const pointer2 = scene.input.pointer2;
       if (!pointer1.isDown || !pointer2.isDown) return;
 
-      const distance = Phaser.Math.Distance.Between(pointer1.x, pointer1.y, pointer2.x, pointer2.y);
-      if (pinchState.lastPinchDistance > 0) {
-        const newZoom = camera.zoom * (distance / pinchState.lastPinchDistance);
-        camera.zoom = Phaser.Math.Clamp(newZoom, options.minZoom, options.maxZoom);
+      const pinchDistancePixels = Phaser.Math.Distance.Between(
+        pointer1.x,
+        pointer1.y,
+        pointer2.x,
+        pointer2.y,
+      );
+      if (pinchState.lastPinchDistancePixels > 0) {
+        const newZoom = camera.zoom * (pinchDistancePixels / pinchState.lastPinchDistancePixels);
+        camera.zoom = Phaser.Math.Clamp(newZoom, options.minPhaserZoom, cameraMaxZoomPhaserClamp);
         clampCamera();
         options.onZoom?.();
       }
-      pinchState.lastPinchDistance = distance;
+      pinchState.lastPinchDistancePixels = pinchDistancePixels;
     },
     onPointerUp: () => {
-      pinchState.lastPinchDistance = 0;
+      pinchState.lastPinchDistancePixels = 0;
     },
   };
   scene.input.on("pointerdown", handlers.onPointerDown);

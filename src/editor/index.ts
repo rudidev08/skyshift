@@ -9,7 +9,7 @@ import type { Nation } from "../sim-nation";
 import { MapEditorState } from "./map-editor-state";
 import { EditorSimulationSession } from "./simulation-session";
 import { buildEditorPageHtml } from "./page-html";
-import { attachEditorEventListeners } from "./input-dispatch";
+import { setupEditorEventListeners } from "./input-dispatch";
 import { runEditorSimulation } from "./simulation-runner";
 import { createEditorTabLifecycle, type EditorTabLifecycleControls } from "./tab-lifecycle";
 import { createTimelapseTab } from "./timelapse-tab";
@@ -22,6 +22,20 @@ import { renderWaresTable, updateUniverseTotals } from "./wares-panel";
 
 const editorRootElement = document.getElementById("app")!;
 const economyEditingIsEnabled = import.meta.env.DEV;
+
+const readOnlyControlSelector = [
+  "#save-button",
+  "#revert-button",
+  "#save-draft-button",
+  "#load-draft-button",
+  "#delete-draft-button",
+  "#add-station-button",
+  "#add-nation",
+  "#add-type",
+  "#add-size",
+  'button[data-action="remove-station"]',
+  "input[data-target]",
+].join(", ");
 
 function queryEditorDomControls(): EditorTabLifecycleControls {
   return {
@@ -45,7 +59,6 @@ const allPlayableNations: Nation[] = [hubNation, bioNation, oreNation, skyNation
 const nationById = new Map(allPlayableNations.map((nation) => [nation.id, nation]));
 
 const simulationSession = new EditorSimulationSession();
-let inputListenersWired = false;
 
 function refreshDerivedPanels() {
   updateUniverseTotals(mapState.editableStations);
@@ -55,22 +68,9 @@ function refreshDerivedPanels() {
   highlightChangedInputs(editorRootElement);
 }
 
-function disableReadOnlyControls(rootElement: HTMLElement) {
-  const readOnlySelector = [
-    "#save-button",
-    "#revert-button",
-    "#save-draft-button",
-    "#load-draft-button",
-    "#delete-draft-button",
-    "#add-station-button",
-    "#add-nation",
-    "#add-type",
-    "#add-size",
-    'button[data-action="remove-station"]',
-    "input[data-target]",
-  ].join(", ");
-
-  for (const control of rootElement.querySelectorAll(readOnlySelector)) {
+function applyReadOnlyMode() {
+  if (economyEditingIsEnabled) return;
+  for (const control of editorRootElement.querySelectorAll(readOnlyControlSelector)) {
     if (
       control instanceof HTMLButtonElement ||
       control instanceof HTMLInputElement ||
@@ -79,11 +79,6 @@ function disableReadOnlyControls(rootElement: HTMLElement) {
       control.disabled = true;
     }
   }
-}
-
-function applyReadOnlyMode() {
-  if (economyEditingIsEnabled) return;
-  disableReadOnlyControls(editorRootElement);
 }
 
 const stationDependencies: AddStationDependencies = {
@@ -98,7 +93,7 @@ const draftDependencies: DraftDependencies = {
   mapState,
   simulationSession,
   markMapEditorNeedsRemount: () => tabLifecycle.markMapEditorNeedsRemount(),
-  rebuildEditorPage: () => buildEditorPage(),
+  rebuildEditorPage: () => remountEditorPage(),
 };
 
 const timelapseTab = createTimelapseTab();
@@ -108,7 +103,7 @@ const tabLifecycle = createEditorTabLifecycle({
   mapState,
   simulationSession,
   refreshDerivedPanels,
-  rebuildEditorPage: () => buildEditorPage(),
+  rebuildEditorPage: () => remountEditorPage(),
   timelapseTab,
 });
 
@@ -122,30 +117,8 @@ function renderEditorPagePanels() {
   highlightChangedInputs(editorRootElement);
 }
 
-function wireEditorInputListenersOnce() {
-  if (inputListenersWired) return;
-  attachEditorEventListeners({
-    rootElement: editorRootElement,
-    mapState,
-    simulationSession,
-    stationDependencies,
-    draftDependencies,
-    economyEditingIsEnabled,
-    refreshDerivedPanels,
-    runSimulation: () =>
-      runEditorSimulation({
-        mapState,
-        simulationSession,
-        allPlayableNations,
-        applyReadOnlyMode,
-      }),
-  });
-  inputListenersWired = true;
-}
-
-function buildEditorPage() {
+function remountEditorPage() {
   renderEditorPagePanels();
-  wireEditorInputListenersOnce();
   if (economyEditingIsEnabled) refreshDraftList();
   applyReadOnlyMode();
 }
@@ -172,7 +145,23 @@ function wirePresetPicker() {
 
 function initializeEditor() {
   wirePresetPicker();
-  buildEditorPage();
+  remountEditorPage();
+  setupEditorEventListeners({
+    rootElement: editorRootElement,
+    mapState,
+    simulationSession,
+    stationDependencies,
+    draftDependencies,
+    economyEditingIsEnabled,
+    refreshDerivedPanels,
+    runSimulation: () =>
+      runEditorSimulation({
+        mapState,
+        simulationSession,
+        allPlayableNations,
+        applyReadOnlyMode,
+      }),
+  });
   // Timelapse is the default landing tab; map editor mounts lazily on first
   // navigation to it via tab-lifecycle's setActiveTab.
   tabLifecycle.updateActiveTabUi("timelapse");

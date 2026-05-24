@@ -54,21 +54,31 @@ export function computeBezierControlPoint(
   const sideBias = side > 0 ? 0.6 + Math.random() * 0.4 : 0.15 + Math.random() * 0.45;
   const angleDegrees =
     CURVE_ANGLE_MIN_DEGREES + sideBias * (CURVE_ANGLE_MAX_DEGREES - CURVE_ANGLE_MIN_DEGREES);
+  return offsetMidpoint(from, to, angleDegrees, side);
+}
+
+function offsetMidpoint(
+  from: RatioPoint,
+  to: RatioPoint,
+  angleDegrees: number,
+  side: number,
+): { controlX: number; controlY: number } {
   const deltaX = to.xRatio - from.xRatio;
   const deltaY = to.yRatio - from.yRatio;
   const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
   const offsetDistance = distance * Math.tan((angleDegrees * Math.PI) / 180);
   const perpendicularX = -deltaY / distance;
   const perpendicularY = deltaX / distance;
-  const controlX = Math.max(
-    0.05,
-    Math.min(0.95, (from.xRatio + to.xRatio) / 2 + perpendicularX * offsetDistance * side),
-  );
-  const controlY = Math.max(
-    0.05,
-    Math.min(0.95, (from.yRatio + to.yRatio) / 2 + perpendicularY * offsetDistance * side),
-  );
-  return { controlX, controlY };
+  return {
+    controlX: Math.max(
+      0.05,
+      Math.min(0.95, (from.xRatio + to.xRatio) / 2 + perpendicularX * offsetDistance * side),
+    ),
+    controlY: Math.max(
+      0.05,
+      Math.min(0.95, (from.yRatio + to.yRatio) / 2 + perpendicularY * offsetDistance * side),
+    ),
+  };
 }
 
 /** Bezier-sample the flight at `progress`, returning normalized xRatio/yRatio. */

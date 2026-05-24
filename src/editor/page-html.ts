@@ -1,9 +1,6 @@
-// HTML string assembly for the economy editor view — toolbar, simulation
-// controls, and the full page composition that the entry point pours into the
-// editor root element.
-
 import type { PlacedStation } from "../../data/station-types";
 import { buildEconomyConfigHtml } from "./economy-panel";
+import { closePanel, openPanel } from "./panel-chrome";
 import { buildShipsHtml } from "./ships-panel";
 
 function buildToolbarHtml(): string {
@@ -27,18 +24,16 @@ function buildToolbarHtml(): string {
 }
 
 function buildSimulationPanelHtml(): string {
-  let html = '<div class="panel panel-simulation">';
-  html += '<div class="panel-header"><h2>Simulation</h2></div>';
+  let html = openPanel("Simulation", "panel-simulation");
   html += '<div class="sim-controls">';
   html +=
     '<span class="sim-label">Hours:</span> <input type="number" id="simulation-hours" value="20" step="1" min="1" class="editor-compact-number-input">';
   html += '<button id="run-button" class="button-action">Run Simulation</button>';
   html += '<span id="simulation-status"></span>';
-  html += "</div></div>";
+  html += `</div>${closePanel()}`;
   return html;
 }
 
-/** Builds the full inner HTML for the economy editor page. */
 export function buildEditorPageHtml(editableStations: PlacedStation[]): string {
   let html = buildToolbarHtml();
   html += buildEconomyConfigHtml();

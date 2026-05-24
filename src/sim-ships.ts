@@ -2,12 +2,12 @@ import type { Station } from "./sim-station-types";
 import type { ShipTypeId, ShipTypeTemplate } from "../data/ship-types";
 import type { StationBuild } from "../data/station-types";
 import type { WareId } from "../data/ware-types";
-import type { Nation } from "./sim-nation";
 import type { ShipSnapshot } from "./sim-save-types";
 import { shipsPerStationBySize } from "../data/stations";
 import { getShipTypeTemplate } from "./sim-ship-template";
 import { isStationUnderConstruction } from "./sim-station";
 import { getWareTemplate } from "./sim-ware-template";
+import { generateUniqueId } from "./util-ids";
 import type { NamePool } from "./sim-name-pool";
 
 /** Generate a unique nation-prefixed ship code (e.g. "BIO-042") that doesn't
@@ -17,34 +17,29 @@ import type { NamePool } from "./sim-name-pool";
  *  whenever a ship leaves the roster, so this only fires when 1000 ships of
  *  one nation are simultaneously alive. */
 function generateUniqueShipCode(nationCode: string, takenShipIds: ReadonlySet<string>): string {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const code = `${nationCode}-${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`;
-    if (!takenShipIds.has(code)) return code;
-  }
-  for (let i = 0; i < 1000; i++) {
-    const code = `${nationCode}-${String(i).padStart(3, "0")}`;
-    if (!takenShipIds.has(code)) return code;
-  }
-  throw new Error(`Ship code pool exhausted for nation ${nationCode}: 1000 ships alive`);
+  return generateUniqueId({
+    prefix: nationCode,
+    randomSuffix: () => String(Math.floor(Math.random() * 1000)).padStart(3, "0"),
+    randomAttempts: 100,
+    takenIds: takenShipIds,
+    fallback: () => {
+      for (let i = 0; i < 1000; i++) {
+        const code = `${nationCode}-${String(i).padStart(3, "0")}`;
+        if (!takenShipIds.has(code)) return code;
+      }
+      throw new Error(`Ship code pool exhausted for nation ${nationCode}: 1000 ships alive`);
+    },
+  });
 }
 
 /** Runtime ship — sim-authoritative state only. Orbit angle, speed, radius are
- *  render-owned (see {@link ShipVisualBundle}). In-flight is derived: read
+ *  render-owned (see ShipVisualBundle). In-flight is derived: read
  *  via tradeManager.isShipInFlight(tradeShip) or `tradeShip.flight !== null`. */
 export interface Ship {
   id: string;
   shipTypeId: ShipTypeId;
   shipName: string;
   station: Station;
-}
-
-/** Ship type for a nation. Throws for nations with no primary fleet (WAY) —
- *  guard at the call site (only nations that spawn ships should call this). */
-export function getNationShipTypeTemplate(nation: Nation): ShipTypeTemplate {
-  if (!nation.shipTypeId) {
-    throw new Error(`Nation ${nation.id} has no primary ship type`);
-  }
-  return getShipTypeTemplate(nation.shipTypeId);
 }
 
 export interface CreateStationShipsOptions {
@@ -106,7 +101,6 @@ export interface CreateStationShipsInput {
   options?: CreateStationShipsOptions;
 }
 
-/** Create the station's default fleet. */
 export function createStationShips(input: CreateStationShipsInput): Ship[] {
   const { station, takenShipIds, namePool, options } = input;
   const shipTypeId = options?.shipTypeOverride ?? station.nation.shipTypeId;
@@ -117,15 +111,14 @@ export function createStationShips(input: CreateStationShipsInput): Ship[] {
   }
 
   const nationCode = station.nation.codeName;
-  const count = shipsPerStationBySize[station.size] ?? 1;
+  const count = shipsPerStationBySize[station.size];
   const ships: Ship[] = [];
-  // Local copy so the helper can detect collisions across its own loop without
-  // mutating the caller-provided set.
-  const reservedShipIds = new Set(takenShipIds);
+  // Copied so the loop's claims don't mutate the caller-provided `takenShipIds`.
+  const claimedShipIds = new Set(takenShipIds);
 
   for (let i = 0; i < count; i++) {
-    const id = generateUniqueShipCode(nationCode, reservedShipIds);
-    reservedShipIds.add(id);
+    const id = generateUniqueShipCode(nationCode, claimedShipIds);
+    claimedShipIds.add(id);
     const shipName = namePool.claimShipName(station.nation);
     ships.push({ id, shipTypeId, shipName, station });
   }
@@ -134,21 +127,20 @@ export function createStationShips(input: CreateStationShipsInput): Ship[] {
 }
 
 /** Serialize a ship. Parent station referenced by id; orbit visuals are
- *  render-owned and not persisted. `inFlight` is derived — caller passes it
- *  in (typically from `tradeManager.isShipInFlight(tradeShip)`). */
-export function shipToSnapshot(ship: Ship, inFlight: boolean): ShipSnapshot {
+ *  render-owned and not persisted. Whether a ship is mid-flight is not stored —
+ *  it's rebuilt on load from each trade ship's `flight` field. */
+export function shipToSnapshot(ship: Ship): ShipSnapshot {
   return {
     id: ship.id,
     stationId: ship.station.id,
     shipTypeId: ship.shipTypeId,
     shipName: ship.shipName,
-    inFlight,
   };
 }
 
-/** Reconstruct a ship from a snapshot. Caller resolves `station` from `snapshot.stationId` (see restoreSavedGame in src/ui-savegame-manager.ts).
- *  `snapshot.inFlight` is intentionally ignored — the truth is rebuilt by
- *  `tradeManager.restoreFromSnapshot` from each trade ship's `flight` field. */
+/** Reconstruct a ship from a snapshot. Caller resolves `station` from
+ *  `snapshot.stationId` before calling (see `restoreSavedGame` in
+ *  `src/ui-savegame-manager.ts`). */
 export function shipFromSnapshot(snapshot: ShipSnapshot, station: Station): Ship {
   return {
     id: snapshot.id,

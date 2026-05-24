@@ -10,38 +10,26 @@ import {
 import { shipTravel } from "../../data/ship-travel.ts";
 import { tanker, trader } from "../../data/ships.ts";
 import { createStation } from "../sim-station.ts";
-import { hubNation } from "../../data/nations.ts";
-import type { Station } from "../sim-station-types.ts";
+import { makePlacedStation } from "./factories.ts";
 
 // Pins flight phase math in sim-travel.ts. Phase math controls whether flights
 // stall, complete early, or keep ships in inconsistent phase states; silent
 // off-by-one in easing or boundary checks mis-renders every flight without throwing.
 
-function createTestStation(id: string, x: number, y: number): Station {
-  return createStation(
-    {
-      id,
-      name: id,
-      x,
-      y,
-      nation: hubNation,
-      stationTypeId: "habitat",
-      size: "S",
-    },
-    0,
-  );
-}
-
 function createTestFlight(
-  originX: number,
-  originY: number,
   destinationX: number,
   destinationY: number,
 ): FlightData {
   // Surface→Surface, inter-station, trader speed. Distance long enough that
   // the 40% phase cap doesn't kick in (depart/arrive zones stay below 40%).
-  const origin = createTestStation("ORIGIN", originX, originY);
-  const destination = createTestStation("DEST", destinationX, destinationY);
+  const origin = createStation(
+    makePlacedStation({ id: "ORIGIN", x: 0, y: 0, size: "S" }),
+    0,
+  );
+  const destination = createStation(
+    makePlacedStation({ id: "DEST", x: destinationX, y: destinationY, size: "S" }),
+    0,
+  );
   return createFlightData({
     origin: createSurfaceEndpoint(origin),
     destination: createSurfaceEndpoint(destination),
@@ -56,13 +44,13 @@ test("computeFlightDuration scales linearly with distance", () => {
   const baseDuration = computeFlightDuration({
     origin: { x: 0, y: 0 },
     destination: { x: 100, y: 0 },
-    nationSpeed: 1,
+    shipSpeedMultiplier: 1,
     travelMode: "local",
   });
   const doubleDuration = computeFlightDuration({
     origin: { x: 0, y: 0 },
     destination: { x: 200, y: 0 },
-    nationSpeed: 1,
+    shipSpeedMultiplier: 1,
     travelMode: "local",
   });
   // Pin distance/speed ratio. Mutating the formula to skip distance would
@@ -76,38 +64,42 @@ test("computeFlightDuration uses Euclidean distance (Pythagorean), not Manhattan
   const duration = computeFlightDuration({
     origin: { x: 0, y: 0 },
     destination: { x: 30, y: 40 },
-    nationSpeed: 1,
+    shipSpeedMultiplier: 1,
     travelMode: "local",
   });
-  const expected = 50 / (shipTravel.baseFlightSpeed * shipTravel.globalSpeed);
+  const expected = 50 / (shipTravel.baseFlightSpeedPixelsPerSecond * shipTravel.globalSpeed);
   assertEqual(duration, expected, "Pythagorean distance — sqrt(3² + 4²) = 5");
 });
 
-test("computeFlightDuration interStation includes nationSpeed; local does not", () => {
+test("computeFlightDuration interStation includes shipSpeedMultiplier; local does not", () => {
   // Pin the travelMode branch in computeFlightDuration. Mutating the ternary
   // would collapse the speed difference — ships would all fly at the same speed.
   const localDuration = computeFlightDuration({
     origin: { x: 0, y: 0 },
     destination: { x: 100, y: 0 },
-    nationSpeed: 5,
+    shipSpeedMultiplier: 5,
     travelMode: "local",
   });
   const interStationDuration = computeFlightDuration({
     origin: { x: 0, y: 0 },
     destination: { x: 100, y: 0 },
-    nationSpeed: 5,
+    shipSpeedMultiplier: 5,
     travelMode: "interStation",
   });
-  // interStation speed = base * global * nationSpeed; local speed = base * global.
-  // So interStation duration = local duration / nationSpeed.
-  assertEqual(interStationDuration, localDuration / 5, "interStation runs nationSpeed× faster than local");
+  // interStation speed = base * global * shipSpeedMultiplier; local speed = base * global.
+  // So interStation duration = local duration / shipSpeedMultiplier.
+  assertEqual(
+    interStationDuration,
+    localDuration / 5,
+    "interStation runs shipSpeedMultiplier× faster than local",
+  );
 });
 
 test("phase bounds: depart and arrive zones each cap at 40% of total flight (Math.min clamp)", () => {
   // Construct a tiny inter-station flight so the surface zones (≈48px each
   // at S size × 3 multiplier = 48px per side) would naturally exceed 40% of
   // the trip. The Math.min(…, 0.4) clamp must fire for both sides.
-  const flight = createTestFlight(0, 0, 50, 0);
+  const flight = createTestFlight(50, 0);
   // Pin the 40% cap on each side. Mutating Math.min(…, 0.4) → Math.min(…, 0.5)
   // would let the boundaries grow past 40% and shrink the hyperjump segment
   // toward zero (or negative).
@@ -125,7 +117,7 @@ test("phase bounds: short flight where depart+arrive would exceed total clamps w
   // 40% cap each side → at most 80% total → flightDistanceFraction at least 0.2.
   // Pin the lower bound on flightDistanceFraction. Removing the clamp would
   // let it go to zero (or negative), which would NaN/lock hyperjump progress.
-  const flight = createTestFlight(0, 0, 1, 0);
+  const flight = createTestFlight(1, 0);
   // Floating-point: 1 - 0.4 - 0.4 may compute as 0.1999...96 — accept within ε.
   assertTrue(
     flight.flightDistanceFraction >= 0.2 - 1e-9,
@@ -142,8 +134,8 @@ test("phase bounds: orbit endpoints use the fixed 20-pixel approach zone, not st
   // surface — depart/arrive fractions must differ.
   const distance = 1000; // long enough that neither flight hits the 40% cap.
 
-  const surfaceOrigin = createTestStation("S-O", 0, 0);
-  const surfaceDest = createTestStation("S-D", distance, 0);
+  const surfaceOrigin = createStation(makePlacedStation({ id: "S-O", x: 0, y: 0, size: "S" }), 0);
+  const surfaceDest = createStation(makePlacedStation({ id: "S-D", x: distance, y: 0, size: "S" }), 0);
   const surfaceFlight = createFlightData({
     origin: createSurfaceEndpoint(surfaceOrigin),
     destination: createSurfaceEndpoint(surfaceDest),
@@ -153,8 +145,8 @@ test("phase bounds: orbit endpoints use the fixed 20-pixel approach zone, not st
     travelMode: "interStation",
   });
 
-  const orbitOrigin = createTestStation("O-O", 0, 0);
-  const orbitDest = createTestStation("O-D", distance, 0);
+  const orbitOrigin = createStation(makePlacedStation({ id: "O-O", x: 0, y: 0, size: "S" }), 0);
+  const orbitDest = createStation(makePlacedStation({ id: "O-D", x: distance, y: 0, size: "S" }), 0);
   const orbitFlight = createFlightData({
     origin: createOrbitEndpoint(orbitOrigin),
     destination: createOrbitEndpoint(orbitDest),
@@ -188,29 +180,29 @@ test("phase bounds: orbit endpoints use the fixed 20-pixel approach zone, not st
 });
 
 test("createFlightData starts with phase='departing', progress 0, totalElapsedSeconds 0", () => {
-  const flight = createTestFlight(0, 0, 1000, 0);
+  const flight = createTestFlight(1000, 0);
   assertEqual(flight.phase, "departing", "starts in departing phase");
   assertEqual(flight.progress, 0, "starts at progress 0");
   assertEqual(flight.totalElapsedSeconds, 0, "starts at totalElapsedSeconds 0");
   assertEqual(flight.phaseStartSeconds, 0, "starts at phaseStartSeconds 0");
-  // Pin null default for previousHeading. Render reads `flight.previousHeading !== null`
+  // Pin null default for previousHeadingRadians. Render reads `flight.previousHeadingRadians !== null`
   // to gate smooth turning at flight start; mutating `?? null` to `?? 0` would
   // trigger turn-blending against a fake zero heading on first-flight ships.
-  assertEqual(flight.previousHeading, null, "starts with previousHeading null");
+  assertEqual(flight.previousHeadingRadians, null, "starts with previousHeadingRadians null");
 });
 
 test("tickFlightData: totalElapsedSeconds accumulates monotonically without reset between phases", () => {
   // Pin that totalElapsedSeconds is += deltaSeconds on every tick — never reset
   // when phaseStartSeconds advances. The hyperjump-progress math depends on the
   // delta `(totalElapsedSeconds - phaseStartSeconds)`, which is wrong if total resets.
-  const flight = createTestFlight(0, 0, 1000, 0);
-  let expectedTotalElapsedTime = 0;
+  const flight = createTestFlight(1000, 0);
+  let expectedTotalElapsedSeconds = 0;
   for (let stepIndex = 0; stepIndex < 30; stepIndex++) {
     tickFlightData(flight, 1);
-    expectedTotalElapsedTime += 1;
+    expectedTotalElapsedSeconds += 1;
     assertEqual(
       flight.totalElapsedSeconds,
-      expectedTotalElapsedTime,
+      expectedTotalElapsedSeconds,
       `totalElapsedSeconds after ${stepIndex + 1} ticks`,
     );
   }
@@ -220,7 +212,7 @@ test("tickFlightData: departing phase eases via p² (ease-in, accelerating from 
   // Departing uses phaseProgress * phaseProgress as the eased curve — ease-in,
   // matching the physical intent of accelerating from zero speed. Pin both
   // the inversion-free shape and the squared exponent.
-  const flight = createTestFlight(0, 0, 100000, 0);
+  const flight = createTestFlight(100000, 0);
   // accelerationDurationSeconds = 5; a 1.0s tick lands phaseProgress = 0.2.
   // easedProgress = 0.2² = 0.04. Then progress = 0.04 * departDistanceFraction.
   tickFlightData(flight, 1);
@@ -237,7 +229,7 @@ test("tickFlightData: departing → hyperjump transition fires when progress rea
   // After accelerationDurationSeconds (5s), phaseProgress hits 1.0 and
   // easedProgress = 1.0, so progress reaches departDistanceFraction. Pin the
   // transition: phase flips to hyperjump, phaseStartSeconds updates.
-  const flight = createTestFlight(0, 0, 100000, 0);
+  const flight = createTestFlight(100000, 0);
   tickFlightData(flight, shipTravel.accelerationDurationSeconds);
   // Pin the >= boundary on `progress >= departEnd`. A `> → >=` mutation
   // would skip the transition exactly at the edge.
@@ -251,14 +243,14 @@ test("tickFlightData: departing → hyperjump transition fires when progress rea
 });
 
 test("tickFlightData: hyperjump phase has linear progress between departEnd and hyperjumpEnd", () => {
-  // Hyperjump uses (totalElapsedSeconds - phaseStartSeconds) / flightDuration —
+  // Hyperjump uses (totalElapsedSeconds - phaseStartSeconds) / flightDurationSeconds —
   // linear in time, so progress should grow at constant rate within this phase.
-  const flight = createTestFlight(0, 0, 100000, 0);
+  const flight = createTestFlight(100000, 0);
   tickFlightData(flight, shipTravel.accelerationDurationSeconds); // → hyperjump
   const departEnd = flight.departDistanceFraction;
 
   // Tick 25% of the flight duration. Hyperjump progress = 0.25.
-  const quarterDuration = flight.flightDuration * 0.25;
+  const quarterDuration = flight.flightDurationSeconds * 0.25;
   tickFlightData(flight, quarterDuration);
   const expectedProgressQuarter = departEnd + 0.25 * flight.flightDistanceFraction;
   assertTrue(
@@ -276,16 +268,16 @@ test("tickFlightData: hyperjump phase has linear progress between departEnd and 
 });
 
 test("tickFlightData: hyperjump → arriving transition fires when hyperjumpProgress reaches 1.0", () => {
-  // After flightDuration seconds in hyperjump, progress hits hyperjumpEnd
+  // After flightDurationSeconds seconds in hyperjump, progress hits hyperjumpEnd
   // (= departEnd + flightDistanceFraction). Pin the transition.
-  const flight = createTestFlight(0, 0, 100000, 0);
+  const flight = createTestFlight(100000, 0);
   tickFlightData(flight, shipTravel.accelerationDurationSeconds); // → hyperjump
   const departEnd = flight.departDistanceFraction;
   const hyperjumpEnd = departEnd + flight.flightDistanceFraction;
 
-  tickFlightData(flight, flight.flightDuration);
+  tickFlightData(flight, flight.flightDurationSeconds);
   // Pin the >= 1.0 boundary in hyperjump progress check. A < mutation would
-  // skip the transition at exactly t = flightDuration.
+  // skip the transition at exactly t = flightDurationSeconds.
   assertEqual(flight.phase, "arriving", "phase flipped to arriving");
   assertEqual(flight.progress, hyperjumpEnd, "progress pinned at hyperjumpEnd");
 });
@@ -294,10 +286,10 @@ test("tickFlightData: arriving phase eases via 1-(1-p)² (ease-out, decelerating
   // Arriving uses easedProgress = 1 - (1 - arriveProgress)² — ease-out,
   // matching the physical intent of decelerating into the destination.
   // Pin both the (1-p) inversion and the squared exponent.
-  const flight = createTestFlight(0, 0, 100000, 0);
+  const flight = createTestFlight(100000, 0);
   // Skip to arriving phase by ticking past departing + hyperjump.
   tickFlightData(flight, shipTravel.accelerationDurationSeconds);
-  tickFlightData(flight, flight.flightDuration);
+  tickFlightData(flight, flight.flightDurationSeconds);
   const hyperjumpEnd = flight.departDistanceFraction + flight.flightDistanceFraction;
 
   // Tick 1s into arriving. dockingDurationSeconds=5, so arriveProgress = 0.2.
@@ -316,9 +308,9 @@ test("tickFlightData: arriving phase eases via 1-(1-p)² (ease-out, decelerating
 test("tickFlightData: arriving phase clamps progress to 1.0 (no overshoot)", () => {
   // The Math.min(1.0, flight.progress) clamp at the end of tickArrivingPhase
   // prevents floating-point drift from pushing progress past 1.0. Pin the clamp.
-  const flight = createTestFlight(0, 0, 100000, 0);
+  const flight = createTestFlight(100000, 0);
   tickFlightData(flight, shipTravel.accelerationDurationSeconds);
-  tickFlightData(flight, flight.flightDuration);
+  tickFlightData(flight, flight.flightDurationSeconds);
   // Tick well past dockingDurationSeconds.
   tickFlightData(flight, shipTravel.dockingDurationSeconds * 2);
   // Pin the upper-bound clamp. Mutating Math.min(1.0, …) → Math.max(1.0, …)
@@ -329,28 +321,31 @@ test("tickFlightData: arriving phase clamps progress to 1.0 (no overshoot)", () 
 test("tickFlightData returns true on the tick that finishes the arriving phase", () => {
   // Only the arriving phase returns true at completion; pre-completion ticks
   // return false. Pin the return-value contract.
-  const flight = createTestFlight(0, 0, 100000, 0);
+  const flight = createTestFlight(100000, 0);
   // Pre-completion ticks all return false.
   let flightCompleted = tickFlightData(flight, 1);
   assertEqual(flightCompleted, false, "departing tick returns false");
   // Skip to arriving and almost-finish.
   tickFlightData(flight, shipTravel.accelerationDurationSeconds);
-  tickFlightData(flight, flight.flightDuration);
+  tickFlightData(flight, flight.flightDurationSeconds);
   flightCompleted = tickFlightData(flight, 1);
   assertEqual(flightCompleted, false, "mid-arrival tick returns false");
-  // The completing tick.
+  // The completing tick. Completion is signaled only by the boolean return —
+  // there is no "complete" phase, so the phase stays "arriving" (the caller
+  // nulls ship.flight the same tick before any state is observable). Under the
+  // OLD behavior this assertion fails: tickArrivingPhase set phase = "complete".
   flightCompleted = tickFlightData(flight, shipTravel.dockingDurationSeconds);
   assertEqual(flightCompleted, true, "completing tick returns true");
-  assertEqual(flight.phase, "complete", "phase flipped to complete");
+  assertEqual(flight.phase, "arriving", "phase is never mutated past arriving — completion is the boolean return");
 });
 
-test("tickFlightData with a different ship speed scales flightDuration accordingly", () => {
-  // Pin nation-speed propagation through computeFlightDuration. Mutating
-  // `* input.nationSpeed` to `* 1` would equalize fast/slow ships.
-  const fastFlight = createTestFlight(0, 0, 1000, 0);
+test("tickFlightData with a different ship speed scales flightDurationSeconds accordingly", () => {
+  // Pin ship-speed-multiplier propagation through computeFlightDuration. Mutating
+  // `* input.shipSpeedMultiplier` to `* 1` would equalize fast/slow ships.
+  const fastFlight = createTestFlight(1000, 0);
   // Build with a slower ship — tanker (speed 0.8) vs trader (speed 3.5).
-  const origin = createTestStation("ORIGIN", 0, 0);
-  const destination = createTestStation("DEST", 1000, 0);
+  const origin = createStation(makePlacedStation({ id: "ORIGIN", x: 0, y: 0, size: "S" }), 0);
+  const destination = createStation(makePlacedStation({ id: "DEST", x: 1000, y: 0, size: "S" }), 0);
   const slowFlight = createFlightData({
     origin: createSurfaceEndpoint(origin),
     destination: createSurfaceEndpoint(destination),
@@ -362,7 +357,7 @@ test("tickFlightData with a different ship speed scales flightDuration according
   // tanker.speed=0.8, trader.speed=3.5 → trader is 4.375× faster → fastFlight is shorter.
   const speedRatio = trader.speed / tanker.speed;
   assertTrue(
-    Math.abs(slowFlight.flightDuration / fastFlight.flightDuration - speedRatio) < 1e-9,
-    `slow/fast duration ratio = ${speedRatio}; got ${slowFlight.flightDuration / fastFlight.flightDuration}`,
+    Math.abs(slowFlight.flightDurationSeconds / fastFlight.flightDurationSeconds - speedRatio) < 1e-9,
+    `slow/fast duration ratio = ${speedRatio}; got ${slowFlight.flightDurationSeconds / fastFlight.flightDurationSeconds}`,
   );
 });

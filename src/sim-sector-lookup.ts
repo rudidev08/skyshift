@@ -8,12 +8,3 @@ export function findSectorAtPosition(sectors: Sector[], mapX: number, mapY: numb
   }
   return undefined;
 }
-
-interface MapPosition {
-  x: number;
-  y: number;
-}
-
-export function findSectorForStation(map: { sectors: Sector[] }, station: MapPosition): Sector | undefined {
-  return findSectorAtPosition(map.sectors, station.x, station.y);
-}

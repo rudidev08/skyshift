@@ -10,22 +10,21 @@ import { shipCodeNameLabel } from "../sim-ship-template";
 import { LABEL_STYLE } from "./text-styles";
 import { updateIfDirty, createRenderDirtyState, type RenderDirtyState } from "../render-dirty-state";
 import { Layer } from "../../data/visuals-layers";
-import {
-  createInventoryRing,
-  drawInventorySegments,
-  destroyInventoryRing,
-  TOP_SEGMENT_ARC,
-  type InventoryRing,
-} from "./inventory-ring-render";
+import { drawInventorySegments, getSegmentArcsForSlotCount } from "./inventory-ring-render";
 import { formatQuantity } from "../util-quantity-format";
-import { bodyRadiusBySize } from "../../data/stations";
-import { stationVisuals } from "../../data/station-visuals";
+import { stationOrbitRingRadius } from "../../data/station-visuals";
 
-const SHIP_RING_RADIUS = bodyRadiusBySize.L + stationVisuals.inventoryRingDistanceFromBody;
+// A ship's cargo ring reuses the 3-slot layout's first arc.
+const TOP_SEGMENT_ARCS = [getSegmentArcsForSlotCount(3)[0]];
+
+// Gap between the orbit ring and the cargo label above the ship.
+const cargoLabelGapPixels = 22;
+// Gap below the ship sprite to the selection name label.
+const cargoLabelStackGapPixels = 4;
 
 export interface ShipUiBundle {
   label: Phaser.GameObjects.Text;
-  inventoryRing: InventoryRing;
+  cargoRingGraphics: Phaser.GameObjects.Graphics;
   cargoLabel: Phaser.GameObjects.Text;
   ringSlots: { current: number; max: number }[];
   cargoDirtyState: RenderDirtyState;
@@ -34,11 +33,9 @@ export interface ShipUiBundle {
 /** Frame-derived state threaded through the ship-render update tree. Camera
  *  and clock values are stable for the duration of one render frame. */
 export interface ShipRenderFrame {
-  labelVisible: boolean;
-  labelAlpha: number;
   zoom: number;
   camera: Phaser.Cameras.Scene2D.Camera;
-  timeSec: number;
+  timeSeconds: number;
   currentTick: number;
 }
 
@@ -63,7 +60,8 @@ export function createShipUi(scene: Scene, ship: Ship, cargoCapacity: number): S
     .setVisible(false);
 
   // Higher depth than station overlays so the ring shows when a selected ship orbits its home station.
-  const inventoryRing = createInventoryRing(scene, TOP_SEGMENT_ARC, Layer.ShipCargoRing);
+  const cargoRingGraphics = scene.add.graphics();
+  cargoRingGraphics.setDepth(Layer.ShipCargoRing);
 
   const cargoLabel = scene.add
     .text(0, 0, "", { ...LABEL_STYLE, color: "#cccccc", align: "center" })
@@ -74,7 +72,7 @@ export function createShipUi(scene: Scene, ship: Ship, cargoCapacity: number): S
 
   return {
     label,
-    inventoryRing,
+    cargoRingGraphics,
     cargoLabel,
     ringSlots: [{ current: 0, max: cargoCapacity }],
     cargoDirtyState: createRenderDirtyState(),
@@ -82,19 +80,20 @@ export function createShipUi(scene: Scene, ship: Ship, cargoCapacity: number): S
 }
 
 function updateShipLabel(update: ShipUiUpdate) {
-  const { shipUi, positionX, positionY, selected, isShipInteractable, frame } = update;
-  const showLabel = selected && isShipInteractable && frame.labelVisible;
-  if (showLabel) {
-    shipUi.label.setPosition(positionX, positionY + SHIP_SQUARE + 4);
-    shipUi.label.setAlpha(frame.labelAlpha);
+  const { shipUi, positionX, positionY, frame } = update;
+  const labelAlpha = closeViewAlpha(frame.zoom);
+  const labelVisible = labelAlpha > 0;
+  if (labelVisible) {
+    shipUi.label.setPosition(positionX, positionY + SHIP_SQUARE + cargoLabelStackGapPixels);
+    shipUi.label.setAlpha(labelAlpha);
   }
-  shipUi.label.setVisible(showLabel);
+  shipUi.label.setVisible(labelVisible);
 }
 
 function updateShipCargoRing(update: ShipUiUpdate) {
-  const { shipUi, positionX, positionY, cargo, wareName, selected, isShipInteractable, frame } = update;
-  const segmentAlpha = selected && isShipInteractable ? closeViewAlpha(frame.zoom) : 0;
-  const ringGraphics = shipUi.inventoryRing.graphics;
+  const { shipUi, positionX, positionY, cargo, wareName, frame } = update;
+  const segmentAlpha = closeViewAlpha(frame.zoom);
+  const ringGraphics = shipUi.cargoRingGraphics;
 
   if (segmentAlpha <= 0) {
     ringGraphics.setVisible(false);
@@ -105,7 +104,7 @@ function updateShipCargoRing(update: ShipUiUpdate) {
   // Draw at origin, use setPosition for movement — avoids per-frame redraw.
   ringGraphics.setPosition(positionX, positionY);
 
-  // Only redraw ring + label text on cargo changes.
+  // Throttled by sim tick and only redraws when cargo amount changed — avoids setText calls every frame.
   shipUi.ringSlots[0].current = cargo;
   updateIfDirty({
     state: shipUi.cargoDirtyState,
@@ -122,8 +121,8 @@ function updateShipCargoRing(update: ShipUiUpdate) {
   ringGraphics.setAlpha(segmentAlpha);
   ringGraphics.setVisible(true);
 
-  const labelDistance = SHIP_RING_RADIUS + 22;
-  shipUi.cargoLabel.setPosition(positionX, positionY - labelDistance);
+  const cargoLabelOffsetPixels = stationOrbitRingRadius + cargoLabelGapPixels;
+  shipUi.cargoLabel.setPosition(positionX, positionY - cargoLabelOffsetPixels);
   shipUi.cargoLabel.setAlpha(segmentAlpha);
   shipUi.cargoLabel.setVisible(true);
 }
@@ -134,9 +133,9 @@ function redrawCargoRingSegments(ringGraphics: Phaser.GameObjects.Graphics, ship
     graphics: ringGraphics,
     x: 0,
     y: 0,
-    radius: SHIP_RING_RADIUS,
+    radius: stationOrbitRingRadius,
     slots: shipUi.ringSlots,
-    arcs: shipUi.inventoryRing.arcs,
+    arcs: TOP_SEGMENT_ARCS,
     alpha: 1,
     selected: true,
   });
@@ -146,20 +145,24 @@ function setCargoLabelText(shipUi: ShipUiBundle, cargo: number, wareName: string
   shipUi.cargoLabel.setText(cargo > 0 && wareName ? `${wareName} (${formatQuantity(cargo)})` : "No cargo");
 }
 
-/** Position UI elements at the given map coords; caller supplies cargo data. */
+/** Hides the UI when the ship is not selected or not interactable; otherwise updates label and cargo ring position and content. */
 export function updateShipUi(update: ShipUiUpdate) {
+  if (!update.selected || !update.isShipInteractable) {
+    hideShipUi(update.shipUi);
+    return;
+  }
   updateShipLabel(update);
   updateShipCargoRing(update);
 }
 
 export function hideShipUi(shipUi: ShipUiBundle) {
   shipUi.label.setVisible(false);
-  shipUi.inventoryRing.graphics.setVisible(false);
+  shipUi.cargoRingGraphics.setVisible(false);
   shipUi.cargoLabel.setVisible(false);
 }
 
 export function destroyShipUi(shipUi: ShipUiBundle) {
   shipUi.label.destroy();
   shipUi.cargoLabel.destroy();
-  destroyInventoryRing(shipUi.inventoryRing);
+  shipUi.cargoRingGraphics.destroy();
 }

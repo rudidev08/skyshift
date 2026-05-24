@@ -7,21 +7,22 @@ import type { ShipTypeTemplate } from "../../data/ship-types";
 import type { StationTypeId } from "../../data/station-types";
 import { SHIP_SQUARE, TEXTURE_SCALE, drawShipSilhouetteFilled } from "../render-ship-hull";
 import { iconSvgByStationType } from "../render-station-icon";
-import { bodyRadiusBySize } from "../../data/stations";
-import { stationVisuals } from "../../data/station-visuals";
+import { svgToDataUri } from "../render-data-uri-cache";
+import { stationOrbitRingRadius } from "../../data/station-visuals";
+import { numberToRgb } from "../util-hex-color";
 
 const SHIP_BRIGHT = "#ffffff";
 // 80% intensity — paired with SHIP_BRIGHT to produce the two-tone hull (front bright, back dim).
 const SHIP_DIM = "#cccccc";
 
-export function ensureShipTexture(scene: Scene, ship: ShipTypeTemplate): string {
+export function getOrCreateShipTexture(scene: Scene, ship: ShipTypeTemplate): string {
   const textureKey = `ship-${ship.id}`;
   if (scene.textures.exists(textureKey)) return textureKey;
 
   const squareSize = SHIP_SQUARE * TEXTURE_SCALE;
-  const padding = TEXTURE_SCALE * 2; // Avoids edge sampling artifacts.
-  const width = squareSize * 2 + padding * 2;
-  const height = squareSize + padding * 2;
+  const paddingPixels = TEXTURE_SCALE * 2; // Avoids edge sampling artifacts.
+  const width = squareSize * 2 + paddingPixels * 2;
+  const height = squareSize + paddingPixels * 2;
 
   const canvas = scene.textures.createCanvas(textureKey, width, height)!;
   const context = canvas.getContext();
@@ -29,7 +30,7 @@ export function ensureShipTexture(scene: Scene, ship: ShipTypeTemplate): string 
   drawShipSilhouetteFilled(
     context,
     ship,
-    { x: padding, y: padding, squareSize },
+    { x: paddingPixels, y: paddingPixels, squareSize },
     { back: SHIP_DIM, front: SHIP_BRIGHT },
   );
 
@@ -48,16 +49,16 @@ function prepareLucideSvgForPhaserTinting(rawSvg: string): string {
     .replace(/height="24"/, `height="${ICON_TEXTURE_SIZE}"`);
 }
 
-/** Queue one Lucide SVG as a Phaser texture under `textureKey`. Shared entry point so the SVG → data URI pipeline lives in one place. */
+/** Single entry point for loading Lucide SVG textures so the SVG → data URI pipeline stays in one place. */
 export function loadLucideSvgTexture(scene: Scene, textureKey: string, rawSvg: string): void {
-  const prepared = prepareLucideSvgForPhaserTinting(rawSvg);
-  scene.load.image(textureKey, `data:image/svg+xml,${encodeURIComponent(prepared)}`);
+  const preparedSvg = prepareLucideSvgForPhaserTinting(rawSvg);
+  scene.load.image(textureKey, svgToDataUri(preparedSvg));
 }
 
-/** Queue all station-type icon textures for loading. Call during preload. */
+/** Call during scene preload — Phaser's load pipeline only runs there. */
 export function preloadStationIcons(scene: Scene) {
-  for (const [typeId, svg] of Object.entries(iconSvgByStationType)) {
-    loadLucideSvgTexture(scene, `station-icon-${typeId}`, svg);
+  for (const [typeId, iconSvg] of Object.entries(iconSvgByStationType)) {
+    loadLucideSvgTexture(scene, getStationIconTextureKey(typeId as StationTypeId), iconSvg);
   }
 }
 
@@ -69,21 +70,22 @@ export function getStationIconTextureKey(typeId: StationTypeId): string {
 // the ring marks "where ships orbit," not station body size.
 const RING_TEXTURE_KEY = "station-orbit-ring";
 
-export function ensureStationRingTexture(scene: Scene): string {
+export function getOrCreateStationRingTexture(scene: Scene): string {
   if (scene.textures.exists(RING_TEXTURE_KEY)) return RING_TEXTURE_KEY;
-  const RING_WIDTH = 1.5;
-  const RING_COLOR = 0x888888;
-  const RING_ALPHA = 0.35;
-  const ringRadius = bodyRadiusBySize.L + stationVisuals.inventoryRingDistanceFromBody;
-  const padding = 2;
-  const textureSize = Math.ceil((ringRadius + RING_WIDTH + padding) * 2);
-  const canvas = scene.textures.createCanvas(RING_TEXTURE_KEY, textureSize, textureSize)!;
+  const ringWidthPixels = 1.5;
+  const ringColor = 0x888888;
+  const ringAlpha = 0.35;
+  const paddingPixels = 2;
+  const textureSizePixels = Math.ceil(
+    (stationOrbitRingRadius + ringWidthPixels + paddingPixels) * 2,
+  );
+  const canvas = scene.textures.createCanvas(RING_TEXTURE_KEY, textureSizePixels, textureSizePixels)!;
   const context = canvas.getContext();
-  const center = textureSize / 2;
-  drawOrbitRing(context, center, ringRadius, {
-    width: RING_WIDTH,
-    color: RING_COLOR,
-    alpha: RING_ALPHA,
+  const center = textureSizePixels / 2;
+  drawOrbitRing(context, center, stationOrbitRingRadius, {
+    width: ringWidthPixels,
+    color: ringColor,
+    alpha: ringAlpha,
   });
   canvas.refresh();
   return RING_TEXTURE_KEY;
@@ -95,10 +97,8 @@ function drawOrbitRing(
   ringRadius: number,
   style: { width: number; color: number; alpha: number },
 ): void {
-  const red = (style.color >> 16) & 0xff;
-  const green = (style.color >> 8) & 0xff;
-  const blue = style.color & 0xff;
-  context.strokeStyle = `rgba(${red},${green},${blue},${style.alpha})`;
+  const { r, g, b } = numberToRgb(style.color);
+  context.strokeStyle = `rgba(${r},${g},${b},${style.alpha})`;
   context.lineWidth = style.width;
   context.beginPath();
   context.arc(center, center, ringRadius, 0, Math.PI * 2);

@@ -9,6 +9,7 @@
 
 :root {
   /* Surfaces */
+  --ink-deep: #050709; /* Deepest void — body bg under the nebula canvas; matches <meta name="theme-color">. */
   --ink-0: #0a0d14;
   --ink-1: #11151f;
   --ink-2: #1a2030;
@@ -28,8 +29,13 @@
   --active: #f5c26b; /* gold — active UI state (buttons, speed tick, zoom text) */
   --accent: #87d186; /* green — value / data / highlighted content */
 
-  /* Event-log time-color categories reuse --active (emigration/generational-ship)
-     and --accent (construction). No separate tokens needed. */
+  /* Nation colors — mirror the values in data/nations.ts. Update both
+     together when retuning a nation's palette. */
+  --nation-bio: #4caf50;
+  --nation-hub: #0069b3;
+  --nation-ore: #b36100;
+  --nation-sky: #00f9ff;
+  --nation-far: #e8c840;
 
   /* Fonts */
   --font-display: "Space Grotesk", system-ui, sans-serif;
@@ -60,7 +66,6 @@
        Within-card tiers (0–3) apply to local stacking inside .id-card /
        .nation-card where pseudo mesh backgrounds and morse bars overlap
        actual content. Global tiers handle overlays above the game canvas. */
-  --z-pseudo-behind: -1; /* pseudo-element backdrop sitting behind host content */
   --z-card-mesh: 0; /* ::after mesh / guilloche pseudo backgrounds */
   --z-card-raised: 1; /* seals, active-pill raise, dropdown menu body */
   --z-card-content: 2; /* headers, grids, floating helpers, open dropdown */
@@ -88,8 +93,13 @@
      `border: 1px solid var(--line-2)` and `box-shadow: var(--glass-edge)`
      to complete the surface. */
   --glass-bg: rgba(28, 32, 44, 0.42);
+  --glass-bg-hover: rgba(38, 42, 56, 0.5);
   --glass-blur: blur(32px) saturate(220%);
   --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  /* On-state fill for HUD pills (hud-btn.is-on, speed-pill.is-on) —
+     gold-tinted gradient laid over the standard glass surface. */
+  --active-pill-fill: linear-gradient(180deg, rgba(245, 194, 107, 0.14), rgba(245, 194, 107, 0.04)), var(--glass-bg);
 
   color-scheme: dark;
 }
@@ -134,17 +144,8 @@ button {
   font-weight: 500;
 }
 
-.text-mute {
-  color: var(--paper-mute);
-}
-.text-dim {
-  color: var(--paper-dim);
-}
 .text-accent {
   color: var(--accent);
-}
-.text-line3 {
-  color: var(--line-3);
 }
 
 /* --- Layout utilities -------------------------------------- */
@@ -153,41 +154,9 @@ button {
   display: flex;
   align-items: center;
 }
-.col {
-  display: flex;
-  flex-direction: column;
-}
-.wrap {
-  flex-wrap: wrap;
-}
-.items-start {
-  align-items: flex-start;
-}
 
 .gap-xs {
   gap: 4px;
-}
-.gap-sm {
-  gap: 6px;
-}
-.gap-md {
-  gap: 12px;
-}
-.gap-lg {
-  gap: 20px;
-}
-.gap-xl {
-  gap: 28px;
-}
-
-.mb-xs {
-  margin-bottom: 6px;
-}
-.mb-sm {
-  margin-bottom: 8px;
-}
-.mb-md {
-  margin-bottom: 12px;
 }
 
 /* --- Page shell -------------------------------------------- */
@@ -253,7 +222,7 @@ button {
 }
 .page-masthead-back:hover {
   border-color: var(--line-3);
-  background: rgba(38, 42, 56, 0.5);
+  background: var(--glass-bg-hover);
 }
 .page-masthead-back .num {
   font-family: var(--font-mono);
@@ -343,7 +312,10 @@ button {
   padding-bottom: 6px;
   border-bottom: 1px dashed var(--line-2);
 }
-.showcase-subhead:first-of-type {
+/* Collapse the top margin only when a subhead sits directly under the
+   section's h2 — sections that lead with other content (typography
+   specimens, etc.) keep the standard breathing room. */
+.showcase-section > h2 + .showcase-subhead {
   margin-top: 0;
 }
 
@@ -370,8 +342,8 @@ button {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
   transition:
     border-color 0.2s,
     color 0.2s,
@@ -383,12 +355,12 @@ button {
 .hud-btn:hover {
   border-color: var(--line-3);
   color: var(--paper);
-  background: rgba(38, 42, 56, 0.5);
+  background: var(--glass-bg-hover);
 }
 .hud-btn.is-on {
   color: var(--active);
   border-color: var(--active);
-  background: linear-gradient(180deg, rgba(245, 194, 107, 0.14), rgba(245, 194, 107, 0.04)), var(--glass-bg);
+  background: var(--active-pill-fill);
 }
 /* Destructive-action variant — red text + red outline on the otherwise
    normal glass surface. Used for the first step of a pending/confirm pair
@@ -407,6 +379,14 @@ button {
   width: 44px;
   padding: 0;
   justify-content: center;
+}
+/* Full-width centered button with a mono caption — a standalone action that
+   spans its container (e.g. the emigration "Start emigration" trigger). The
+   base .hud-btn already supplies the 11px / letter-spacing / uppercase. */
+.hud-btn--wide {
+  width: 100%;
+  justify-content: center;
+  font-family: var(--font-mono);
 }
 
 /* Segmented HUD control — tightly joined buttons that share a border,
@@ -481,8 +461,8 @@ button {
   backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-edge);
   overflow: hidden;
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
 }
 .zoom-btn {
   width: 54px;
@@ -554,20 +534,6 @@ button {
   box-shadow: 0 0 4px var(--active);
 }
 
-/* --- HUD stack (labeled groups in the bottom-left column) -- */
-
-.stack-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-}
-/* Stack-labels (the muted "// nw1 * overview" annotations) live entirely
-   in design.html now — see its inline <style> block. The live game no
-   longer uses them as chrome; the only remaining mono comment line is
-   the elapsed-time readout in the speed HUD, styled below as its own
-   component. */
-
 /* --- Row label (design-system item header) ----------------- */
 
 .row-label {
@@ -607,23 +573,6 @@ button {
   color: var(--paper-mute);
   text-transform: uppercase;
 }
-.hud-preview-frame {
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
-  background-color: #050709;
-  background-image:
-    radial-gradient(circle at 25% 30%, rgba(79, 179, 184, 0.08), transparent 55%),
-    radial-gradient(circle at 80% 75%, rgba(245, 194, 107, 0.05), transparent 55%);
-}
-.hud-preview-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  align-items: flex-start;
-}
-
 /* --- Foundations showcase (palette + type specimens) ------ */
 
 .section-note {
@@ -715,53 +664,6 @@ button {
 .type-sample {
   color: var(--paper);
   line-height: 1.2;
-}
-
-/* --- Map preview stage + floating-panel positioning -------- */
-
-.map-preview {
-  position: relative;
-  border: 1px solid var(--line-2);
-  border-radius: 8px;
-  background:
-    radial-gradient(ellipse at 30% 40%, rgba(0, 249, 255, 0.04), transparent 50%),
-    radial-gradient(ellipse at 80% 70%, rgba(245, 194, 107, 0.05), transparent 50%),
-    radial-gradient(circle at center, #0b0f19 0%, #050709 100%);
-  overflow: hidden;
-}
-.map-preview::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(1px 1px at 10% 20%, rgba(255, 255, 255, 0.7), transparent 50%),
-    radial-gradient(1px 1px at 30% 70%, rgba(255, 255, 255, 0.5), transparent 50%),
-    radial-gradient(1px 1px at 55% 15%, rgba(255, 255, 255, 0.65), transparent 50%),
-    radial-gradient(1px 1px at 75% 60%, rgba(255, 255, 255, 0.4), transparent 50%),
-    radial-gradient(1px 1px at 88% 30%, rgba(255, 255, 255, 0.6), transparent 50%),
-    radial-gradient(1px 1px at 20% 85%, rgba(255, 255, 255, 0.5), transparent 50%);
-  pointer-events: none;
-}
-
-.floating {
-  position: absolute;
-  z-index: var(--z-card-content);
-}
-.floating.tl {
-  top: 12px;
-  left: 12px;
-}
-.floating.tr {
-  top: 12px;
-  right: 12px;
-}
-.floating.bl {
-  bottom: 12px;
-  left: 12px;
-}
-.floating.br {
-  bottom: 12px;
-  right: 12px;
 }
 
 /* --- ID card — selection dossier (ship, station, sector) --- */
@@ -919,6 +821,16 @@ button {
   -webkit-mask: var(--id-icon, linear-gradient(transparent, transparent)) center / contain no-repeat;
   mask: var(--id-icon, linear-gradient(transparent, transparent)) center / contain no-repeat;
 }
+/* Variants that drop the masked icon slot — nation cards stamp their own
+   identity (no per-card icon), loading card has no entity yet. */
+.nation-card .id-name,
+.id-card.is-loading .id-name {
+  padding-left: 0;
+}
+.nation-card .id-name::before,
+.id-card.is-loading .id-name::before {
+  display: none;
+}
 .id-type {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -977,33 +889,17 @@ button {
   white-space: nowrap;
 }
 
-/* MRZ-style type bar — used in selection panels inside .id-card after
-   the header. */
-.id-type-mrz {
+/* Section band — green-accent diagonal hatch + mono caps. Subtitle-style
+   header for panel sections, status footers on id-cards, and step heads on
+   help-page flows. Apply as a class, or compose via the multi-selector
+   below for existing structural rules. Default padding suits standalone
+   use; consumers with bleed margins re-declare padding for card-edge fit. */
+.section-band,
+.settings-section h3,
+.trade-route-overlay .ware-section-label--settings {
   position: relative;
   z-index: var(--z-card-content);
-  display: block;
-  padding: 8px 16px 9px;
-  background:
-    repeating-linear-gradient(43deg, rgba(245, 194, 107, 0.07) 0 1px, transparent 1px 5px), var(--ink-0);
-  border-top: 1px dashed var(--line-2);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  text-align: center;
-  color: var(--active);
-}
-
-/* Status band — standard footer on .id-card for selection info panels.
-   Bleeds to the card edges via negative margins that cancel the id-card's
-   14/16px padding. Pair with .id-type-mrz for the hatched band treatment,
-   but re-tint from the .id-type-mrz amber to accent-green so the "action"
-   label reads as status/pulse rather than matching the section headings. */
-.id-status-band {
-  margin: 10px -16px -16px;
-  color: var(--accent);
+  padding: 14px 14px 11px;
   background:
     repeating-linear-gradient(
       43deg,
@@ -1011,6 +907,23 @@ button {
       transparent 1px 5px
     ),
     var(--ink-0);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* Status band — standard footer on .id-card for selection info panels.
+   Bleeds to the card edges via negative margins that cancel the id-card's
+   14/16px padding. Compose with .section-band for the hatch + font + caps;
+   this layer carries only the bleed-margin layout and the card-edge padding. */
+.id-status-band {
+  margin: 10px -16px -16px;
+  padding: 8px 16px 9px;
+  border-top: 1px dashed var(--line-2);
+  text-align: center;
 }
 
 /* --- Cargo grid — list of wares (label + track on top, stat prose below) inside id-card */
@@ -1120,6 +1033,16 @@ button {
   font-size: 14px;
   letter-spacing: 0.01em;
 }
+/* Promotes a cargo-note to a heading row — swaps the top dashed divider for a
+   bottom one, used for the generational-ship destination at the top of the body. */
+.cargo-note--heading {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px dashed var(--line);
+}
 
 /* Cap the label column so long labels don't starve the value column.
    Match the nation-card treatment (fit-content(45%)) so the two card
@@ -1195,11 +1118,7 @@ button {
   right: 72px;
 }
 .nation-card .id-name {
-  padding-left: 0;
   font-size: 16px;
-}
-.nation-card .id-name::before {
-  display: none;
 }
 .nation-card .icon-code {
   min-height: 44px;
@@ -1295,15 +1214,10 @@ body.view-overview #speed-hud {
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--line-2);
   border-radius: 6px;
+  padding: 10px 14px 12px;
   box-shadow:
     0 16px 40px rgba(0, 0, 0, 0.35),
     var(--glass-edge);
-}
-.lore-card {
-  padding: 10px 14px 12px;
-}
-.log-panel {
-  padding: 10px 14px 12px;
 }
 .lore-title {
   /* Name at the top of the lore card — dashed divider underneath echoes the
@@ -1441,25 +1355,11 @@ body.view-overview #speed-hud {
   margin-top: var(--space-md);
 }
 
-/* Section label — id-type-mrz visual treatment: diagonal hatch, edge bleed.
-   Tinted accent-green to match the card status-band language rather than
-   the gold headings. */
+/* Section label — bleed margins on top of .section-band so the band
+   reaches the card edges. Visuals inherited via the multi-selector above. */
 .settings-section h3 {
   margin: 0 -20px var(--space-sm);
   padding: 7px 20px 8px;
-  background:
-    repeating-linear-gradient(
-      43deg,
-      color-mix(in srgb, var(--accent) 10%, transparent) 0 1px,
-      transparent 1px 5px
-    ),
-    var(--ink-0);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: var(--accent);
 }
 .slot-list {
   display: grid;
@@ -1641,14 +1541,6 @@ body.view-overview #speed-hud {
   gap: var(--space-sm);
   align-items: center;
 }
-/* Blocking variant dims the screen behind the toast stack. */
-.toast-root--blocking::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  background: rgba(5, 7, 9, 0.45);
-  z-index: var(--z-pseudo-behind);
-}
 .toast-item {
   min-width: 240px;
   max-width: 420px;
@@ -1665,9 +1557,6 @@ body.view-overview #speed-hud {
 .toast-item.toast--ok {
   border-color: var(--accent);
   color: var(--accent);
-}
-.toast-item.toast--blocking {
-  pointer-events: auto;
 }
 .toast-item--fading {
   opacity: 0;
@@ -1804,17 +1693,17 @@ body.view-overview #speed-hud {
   color: var(--active);
   cursor: pointer;
   pointer-events: auto;
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
   font: inherit;
 }
 .speed-pill:hover {
   border-color: var(--line);
-  background: rgba(38, 42, 56, 0.5);
+  background: var(--glass-bg-hover);
 }
 .speed-pill.is-on {
   border-color: var(--active);
-  background: linear-gradient(180deg, rgba(245, 194, 107, 0.14), rgba(245, 194, 107, 0.04)), var(--glass-bg);
+  background: var(--active-pill-fill);
 }
 .speed-pill--icon {
   width: 44px;
@@ -1869,8 +1758,8 @@ body.view-overview #speed-hud {
   gap: 6px;
   align-items: stretch;
   pointer-events: none;
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
   transition: width 160ms ease;
 }
 /* Nations tab needs extra horizontal room for the five-tab nation strip and
@@ -1984,23 +1873,12 @@ body.view-overview #speed-hud {
   margin-bottom: 6px;
 }
 
-/* Section header styled to match .settings-section h3 — diagonal hatch,
-   accent-green, edge-bleed. Used when sections need stronger separation
-   inside a ware-sidebar, e.g. the emigration controls panel. */
+/* Edge-bleed margins on top of .section-band so the band reaches the
+   sidebar edges. Used for ware-sidebar sections that need stronger
+   separation, e.g. the emigration controls panel. */
 .trade-route-overlay .ware-section-label--settings {
   margin: -10px -14px 10px;
   padding: 7px 14px 8px;
-  background:
-    repeating-linear-gradient(
-      43deg,
-      color-mix(in srgb, var(--accent) 10%, transparent) 0 1px,
-      transparent 1px 5px
-    ),
-    var(--ink-0);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-  color: var(--accent);
 }
 .trade-route-overlay .ware-empty-state {
   font-family: var(--font-mono);
@@ -2008,11 +1886,12 @@ body.view-overview #speed-hud {
   line-height: 1.5;
   color: var(--paper-dim);
 }
-/* Muted description line below a section control — shared shape used by the
-   overview-emigration panel and the economy editor's field descriptions. */
+/* Muted mono description line below a section control — shared by the
+   overview-emigration panel's mode/share/eligibility notes and its
+   generational-ship arrival countdown. */
 .description-text-dim {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   color: var(--paper-dim);
   margin-top: 8px;
@@ -2151,140 +2030,11 @@ body.view-overview #speed-hud {
   color: var(--paper-dim);
 }
 
-/* Event-log tab — scrollable list of world events (emigration start/end,
-   station build start/end, surveys, generational-ship arrivals). Entries are stored
-   pre-formatted as HTML by event-log.ts; category color comes from the
-   per-entry class applied to .event-log-text. Uses the same black-blur
-   chrome as .ware-sidebar so all overview tabs read as one family. */
-.event-log-pane {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px 12px;
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  box-shadow: var(--glass-edge);
-  border: 1px solid var(--line-2);
-  border-radius: 6px;
-  pointer-events: auto;
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-.event-log-pane .event-log-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding-bottom: 4px;
-  border-bottom: 1px dashed var(--line-2);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--paper-mute);
-}
-.event-log-pane .event-log-head-count {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: var(--paper-faint);
-  font-variant-numeric: tabular-nums;
-}
-.event-log-pane .event-log-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 420px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-.event-log-pane .event-log-row {
-  display: flex;
-  gap: 8px;
-  padding: 3px 0;
-  border-bottom: 1px dashed var(--line);
-  line-height: 1.35;
-}
-.event-log-pane .event-log-row:last-child {
-  border-bottom: none;
-}
-.event-log-pane .event-log-time {
-  flex: 0 0 auto;
-  color: var(--paper-mute);
-  font-variant-numeric: tabular-nums;
-  min-width: 56px;
-}
-.event-log-pane .event-log-text {
-  flex: 1 1 auto;
-  color: var(--paper-dim);
-}
-/* Time-only category accents — body text stays uniform (var(--paper-dim)
-   via .event-log-text) and the category signal lives on the timestamp.
-   Gen-ship arrivals reuse the emigration gold, so there are only two
-   active time modifiers. Nation codes inside the text get colored inline
-   by the caller (see src/sim-nation-code-format.ts). */
-.event-log-pane .event-log-time--emigration {
-  color: var(--active);
-}
-.event-log-pane .event-log-time--construction {
-  color: var(--accent);
-}
-/* Legend row — maps the time-accent colors to human labels. Sits
-   between .event-log-head and .event-log-list and stays fixed while
-   the list scrolls (scrolling lives inside .event-log-list). */
-.event-log-pane .event-log-legend {
-  display: flex;
-  gap: 14px;
-  padding: 6px 0 4px;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--paper-mute);
-}
-.event-log-pane .event-log-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.event-log-pane .event-log-legend-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.event-log-pane .event-log-legend-item--emigration .event-log-legend-dot {
-  background: var(--active);
-}
-.event-log-pane .event-log-legend-item--construction .event-log-legend-dot {
-  background: var(--accent);
-}
-.event-log-pane .event-log-empty {
-  padding: 10px 2px 4px;
-  color: var(--paper-mute);
-  font-size: 11px;
-  line-height: 1.45;
-}
-.event-log-pane .event-log-empty-head {
-  color: var(--paper-dim);
-  margin-bottom: 6px;
-}
-.event-log-pane .event-log-empty-list {
-  margin: 0;
-  padding: 0 0 0 14px;
-  list-style: none;
-}
-.event-log-pane .event-log-empty-list li {
-  position: relative;
-  padding-left: 10px;
-}
-.event-log-pane .event-log-empty-list li::before {
-  content: "·";
-  position: absolute;
-  left: -4px;
-  color: var(--paper-faint);
-}
-
 /* --- Landing page — hero wordmark, faction register, colophon
-   Used by index.html (actual landing page) and 12-landing section
-   of design.html (showcase mirror). Layout/positioning (margins,
-   surrounding glass background, etc.) lives with the page. */
+   Used by index.html (actual landing page) and the landing-page
+   section of design.html (showcase mirror). Layout/positioning
+   (margins, surrounding glass background, etc.) lives with the
+   page. */
 
 .landing-hero {
   font-family: var(--font-display);
@@ -2448,6 +2198,50 @@ body.view-overview #speed-hud {
   text-align: center;
 }
 
+/* Fullscreen canvas behind landing-style pages (index, help) — the
+   nebula starfield sits at z-index 0 and lets the page content layer
+   on top. Pages with this canvas pair it with a body that sets
+   background: var(--ink-deep) so the void shows through before the
+   canvas paints. */
+#bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Landing-page column layout — vertical stack of title-area, sector
+   canvas, start actions, and nav, centered with safe-area gutters. */
+.landing-page {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  min-height: 100dvh;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+.landing-title-area {
+  text-align: center;
+  padding: max(44px, var(--safe-top)) 24px 0;
+}
+.landing-sector-area {
+  flex: 1;
+  width: 100%;
+  min-height: 180px;
+  max-height: 360px;
+  position: relative;
+}
+.landing-sector-area canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 /* Two-tier landing nav — bright Orientation/Lore with numbered prefixes
    on top, dimmer utility links below. Both rows share the same 11px mono
    register; hierarchy comes from color and weight. */
@@ -2456,6 +2250,7 @@ body.view-overview #speed-hud {
   flex-direction: column;
   align-items: center;
   gap: 18px;
+  padding: 16px 16px 32px;
 }
 .landing-nav-primary,
 .landing-nav-secondary {
@@ -2522,15 +2317,6 @@ body.view-overview #speed-hud {
    with .is-loading, so the pulse card matches the passport
    vocabulary the rest of the HUD uses. Page-specific
    positioning and fade-out plumbing lives in universe.html. */
-
-/* Loading card drops the masked left-icon slot entirely — the title
-   sits flush-left since there's no nation/entity identity to stamp. */
-.id-card.is-loading .id-name {
-  padding-left: 0;
-}
-.id-card.is-loading .id-name::before {
-  display: none;
-}
 
 .loading-bar {
   position: relative;
@@ -2676,6 +2462,7 @@ body.view-overview #speed-hud {
 .stations-timelapse-playhead {
   position: absolute;
   top: -3px;
+  left: var(--playhead, 0%);
   height: calc(100% + 6px);
   width: 2px;
   background: var(--active);

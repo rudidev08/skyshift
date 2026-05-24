@@ -1,4 +1,4 @@
-import { test, assertEqual, assertTrue } from "./test-utils.ts";
+import { test, assertEqual, assertTrue, withScriptedMathRandom } from "./test-utils.ts";
 import {
   selectStationsForEmigration,
   countEligibleStations,
@@ -12,31 +12,33 @@ import type { Station } from "../sim-station-types.ts";
 import type { NationTemplate } from "../../data/nation-types.ts";
 import type { GameMap } from "../sim-map-types.ts";
 import type { StationManager } from "../sim-station-manager.ts";
+import { makeSector } from "./factories.ts";
 
 // Pins emigration decision logic (sim-emigration-decision.ts). Wrong picks
 // silently wipe the wrong stations; off-by-one in eligibility guards strands
 // a nation in a state the player can't recover from.
 
 function fakeStationManager(stations: Station[]): StationManager {
-  return { getStations: () => stations } as unknown as StationManager;
+  return {
+    getStations: () => stations,
+    getStationsForNation: (nationId: string) =>
+      stations.filter((station) => station.nation.id === nationId),
+  } as unknown as StationManager;
 }
 
-function withScriptedMathRandom(sequence: number[], run: () => void): void {
-  // Math.random replacement that yields the next value from `sequence` each
-  // call, then loops. Lets shuffle/pick steps land on a known index without
-  // touching production code.
-  const original = Math.random;
-  let cursor = 0;
-  Math.random = () => {
-    const value = sequence[cursor % sequence.length];
-    cursor++;
-    return value;
-  };
-  try {
-    run();
-  } finally {
-    Math.random = original;
-  }
+function fakeMap(): GameMap {
+  // Sectors the per-nation ranking reads: ore -> hearth, bio -> overgrowth +
+  // green-silence. sectorSize feeds the HUB cluster threshold. Most existing
+  // test stations sit at (0,0), so distances are uniform and those assertions
+  // (counts, guards) do not depend on ranking order.
+  return {
+    sectors: [
+      makeSector({ id: "hearth", x: 5000, y: 5000 }),
+      makeSector({ id: "overgrowth", x: 0, y: 0 }),
+      makeSector({ id: "green-silence", x: 0, y: 1000 }),
+    ],
+    sectorSize: 1500,
+  } as unknown as GameMap;
 }
 
 function makeStation(
@@ -86,6 +88,20 @@ function oreMine(index: string): Station {
   return makeStation(`ORE-M${index}`, oreNation, "mine");
 }
 
+function oreMineAtDistance(index: string, distanceFromHearth: number): Station {
+  const station = oreMine(index);
+  station.x = 5000 + distanceFromHearth;
+  station.y = 5000;
+  return station;
+}
+
+function makeZonedStation(id: string, zoneId: string | undefined): Station {
+  return createStation(
+    { id, name: id, x: 0, y: 0, nation: bioNation, stationTypeId: "habitat", size: "M", zoneId },
+    0,
+  );
+}
+
 test("eligibility skips a station that would violate G1 (universe's last producer of its type)", () => {
   // Universe holds exactly one farm (BIO-F1), plus extra BIO stations so G2
   // doesn't also block the test. The lone farm must NOT be eligible — losing
@@ -122,7 +138,7 @@ test("G2 blocks the last-copy primary even when G1 wouldn't (peer of same type l
   ];
   const stationManager = fakeStationManager(stations);
   withScriptedMathRandom([0], () => {
-    const result = selectStationsForEmigration(stationManager, "high");
+    const result = selectStationsForEmigration(stationManager, "high", fakeMap());
     // Selected stations: ORE-G is the only one that survives both guards.
     // BIO-F1 is blocked by G2 (last BIO farm). ORE-mines survive (G2 primaryCount=2).
     // Pin: BIO-F1 must NOT appear in selected.
@@ -231,7 +247,7 @@ test("eligibility skips building/emigrating stations (only producing counts)", (
 test("selectStationsForEmigration: G1 holds when one nation has 2+ of a sparse type (per-pick recheck regression)", () => {
   // Pin the per-pick G1 recheck. Pre-fix, eligibleStationsForNation took a
   // snapshot of G1 once at the start of each nation's iteration, and the
-  // shuffle-then-pick loop committed up to `count` stations from that snapshot
+  // pick loop committed up to `count` stations from that snapshot
   // without re-checking. With 5 medical-labs total — 3 in BIO + 2 in ORE — and
   // high intensity, ORE's iteration could pick BOTH of its medical-labs in one
   // go (snapshot said both were eligible because count=2 > 1 at iter start),
@@ -245,7 +261,7 @@ test("selectStationsForEmigration: G1 holds when one nation has 2+ of a sparse t
     makeStation("HUB-W1", hubNation, "water-processing"),
     makeStation("HUB-W2", hubNation, "water-processing"),
     // BIO: 3 medical-labs + filler so BIO's eligible list is large enough that
-    // round(0.75 * eligible.length) covers all 3 medical-labs in some shuffles.
+    // round(0.75 * eligible.length) covers all 3 medical-labs in some pick orders.
     bioFarm("1"),
     bioFarm("2"),
     bioMedicalLab("1"),
@@ -262,10 +278,10 @@ test("selectStationsForEmigration: G1 holds when one nation has 2+ of a sparse t
     makeStation("ORE-L2", oreNation, "medical-lab"),
   ];
   const stationManager = fakeStationManager(stations);
-  // Run many trials so the random shuffle covers the bug-prone orderings.
-  // The invariant must hold for every shuffle, not statistically.
+  // Run many trials so the random rolls cover the bug-prone orderings.
+  // The rule must hold for every roll sequence, not statistically.
   for (let trial = 0; trial < 200; trial++) {
-    const { selected } = selectStationsForEmigration(stationManager, "high");
+    const { selected } = selectStationsForEmigration(stationManager, "high", fakeMap());
     const pickedMedicalLabs = selected.filter((station) => station.stationType.id === "medical-lab").length;
     assertTrue(
       pickedMedicalLabs <= 4,
@@ -299,7 +315,7 @@ test("selectStationsForEmigration: G2 holds when a nation has 3+ of its primary 
   ];
   const stationManager = fakeStationManager(stations);
   for (let trial = 0; trial < 200; trial++) {
-    const { selected } = selectStationsForEmigration(stationManager, "high");
+    const { selected } = selectStationsForEmigration(stationManager, "high", fakeMap());
     const pickedHubTechFactories = selected.filter(
       (station) => station.nation.id === "hub" && station.stationType.id === "tech-factory",
     ).length;
@@ -323,9 +339,9 @@ test("intensity-fraction picker rounds to at least 1 station for non-empty eligi
     hubHabitat("1"),
   ];
   const stationManager = fakeStationManager(stations);
-  // Force the shuffle to leave order alone — every Math.random() returns 0.
+  // Force every ranked roll to take the top candidate — every Math.random() returns 0.
   withScriptedMathRandom([0], () => {
-    const result = selectStationsForEmigration(stationManager, "low");
+    const result = selectStationsForEmigration(stationManager, "low", fakeMap());
     // HUB iterates first (allNations order). HUB has 1 eligible (HUB-H1:
     // not primary, G1 universe count = 2 with BIO-H1). round(0.25*1)=0 →
     // clamp to 1; HUB-H1 picked. BIO iterates next: BIO-H1 now fails G1
@@ -342,7 +358,7 @@ test("intensity-fraction picker selects empty when eligible list is empty (no un
   const stations: Station[] = [bioFarm("1")];
   const stationManager = fakeStationManager(stations);
   withScriptedMathRandom([0], () => {
-    const result = selectStationsForEmigration(stationManager, "high");
+    const result = selectStationsForEmigration(stationManager, "high", fakeMap());
     assertEqual(result.selected.length, 0, "no stations selected when every nation has 0 eligible");
     assertEqual(result.nationIds.size, 0, "no nation ids accumulated");
     // Pin the early-continue. Mutating `if (eligible.length === 0) continue`
@@ -376,7 +392,7 @@ test("per-nation cap honors targetCount (no over-pick) and records the picking n
   ];
   const stationManager = fakeStationManager(stations);
   withScriptedMathRandom([0], () => {
-    const result = selectStationsForEmigration(stationManager, "low");
+    const result = selectStationsForEmigration(stationManager, "low", fakeMap());
     const hubPicks = result.selected.filter((station) => station.nation.id === "hub");
     assertEqual(hubPicks.length, 1, "low intensity caps HUB at round(0.25 * 3) = 1");
     assertTrue(result.nationIds.has("hub"), "HUB id recorded in nationIds when HUB pick committed");
@@ -408,20 +424,72 @@ test("intensity-fraction picker picks distinct counts per intensity (pins low=0.
   const stationManager = fakeStationManager(stations);
   // Math.random sequence kept stable across runs so picks are deterministic.
   withScriptedMathRandom([0], () => {
-    const lowResult = selectStationsForEmigration(stationManager, "low");
+    const lowResult = selectStationsForEmigration(stationManager, "low", fakeMap());
     const lowHubPicks = lowResult.selected.filter((station) => station.nation.id === "hub").length;
     assertEqual(lowHubPicks, 1, "low intensity picks round(0.25 * 4) = 1 from HUB");
   });
   withScriptedMathRandom([0], () => {
-    const mediumResult = selectStationsForEmigration(stationManager, "medium");
+    const mediumResult = selectStationsForEmigration(stationManager, "medium", fakeMap());
     const mediumHubPicks = mediumResult.selected.filter((station) => station.nation.id === "hub").length;
     assertEqual(mediumHubPicks, 2, "medium intensity picks round(0.5 * 4) = 2 from HUB");
   });
   withScriptedMathRandom([0], () => {
-    const highResult = selectStationsForEmigration(stationManager, "high");
+    const highResult = selectStationsForEmigration(stationManager, "high", fakeMap());
     const highHubPicks = highResult.selected.filter((station) => station.nation.id === "hub").length;
     assertEqual(highHubPicks, 3, "high intensity picks round(0.75 * 4) = 3 from HUB");
   });
+});
+
+test("ranked emigration roll hit takes the top of the ranking", () => {
+  const farthest = oreMineAtDistance("900", 900);
+  const nextFarthest = oreMineAtDistance("600", 600);
+  const middle = oreMineAtDistance("300", 300);
+  const nearest = oreMineAtDistance("100", 100);
+  const stationManager = fakeStationManager([nearest, middle, nextFarthest, farthest]);
+
+  withScriptedMathRandom([0], () => {
+    const result = selectStationsForEmigration(stationManager, "medium", fakeMap());
+    const selectedIds = result.selected.map((station) => station.id).join(",");
+
+    assertEqual(selectedIds, "ORE-M900,ORE-M600", "hit-only rolls pick farthest-from-Hearth ORE mines");
+  });
+});
+
+test("ranked emigration roll miss can take an on-pattern station", () => {
+  const farthest = oreMineAtDistance("900", 900);
+  const nextFarthest = oreMineAtDistance("600", 600);
+  const middle = oreMineAtDistance("300", 300);
+  const nearest = oreMineAtDistance("100", 100);
+  const stationManager = fakeStationManager([nearest, middle, nextFarthest, farthest]);
+
+  withScriptedMathRandom([0.9, 0.99], () => {
+    const result = selectStationsForEmigration(stationManager, "medium", fakeMap());
+    const selectedIds = new Set(result.selected.map((station) => station.id));
+
+    assertTrue(selectedIds.has("ORE-M100"), "miss roll can pick the most on-pattern ORE mine");
+  });
+});
+
+test("ranked emigration roll statistically favors out-of-step stations", () => {
+  const stations = Array.from({ length: 12 }, (_unused, index) =>
+    oreMineAtDistance(String(index + 1), (index + 1) * 100),
+  );
+  let farthestSelections = 0;
+  let nearestSelections = 0;
+
+  for (let trial = 0; trial < 1000; trial++) {
+    const stationManager = fakeStationManager(stations);
+    const selectedIds = new Set(
+      selectStationsForEmigration(stationManager, "medium", fakeMap()).selected.map(
+        (station) => station.id,
+      ),
+    );
+    if (selectedIds.has("ORE-M12")) farthestSelections++;
+    if (selectedIds.has("ORE-M1")) nearestSelections++;
+  }
+
+  assertTrue(farthestSelections > 900, `farthest mine selected ${farthestSelections} times`);
+  assertTrue(nearestSelections < 350, `nearest mine selected ${nearestSelections} times`);
 });
 
 test("countEligibleStations sums per-nation eligible counts across the producing universe", () => {
@@ -444,11 +512,8 @@ test("countEligibleStations sums per-nation eligible counts across the producing
     oreMine("2"),
   ];
   const stationManager = fakeStationManager(stations);
-  // High intensity = 0.75 fraction, so most eligible are picked. Use a Random
-  // sequence that lands on shuffles where every eligible station gets a chance
-  // — but our assertion is on countEligibleStations vs. the count BIO/HUB/ORE
-  // would each calculate, not on which specific stations are picked.
-
+  // The assertion is on countEligibleStations vs. the count BIO/HUB/ORE would
+  // each calculate, not on which specific stations are picked.
   const totalEligible = countEligibleStations(stationManager);
   // Verify by hand: BIO has 6 producing — F1, F2 (primary, 2 → after-pick 1 doesn't trip
   // G2 if both not yet picked, primaryCount=2 ≤1 false), so both eligible.
@@ -474,44 +539,9 @@ test("emptyZoneCount returns count of zones not occupied by any live station", (
     ],
   } as unknown as GameMap;
 
-  const occupiedA1 = createStation(
-    {
-      id: "BIO-1",
-      name: "BIO-1",
-      x: 0,
-      y: 0,
-      nation: bioNation,
-      stationTypeId: "habitat",
-      size: "M",
-      zoneId: "a-1",
-    },
-    0,
-  );
-  const occupiedA3 = createStation(
-    {
-      id: "BIO-3",
-      name: "BIO-3",
-      x: 0,
-      y: 0,
-      nation: bioNation,
-      stationTypeId: "habitat",
-      size: "M",
-      zoneId: "a-3",
-    },
-    0,
-  );
-  const zonelessTransient = createStation(
-    {
-      id: "BIO-T",
-      name: "BIO-T",
-      x: 0,
-      y: 0,
-      nation: bioNation,
-      stationTypeId: "habitat",
-      size: "M",
-    },
-    0,
-  );
+  const occupiedA1 = makeZonedStation("BIO-1", "a-1");
+  const occupiedA3 = makeZonedStation("BIO-3", "a-3");
+  const zonelessTransient = makeZonedStation("BIO-T", undefined);
 
   const stationManager = fakeStationManager([occupiedA1, occupiedA3, zonelessTransient]);
   // Pin the Math.max(0, …) clamp + zoneId filter. A station without a zoneId
@@ -525,32 +555,8 @@ test("emptyZoneCount clamps to zero when somehow more stations claim zones than 
   const map = {
     stationZones: [{ id: "a-1", x: 0, y: 0, size: "M" as const }],
   } as unknown as GameMap;
-  const stationA = createStation(
-    {
-      id: "BIO-1",
-      name: "BIO-1",
-      x: 0,
-      y: 0,
-      nation: bioNation,
-      stationTypeId: "habitat",
-      size: "M",
-      zoneId: "a-1",
-    },
-    0,
-  );
-  const stationB = createStation(
-    {
-      id: "BIO-2",
-      name: "BIO-2",
-      x: 0,
-      y: 0,
-      nation: bioNation,
-      stationTypeId: "habitat",
-      size: "M",
-      zoneId: "a-2",
-    },
-    0,
-  );
+  const stationA = makeZonedStation("BIO-1", "a-1");
+  const stationB = makeZonedStation("BIO-2", "a-2");
   const stationManager = fakeStationManager([stationA, stationB]);
   assertEqual(emptyZoneCount(map, stationManager), 0, "clamps to 0 instead of returning -1");
 });

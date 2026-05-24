@@ -1,6 +1,6 @@
 // Mass-emigration events and WAY generational-ship lifecycle.
 //
-// Invariants: at most one active event; at most one WAY generational ship (with
+// Always holds: at most one active event; at most one WAY generational ship (with
 // POST_JUMP_GAP_SECONDS between jump and next arrival); selection crosses
 // every participatesInEmigration nation.
 //
@@ -24,6 +24,7 @@ import type { StationManager } from "./sim-station-manager";
 import { wayNation } from "../data/nations";
 import { createStation } from "./sim-station";
 import { generateCounterId } from "./util-ids";
+import { clamp01 } from "./util-clamp";
 import type { NamePool } from "./sim-name-pool";
 import type { DecommissionEvent, TradePort } from "./sim-trade-manager";
 import type { ShipManager } from "./sim-ship-manager";
@@ -56,7 +57,7 @@ export class EmigrationManager {
   private mode: EmigrationTriggerMode = "auto";
   private intensity: EmigrationIntensity = "medium";
   private usedDestinations: string[] = [];
-  private nextGenerationalShipArrivalAt: number | null = null;
+  private nextGenerationalShipArrivalAtSeconds: number | null = null;
   private readonly autoTriggerThreshold: number;
   private nextGenerationalShipCounter = 0;
   private nextEmigrantShipCounter = 0;
@@ -106,35 +107,38 @@ export class EmigrationManager {
     return this.activeEvent;
   }
 
-  /** Refresh render-visible caches each tick (and post-snapshot): per-station
-   *  progressFraction from each station's emigrationEvent. */
+  /** Count this station's trade ships from its initial homed set that are
+   *  still docked (not in flight). */
+  private countHomedShipsStillDocked(stationId: string, initialHomedSet: Set<string>): number {
+    let stillDocked = 0;
+    for (const tradeShip of this.tradeManager.getTradeShipsByHomeStationId(stationId)) {
+      if (!initialHomedSet.has(tradeShip.orbitingShipId)) continue;
+      if (!this.tradeManager.isShipInFlight(tradeShip)) stillDocked++;
+    }
+    return stillDocked;
+  }
+
+  /** Refresh per-station progressFraction each tick so render sees current launch progress. */
   private syncStationCaches(event: EmigrationEvent): void {
     for (const stationId of event.stationIds) {
       const station = this.stationManager.getStation(stationId);
       if (!station || !station.emigrationEvent) continue;
       const initialHomedSet = station.emigrationEvent.initialHomedShipIdSet;
-      let homedStillDocked = 0;
-      for (const tradeShip of this.tradeManager.getTradeShipsByHomeStationId(stationId)) {
-        if (!initialHomedSet.has(tradeShip.orbitingShipId)) continue;
-        if (!this.tradeManager.isShipInFlight(tradeShip)) homedStillDocked++;
-      }
       station.emigrationEvent.progressFraction = computeEmigrationFraction(
         station.emigrationEvent,
         initialHomedSet,
-        homedStillDocked,
+        this.countHomedShipsStillDocked(stationId, initialHomedSet),
       );
     }
   }
 
-  /** Refresh the active generational ship's arrivalFraction cache from
-   *  shipsArrived / totalExpectedShips. */
+  /** Refresh the generational ship's arrivalFraction so render sees the updated
+   *  fraction even on the tick the ship jumps away. */
   private syncGenerationalShipArrival(event: EmigrationEvent): void {
     const generationalShip = this.getActiveGenerationalShip();
     if (!generationalShip || !generationalShip.generationalShipBuild) return;
     generationalShip.generationalShipBuild.arrivalFraction =
-      event.totalExpectedShips === 0
-        ? 1
-        : Math.max(0, Math.min(1, event.shipsArrived / event.totalExpectedShips));
+      event.totalExpectedShips === 0 ? 1 : clamp01(event.shipsArrived / event.totalExpectedShips);
   }
 
   /** Per-tick handler. When an event is active: advances launches, demolishes
@@ -146,7 +150,7 @@ export class EmigrationManager {
     this.clockSeconds += deltaSeconds;
 
     if (this.activeEvent) {
-      // Resolved once — body never spawns/jumps the generational ship before tickEmigrantLaunches.
+      // Captured before any jump so tickEmigrantLaunches gets the ship even if arrivals complete this tick.
       const generationalShip = this.getActiveGenerationalShip();
       if (generationalShip) {
         tickEmigrantLaunches(this.activeEvent, deltaSeconds, generationalShip, this.launchDependencies());
@@ -167,17 +171,17 @@ export class EmigrationManager {
 
   private spawnNextGenerationalShipIfDue(): void {
     if (this.activeGenerationalShipId !== null) return;
-    if (this.nextGenerationalShipArrivalAt === null) return;
-    if (this.clockSeconds < this.nextGenerationalShipArrivalAt) return;
+    if (this.nextGenerationalShipArrivalAtSeconds === null) return;
+    if (this.clockSeconds < this.nextGenerationalShipArrivalAtSeconds) return;
     const generationalShip = this.createGenerationalShip();
     this.activeGenerationalShipId = generationalShip.id;
-    this.nextGenerationalShipArrivalAt = null;
+    this.nextGenerationalShipArrivalAtSeconds = null;
   }
 
   private triggerAutoEmigrationEventIfDue(): void {
     if (this.mode !== "auto") return;
     if (this.activeEvent !== null) return;
-    if (this.nextGenerationalShipArrivalAt !== null) return;
+    if (this.nextGenerationalShipArrivalAtSeconds !== null) return;
     if (emptyZoneCount(this.map, this.stationManager) > this.autoTriggerThreshold) return;
     this.triggerEvent({ intensity: this.intensity });
   }
@@ -185,11 +189,11 @@ export class EmigrationManager {
   /** Fire an emigration event; returns null if nothing eligible. */
   triggerEvent(options: { intensity?: EmigrationIntensity } = {}): EmigrationEvent | null {
     const intensity = options.intensity ?? this.intensity;
-    if (this.activeEvent !== null) return null; // at-most-one invariant
+    if (this.activeEvent !== null) return null; // only one active event at a time
     const generationalShip = this.getActiveGenerationalShip();
     if (!generationalShip) return null;
 
-    const { selected, nationIds } = selectStationsForEmigration(this.stationManager, intensity);
+    const { selected, nationIds } = selectStationsForEmigration(this.stationManager, intensity, this.map);
 
     if (selected.length === 0) {
       // Zero-eligible — no state change, just surface a toast so the player
@@ -239,7 +243,7 @@ export class EmigrationManager {
     eventId: string,
     destinationName: string,
   ): number {
-    const launchDeps = this.launchDependencies();
+    const launchDependencies = this.launchDependencies();
     let totalExpectedShips = 0;
     for (const station of selected) {
       totalExpectedShips += beginStationEmigration(
@@ -247,7 +251,7 @@ export class EmigrationManager {
         generationalShip,
         eventId,
         destinationName,
-        launchDeps,
+        launchDependencies,
       );
     }
     return totalExpectedShips;
@@ -256,7 +260,7 @@ export class EmigrationManager {
   /** Construct the in-memory EmigrationEvent record. Pure — no observers
    *  fired, no station mutated. Caller decides when to commit it as
    *  this.activeEvent. */
-  private createEmigrationEvent(parts: {
+  private createEmigrationEvent(eventParts: {
     eventId: string;
     destinationName: string;
     generationalShipId: string;
@@ -265,15 +269,14 @@ export class EmigrationManager {
     totalExpectedShips: number;
   }): EmigrationEvent {
     return {
-      id: parts.eventId,
-      nationIds: parts.nationIds,
-      generationalShipId: parts.generationalShipId,
-      stationIds: parts.stationIds,
-      stationIdSet: new Set(parts.stationIds),
+      id: eventParts.eventId,
+      nationIds: eventParts.nationIds,
+      generationalShipId: eventParts.generationalShipId,
+      stationIds: eventParts.stationIds,
+      stationIdSet: new Set(eventParts.stationIds),
       shipsArrived: 0,
-      totalExpectedShips: parts.totalExpectedShips,
-      destinationName: parts.destinationName,
-      startAt: this.clockSeconds,
+      totalExpectedShips: eventParts.totalExpectedShips,
+      destinationName: eventParts.destinationName,
     };
   }
 
@@ -289,8 +292,8 @@ export class EmigrationManager {
   }
 
   /** Bundle of refs the launch-helper sibling needs (managers + the namePool +
-   *  this manager). Built per call rather than stored as a field so the
-   *  manager doesn't carry a self-referencing cache. */
+   *  this manager). Returned fresh each call rather than stored as a field to
+   *  avoid holding a reference to itself on the manager. */
   private launchDependencies(): LaunchDependencies {
     return {
       stationManager: this.stationManager,
@@ -347,15 +350,7 @@ export class EmigrationManager {
       if (state.launched < state.totalEmigrants) continue;
 
       const initialHomedSet = station.emigrationEvent.initialHomedShipIdSet;
-      let anyStillDocked = false;
-      for (const tradeShip of this.tradeManager.getTradeShipsByHomeStationId(stationId)) {
-        if (!initialHomedSet.has(tradeShip.orbitingShipId)) continue;
-        if (!this.tradeManager.isShipInFlight(tradeShip)) {
-          anyStillDocked = true;
-          break;
-        }
-      }
-      if (anyStillDocked) continue;
+      if (this.countHomedShipsStillDocked(stationId, initialHomedSet) !== 0) continue;
 
       this.stationManager.removeStationForEmigration(stationId);
     }
@@ -381,10 +376,10 @@ export class EmigrationManager {
       this.activeGenerationalShipId = null;
     }
     this.activeEvent = null;
-    this.nextGenerationalShipArrivalAt = this.clockSeconds + POST_JUMP_GAP_SECONDS;
+    this.nextGenerationalShipArrivalAtSeconds = this.clockSeconds + POST_JUMP_GAP_SECONDS;
   }
 
-  /** Generate a unique id, build the generational-ship Station, register with
+  /** Create the generational-ship Station with a unique id and register it with
    *  StationManager so the shared render / selection pipeline handles it. */
   private createGenerationalShip(): Station {
     const position = this.randomPositionOutsideStations();
@@ -441,13 +436,13 @@ export class EmigrationManager {
     this.intensity = intensity;
   }
   getNextGenerationalShipArrivalAt(): number | null {
-    return this.nextGenerationalShipArrivalAt;
+    return this.nextGenerationalShipArrivalAtSeconds;
   }
 
   /** Sim-seconds until next generational ship, or 0 if one is already present. */
   getSecondsUntilNextGenerationalShip(): number {
-    if (this.nextGenerationalShipArrivalAt === null) return 0;
-    return Math.max(0, this.nextGenerationalShipArrivalAt - this.clockSeconds);
+    if (this.nextGenerationalShipArrivalAtSeconds === null) return 0;
+    return Math.max(0, this.nextGenerationalShipArrivalAtSeconds - this.clockSeconds);
   }
   /** Length of the post-jump cooldown — for arrival-progress rendering. */
   getPostJumpGapSeconds(): number {
@@ -467,7 +462,7 @@ export class EmigrationManager {
       mode: this.mode,
       intensity: this.intensity,
       usedDestinations: [...this.usedDestinations],
-      nextGenerationalShipArrivalAt: this.nextGenerationalShipArrivalAt,
+      nextGenerationalShipArrivalAtSeconds: this.nextGenerationalShipArrivalAtSeconds,
       clockSeconds: this.clockSeconds,
       nextGenerationalShipCounter: this.nextGenerationalShipCounter,
       nextEmigrantShipCounter: this.nextEmigrantShipCounter,
@@ -481,7 +476,7 @@ export class EmigrationManager {
     this.mode = snapshot.mode;
     this.intensity = snapshot.intensity;
     this.usedDestinations = [...snapshot.usedDestinations];
-    this.nextGenerationalShipArrivalAt = snapshot.nextGenerationalShipArrivalAt;
+    this.nextGenerationalShipArrivalAtSeconds = snapshot.nextGenerationalShipArrivalAtSeconds;
     this.clockSeconds = snapshot.clockSeconds;
     this.nextGenerationalShipCounter = snapshot.nextGenerationalShipCounter;
     this.nextEmigrantShipCounter = snapshot.nextEmigrantShipCounter;
@@ -489,7 +484,7 @@ export class EmigrationManager {
 
     // Per-station state rides on StationSnapshot.emigrationEvent — restoreSavedGame
     // already populated each station's emigrationEvent before this method runs.
-    // Note: at this point StationManager.seed has NOT yet happened (Game.create
+    // At this point StationManager.seed has NOT yet happened (Game.create
     // seeds it after restoreSavedGame returns), so syncStationCaches cannot resolve
     // stations through this.stationManager. progressFraction / arrivalFraction
     // stay at their snapshotted values until the first slow simulation tick re-runs
@@ -499,14 +494,14 @@ export class EmigrationManager {
   /** Tear down the manager — clear in-memory state and unwire the
    *  decommission subscription. Safe to call more than once; the
    *  unsubscribe is nulled on first run. Terminal (no reuse). */
-  dispose(): void {
+  destroy(): void {
     this.activeEvent = null;
     this.activeGenerationalShipId = null;
     this.clockSeconds = 0;
     this.mode = "auto";
     this.intensity = "medium";
     this.usedDestinations = [];
-    this.nextGenerationalShipArrivalAt = null;
+    this.nextGenerationalShipArrivalAtSeconds = null;
     this.nextGenerationalShipCounter = 0;
     this.nextEmigrantShipCounter = 0;
     this.nextEventCounter = 0;
@@ -525,7 +520,6 @@ function emigrationEventToSnapshot(event: EmigrationEvent): EmigrationEventSnaps
     shipsArrived: event.shipsArrived,
     totalExpectedShips: event.totalExpectedShips,
     destinationName: event.destinationName,
-    startAt: event.startAt,
   };
 }
 
@@ -540,6 +534,5 @@ function emigrationEventFromSnapshot(snapshot: EmigrationEventSnapshot): Emigrat
     shipsArrived: snapshot.shipsArrived,
     totalExpectedShips: snapshot.totalExpectedShips,
     destinationName: snapshot.destinationName,
-    startAt: snapshot.startAt,
   };
 }

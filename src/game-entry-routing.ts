@@ -1,6 +1,6 @@
 // URL routing + load-error rendering for the play page. Top-level dispatch
-// in game-entry.ts calls into these — startFromPreset for /start/:preset,
-// continueUniverse for /universe, and renderLoadError when either path fails
+// in game-entry.ts calls into these — startFreshUniverse for /start/:preset,
+// restoreSavedGame for /universe, and renderLoadError when either path fails
 // or the snapshot can't be validated.
 
 import { X } from "lucide-static";
@@ -9,7 +9,8 @@ import { createMapFromTemplate, mapFromSnapshot } from "./sim-map-create";
 import { map } from "../data/map";
 import { presets } from "../data/map-presets";
 import { getPresetById } from "./util-map-preset";
-import { readSlot, type ValidationResult } from "./ui-savegame-manager";
+import { readSlot } from "./ui-savegame-manager";
+import type { ValidationResult } from "./ui-snapshot-validator";
 import { findLatestSave, clearAllSaves } from "./storage-save-slots";
 import * as saveError from "../data/strings-save";
 import { mountGameRuntime, destroyGameRuntime } from "./game-entry";
@@ -19,19 +20,18 @@ const UNIVERSE_ROUTE_PATTERN = /^\/universe\/?$/;
 
 export function parseRoute(
   pathname: string,
-): { kind: "start"; presetId: string } | { kind: "universe" } | null {
-  const normalized = pathname.replace(/\/$/, "") || "/";
-  const startMatch = START_ROUTE_PATTERN.exec(normalized);
+): { kind: "newGame"; presetId: string } | { kind: "resume" } | null {
+  const startMatch = START_ROUTE_PATTERN.exec(pathname);
   if (startMatch) {
-    return { kind: "start", presetId: decodeURIComponent(startMatch[1]) };
+    return { kind: "newGame", presetId: decodeURIComponent(startMatch[1]) };
   }
-  if (UNIVERSE_ROUTE_PATTERN.test(normalized)) {
-    return { kind: "universe" };
+  if (UNIVERSE_ROUTE_PATTERN.test(pathname)) {
+    return { kind: "resume" };
   }
   return null;
 }
 
-function createMapForPreset(presetId: string): GameMap {
+function createMapForPresetId(presetId: string): GameMap {
   const preset = getPresetById(presetId);
   if (!preset) {
     const known = presets.map((preset) => preset.id).join(", ");
@@ -54,7 +54,7 @@ export function renderLoadError(message: string, diagnostic?: string) {
  *  left, landing falls back to first-visit. Mirrors ui-slot-selector.ts. */
 function setupClearSavesConfirmFlow(actionsContainer: HTMLElement): void {
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
-  const renderIdle = () => {
+  const resetToIdle = () => {
     if (pendingTimer) {
       clearTimeout(pendingTimer);
       pendingTimer = null;
@@ -64,11 +64,11 @@ function setupClearSavesConfirmFlow(actionsContainer: HTMLElement): void {
       pendingTimer = setTimeout(() => {
         pendingTimer = null;
         actionsContainer.innerHTML = "";
-        renderConfirmReady(actionsContainer, renderIdle);
+        renderConfirmReady(actionsContainer, resetToIdle);
       }, 1500);
     });
   };
-  renderIdle();
+  resetToIdle();
 }
 
 /** Wipe the canvas + HUD scaffolding and replace with the error panel.
@@ -155,21 +155,10 @@ function renderConfirmReady(actions: HTMLElement, onCancel: () => void): void {
   actions.appendChild(cancel);
 }
 
-/** Validate the most recently saved slot, returning the full ValidationResult
- *  so callers can distinguish "nothing to resume" from "resume blocked".
- *  Absent slots report as `reason: "empty"` to match the readSlot shape. */
-function validateLatestSave(): ValidationResult {
-  const latest = findLatestSave();
-  if (!latest || latest.savedAt === null) {
-    return { ok: false, reason: "empty", message: saveError.SLOT_EMPTY };
-  }
-  return readSlot(latest.kind, latest.index);
-}
-
 /** Handles `/start/:preset` — fresh universe seeded from the named preset.
  *  The URL is transient; replaceState to `/universe` so a refresh won't reseed. */
-export async function startFromPreset(presetId: string) {
-  const mapData = createMapForPreset(presetId);
+export async function startFreshUniverse(presetId: string) {
+  const mapData = createMapForPresetId(presetId);
   history.replaceState({}, "", "/universe");
   await mountGameRuntime({ mapData });
 }
@@ -177,8 +166,14 @@ export async function startFromPreset(presetId: string) {
 /** Handles `/universe` — continue the latest save. No save bounces to landing;
  *  a present-but-invalid save shows the load-error panel so the player sees the
  *  reason instead of silently flickering back. */
-export async function continueUniverse() {
-  const result = validateLatestSave();
+export async function restoreSavedGame() {
+  const latestSave = findLatestSave();
+  // Absent slot reports as `reason: "empty"` to match the readSlot shape, so
+  // the one branch below handles "nothing to resume" and "resume blocked".
+  const result: ValidationResult =
+    !latestSave || latestSave.savedAtMilliseconds === null
+      ? { ok: false, reason: "empty", message: saveError.SLOT_EMPTY }
+      : readSlot(latestSave.kind, latestSave.index);
   if (!result.ok) {
     if (result.reason === "empty") {
       // replace (not assign) so Back from the landing doesn't re-enter here.

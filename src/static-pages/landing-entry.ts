@@ -17,6 +17,14 @@ import type { MapPreset } from "../../data/map-types";
 
 const RECOMMENDED_PRESET_ID = "settled";
 
+function sortPresetsRecommendedFirst(presets: readonly MapPreset[]): MapPreset[] {
+  return [...presets].sort((left, right) => {
+    if (left.id === RECOMMENDED_PRESET_ID) return -1;
+    if (right.id === RECOMMENDED_PRESET_ID) return 1;
+    return 0;
+  });
+}
+
 function renderFirstVisit(root: HTMLElement, presets: readonly MapPreset[]): void {
   const buttons = presets
     .map((preset) => {
@@ -35,9 +43,13 @@ function renderFirstVisit(root: HTMLElement, presets: readonly MapPreset[]): voi
   root.innerHTML = `<div class="start-primary-row">${buttons}</div>`;
 }
 
-function renderContinue(root: HTMLElement, presets: readonly MapPreset[], latestSavedAt: number): void {
-  // Stripe encodes "Continue" so the CTA reads as resume, not as a per-preset choice.
-  const { date, time } = formatLocalDateTime(new Date(latestSavedAt));
+function renderReturningVisit(
+  root: HTMLElement,
+  presets: readonly MapPreset[],
+  latestSavedAtMilliseconds: number,
+): void {
+  // Continue is preset-agnostic — it routes to /universe and game-entry picks the latest slot.
+  const { date, time } = formatLocalDateTime(new Date(latestSavedAtMilliseconds));
   const subactions = presets
     .map(
       (preset) => `
@@ -66,9 +78,9 @@ function paintMorseStripes(root: HTMLElement): void {
 
 function setupStartActionClicks(root: HTMLElement): void {
   root.addEventListener("click", (event) => {
-    const clickTarget = event.target;
-    if (!(clickTarget instanceof Element)) return;
-    const button = clickTarget.closest<HTMLButtonElement>("[data-action]");
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLButtonElement>("[data-action]");
     if (!button || button.disabled) return;
     if (button.dataset.action === "continue") {
       window.location.href = "/universe";
@@ -81,18 +93,14 @@ function setupStartActionClicks(root: HTMLElement): void {
 }
 
 function mountStartActions(root: HTMLElement): void {
-  const sortedPresets = [...presets].sort((left, right) => {
-    if (left.id === RECOMMENDED_PRESET_ID) return -1;
-    if (right.id === RECOMMENDED_PRESET_ID) return 1;
-    return 0;
-  });
+  const sortedPresets = sortPresetsRecommendedFirst(presets);
 
   // Slots are shared across presets — Continue routes to /universe and
   // game-entry loads the most recent slot from localStorage.
   const latestSave = findLatestSave();
 
-  if (latestSave && latestSave.savedAt !== null) {
-    renderContinue(root, sortedPresets, latestSave.savedAt);
+  if (latestSave && latestSave.savedAtMilliseconds !== null) {
+    renderReturningVisit(root, sortedPresets, latestSave.savedAtMilliseconds);
   } else {
     renderFirstVisit(root, sortedPresets);
   }

@@ -11,16 +11,24 @@ export interface ChartBucket {
   /** Sim-time at the end of this bucket's slice (not the start or midpoint). */
   endTime: number;
   countsByNation: Map<string, number>;
-  /** Sum across non-WAY nations (matches `history.getCountsAt`'s exclusion). */
-  total: number;
+}
+
+/** Total stations across non-WAY nations (`getCountsAt` already excludes WAY). */
+export function bucketStationCount(bucket: ChartBucket): number {
+  let total = 0;
+  for (const value of bucket.countsByNation.values()) total += value;
+  return total;
 }
 
 export interface ComputeBucketsOptions {
   history: StationHistory;
-  /** Total span the chart shows. */
   windowSeconds: number;
   /** Sim-time of the right edge of the chart (typically the current sim-time). */
   currentTime: number;
+}
+
+export interface ChartBucketsResult {
+  buckets: ChartBucket[];
   bucketDurationSeconds: number;
 }
 
@@ -30,17 +38,15 @@ export function pickBucketDurationSeconds(windowSeconds: number): number {
   return 8 * HOUR;
 }
 
-export function computeBuckets(options: ComputeBucketsOptions): ChartBucket[] {
-  const { history, windowSeconds, currentTime, bucketDurationSeconds } = options;
+export function computeBuckets(options: ComputeBucketsOptions): ChartBucketsResult {
+  const { history, windowSeconds, currentTime } = options;
+  const bucketDurationSeconds = pickBucketDurationSeconds(windowSeconds);
   const startTime = currentTime - windowSeconds;
   const bucketCount = Math.max(1, Math.floor(windowSeconds / bucketDurationSeconds));
   const buckets: ChartBucket[] = [];
   for (let bucketIndex = 0; bucketIndex < bucketCount; bucketIndex++) {
     const endTime = startTime + (bucketIndex + 1) * bucketDurationSeconds;
-    const counts = history.getCountsAt(endTime);
-    let total = 0;
-    for (const value of counts.values()) total += value;
-    buckets.push({ endTime, countsByNation: counts, total });
+    buckets.push({ endTime, countsByNation: history.getCountsAt(endTime) });
   }
-  return buckets;
+  return { buckets, bucketDurationSeconds };
 }

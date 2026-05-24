@@ -2,13 +2,12 @@ import { economyConfig } from "../../../data/economy-config.ts";
 import { getAllInventorySlots, type InventorySlot } from "../../sim-station.ts";
 import { createSimulation } from "../../sim-lifecycle.ts";
 import { allShips } from "../../../data/ships.ts";
-import type { createMapFromTemplate } from "../../sim-map-create.ts";
+import type { GameMap } from "../../sim-map-types.ts";
 
 const SIMULATION_DURATION_SECONDS = 3600 * 20;
-const TICK = economyConfig.simulationIntervalSeconds;
+const fastTickIntervalSeconds = economyConfig.simulationIntervalSeconds;
 const LOW_STOCK_THRESHOLD_PERCENT = 25;
 const HIGH_STOCK_THRESHOLD_PERCENT = 75;
-const SLOW_SIMULATION_TICK_INTERVAL_SECONDS = 5;
 
 type Simulation = ReturnType<typeof createSimulation>;
 type SimulationStation = Simulation["stations"][number];
@@ -43,8 +42,8 @@ function formatTickShareAsPercent(tickCount: number, totalTicks: number): string
   return `${Math.round(percent)}%`;
 }
 
-/** Per-station metadata, lazy-initialized because nation expansion can add
- *  stations mid-simulation (nationManager.tick → stationManager.placeBuild). */
+/** Created on first encounter — new stations can be added mid-simulation when
+ *  nation expansion fires (nationManager.tick → stationManager.placeBuild). */
 type StationMeta = { isProducer: boolean; isConsumer: boolean; producedWares: Set<string> };
 
 type SlotRange = {
@@ -97,20 +96,23 @@ function computeStationMeta(station: SimulationStation, stationSlots: readonly I
 
 function getOrCreateStationMeta(station: SimulationStation, state: TrackingState): StationMeta {
   const stationSlots = getAllInventorySlots(station);
-  let meta = state.stationMeta.get(station.id);
-  if (!meta) {
-    meta = computeStationMeta(station, stationSlots);
-    state.stationMeta.set(station.id, meta);
-    state.stalledTicks.set(station.id, 0);
+  const existingMeta = state.stationMeta.get(station.id);
+  const existingRanges = state.slotRanges.get(station.id);
+  // When a station flips from building to producing, its slot count changes,
+  // so meta + ranges must be rebuilt to match.
+  const slotCountChanged = existingRanges !== undefined && existingRanges.length !== stationSlots.length;
+
+  if (existingMeta && !slotCountChanged) return existingMeta;
+
+  const freshMeta = computeStationMeta(station, stationSlots);
+  state.slotRanges.set(station.id, initSlotRanges(stationSlots));
+  if (existingMeta) {
+    Object.assign(existingMeta, freshMeta);
+    return existingMeta;
   }
-  // Building → producing flips rebuild inventory with a different slot list,
-  // so the ranges array has to resize too.
-  const ranges = state.slotRanges.get(station.id);
-  if (!ranges || ranges.length !== stationSlots.length) {
-    state.slotRanges.set(station.id, initSlotRanges(stationSlots));
-    Object.assign(meta, computeStationMeta(station, stationSlots));
-  }
-  return meta;
+  state.stationMeta.set(station.id, freshMeta);
+  state.stalledTicks.set(station.id, 0);
+  return freshMeta;
 }
 
 function tickStationStats(stations: readonly SimulationStation[], state: TrackingState): void {
@@ -148,17 +150,44 @@ type GameLoopOptions = {
 function tickGameLoopUntil(simulation: Simulation, options: GameLoopOptions): void {
   // Same two cadences as the game's main loop:
   //   - fast: economy + trade (which moves ships), every tickIntervalSeconds.
-  //   - slow: station/nation/emigration managers, every SLOW_SIMULATION_TICK_INTERVAL_SECONDS seconds.
-  let slowSimulationAccumulator = 0;
+  //   - slow: station/nation/emigration managers, every economyConfig.slowSimulationTickIntervalSeconds seconds.
+  let accumulatedSlowSimulationSeconds = 0;
   for (let time = 0; time < options.durationSeconds; time += options.tickIntervalSeconds) {
     simulation.tick(options.tickIntervalSeconds);
-    slowSimulationAccumulator += options.tickIntervalSeconds;
-    if (slowSimulationAccumulator >= SLOW_SIMULATION_TICK_INTERVAL_SECONDS) {
-      simulation.slowSimulationTick(slowSimulationAccumulator);
-      slowSimulationAccumulator = 0;
+    accumulatedSlowSimulationSeconds += options.tickIntervalSeconds;
+    if (accumulatedSlowSimulationSeconds >= economyConfig.slowSimulationTickIntervalSeconds) {
+      simulation.slowSimulationTick(accumulatedSlowSimulationSeconds);
+      accumulatedSlowSimulationSeconds = 0;
     }
     options.onTick();
   }
+}
+
+function buildStationDisplayLabel(station: SimulationStation): string {
+  return `${station.nation.codeName} ${station.name ?? station.id}`;
+}
+
+type StationDisplayRow = {
+  label: string;
+  ranges: SlotRange[];
+  meta: StationMeta;
+  stalledPercent: number;
+  slots: readonly InventorySlot[];
+};
+
+function getStationDisplayRow(
+  station: SimulationStation,
+  state: TrackingState,
+  totalTicks: number,
+): StationDisplayRow {
+  const stalled = state.stalledTicks.get(station.id) ?? 0;
+  return {
+    label: buildStationDisplayLabel(station),
+    ranges: state.slotRanges.get(station.id)!,
+    meta: state.stationMeta.get(station.id)!,
+    stalledPercent: Math.round((stalled / totalTicks) * 100),
+    slots: getAllInventorySlots(station),
+  };
 }
 
 type StockRangeColumnWidths = { stationColumnWidth: number; slotColumnWidth: number };
@@ -170,7 +199,7 @@ function computeColumnWidths(
   const stationColumnWidth =
     Math.max(
       "Station".length,
-      ...stations.map((station) => `${station.nation.codeName} ${station.name ?? station.id}`.length),
+      ...stations.map((station) => buildStationDisplayLabel(station).length),
     ) + 2;
 
   const slotColumnWidth =
@@ -222,20 +251,15 @@ function renderStockRangeTable(
   console.log(divider);
 
   for (const station of stations) {
-    const label = `${station.nation.codeName} ${station.name ?? station.id}`;
-    const ranges = state.slotRanges.get(station.id)!;
-    const meta = state.stationMeta.get(station.id)!;
-    const stalled = state.stalledTicks.get(station.id) ?? 0;
-    const stalledPercent = Math.round((stalled / totalTicks) * 100);
-
-    const slots = getAllInventorySlots(station);
-    for (let i = 0; i < slots.length; i++) {
-      const slot = slots[i];
-      const slotName = formatSlotLabel(slot.ware.name, meta.producedWares.has(slot.ware.id));
-      const stallColumn = i === 0 && (meta.isProducer || meta.isConsumer) ? `${stalledPercent}%` : "";
-      const rowLabel = i === 0 ? label : "";
+    const row = getStationDisplayRow(station, state, totalTicks);
+    for (let i = 0; i < row.slots.length; i++) {
+      const slot = row.slots[i];
+      const slotName = formatSlotLabel(slot.ware.name, row.meta.producedWares.has(slot.ware.id));
+      const stallColumn =
+        i === 0 && (row.meta.isProducer || row.meta.isConsumer) ? `${row.stalledPercent}%` : "";
+      const rowLabel = i === 0 ? row.label : "";
       console.log(
-        formatStockRangeDataRow(rowLabel, slotName, slot, ranges[i], stallColumn, totalTicks, widths),
+        formatStockRangeDataRow(rowLabel, slotName, slot, row.ranges[i], stallColumn, totalTicks, widths),
       );
     }
   }
@@ -254,43 +278,43 @@ function collectStationOutliers(
   const outliers: StationOutlier[] = [];
 
   for (const station of stations) {
-    const label = `${station.nation.codeName} ${station.name ?? station.id}`;
-    const ranges = state.slotRanges.get(station.id)!;
-    const meta = state.stationMeta.get(station.id)!;
-    const stalled = state.stalledTicks.get(station.id) ?? 0;
-    const stalledPercent = Math.round((stalled / totalTicks) * 100);
-
+    const row = getStationDisplayRow(station, state, totalTicks);
     const issues: string[] = [];
 
-    const stationSlots = getAllInventorySlots(station);
-    for (let i = 0; i < stationSlots.length; i++) {
-      const underLowThresholdPercent = formatTickShareAsPercent(ranges[i].underLowThresholdTicks, totalTicks);
-      const overHighThresholdPercent = formatTickShareAsPercent(ranges[i].overHighThresholdTicks, totalTicks);
+    for (let i = 0; i < row.slots.length; i++) {
+      const underLowThresholdPercent = formatTickShareAsPercent(
+        row.ranges[i].underLowThresholdTicks,
+        totalTicks,
+      );
+      const overHighThresholdPercent = formatTickShareAsPercent(
+        row.ranges[i].overHighThresholdTicks,
+        totalTicks,
+      );
       const slotName = formatSlotLabel(
-        stationSlots[i].ware.name,
-        meta.producedWares.has(stationSlots[i].ware.id),
+        row.slots[i].ware.name,
+        row.meta.producedWares.has(row.slots[i].ware.id),
       );
 
-      if (ranges[i].minPercent < LOW_STOCK_THRESHOLD_PERCENT) {
+      if (row.ranges[i].minPercent < LOW_STOCK_THRESHOLD_PERCENT) {
         issues.push(
           `${slotName} spent ${underLowThresholdPercent} of ticks below ${LOW_STOCK_THRESHOLD_PERCENT}%`,
         );
       }
 
-      if (ranges[i].maxPercent > HIGH_STOCK_THRESHOLD_PERCENT) {
+      if (row.ranges[i].maxPercent > HIGH_STOCK_THRESHOLD_PERCENT) {
         issues.push(
           `${slotName} spent ${overHighThresholdPercent} of ticks above ${HIGH_STOCK_THRESHOLD_PERCENT}%`,
         );
       }
     }
 
-    if ((meta.isProducer || meta.isConsumer) && stalledPercent > 0) {
-      const stallLabel = meta.isProducer ? "production stalled" : "starved";
-      issues.push(`${stallLabel} ${stalledPercent}% of ticks`);
+    if ((row.meta.isProducer || row.meta.isConsumer) && row.stalledPercent > 0) {
+      const stallLabel = row.meta.isProducer ? "production stalled" : "starved";
+      issues.push(`${stallLabel} ${row.stalledPercent}% of ticks`);
     }
 
     if (issues.length > 0) {
-      outliers.push({ label, issues });
+      outliers.push({ label: row.label, issues });
     }
   }
 
@@ -336,10 +360,12 @@ function printSimulationFooter(simulation: Simulation): void {
   console.log(`  Simulation notes`);
   console.log(`  ${"─".repeat(70)}`);
   console.log(`  Total ships: ${simulation.ships.length}`);
-  console.log(`  Duration: ${SIMULATION_DURATION_SECONDS / 3600}h, tick: ${TICK}s`);
+  console.log(
+    `  Duration: ${SIMULATION_DURATION_SECONDS / 3600}h, tick: ${fastTickIntervalSeconds}s`,
+  );
 }
 
-export function runTradeSimulation(map: ReturnType<typeof createMapFromTemplate>): void {
+export function runTradeSimulation(map: GameMap): void {
   const simulation = createSimulation(map, { ignoreCargoCompatibility: true });
   printSimulationHeader(simulation);
 
@@ -355,11 +381,11 @@ export function runTradeSimulation(map: ReturnType<typeof createMapFromTemplate>
     getOrCreateStationMeta(station, state);
   }
 
-  const totalTicks = SIMULATION_DURATION_SECONDS / TICK;
+  const totalTicks = SIMULATION_DURATION_SECONDS / fastTickIntervalSeconds;
 
   tickGameLoopUntil(simulation, {
     durationSeconds: SIMULATION_DURATION_SECONDS,
-    tickIntervalSeconds: TICK,
+    tickIntervalSeconds: fastTickIntervalSeconds,
     onTick: () => tickStationStats(stations, state),
   });
 

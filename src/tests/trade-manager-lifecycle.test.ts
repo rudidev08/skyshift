@@ -1,24 +1,40 @@
 // Targeted tests for the TradeManager class boundary — update loop, queue
 // dispatch, instance methods, and snapshot round-trip via the public class
-// API. Existing trade.test.ts and savegame-*.test.ts cover trade behavior
+// API. The trade-*.test.ts cluster and savegame-*.test.ts cover trade behavior
 // end-to-end; this file isolates the class-API contract that the broader
 // tests exercise only transitively.
 
 import { test, assertEqual, assertNotUndefined, assertTrue } from "./test-utils.ts";
-import { createSimulation } from "../sim-lifecycle.ts";
 import { createMapFromTemplate } from "../sim-map-create.ts";
 import { map as settledUniverse } from "../../data/map.ts";
 import { settledPreset } from "../../data/map-preset-settled.ts";
 import { tradeShipFromSnapshot, tradeShipToSnapshot, type SnapshotContext } from "../sim-trade-save-snapshot.ts";
 import { advanceQueue } from "../sim-trade-queue.ts";
-import type { ShipAction } from "../sim-travel-types.ts";
+import type { ShipAction, TravelEndpoint, TravelMode } from "../sim-travel-types.ts";
+import type { FlightData } from "../sim-travel.ts";
 import { type TradeShip } from "../sim-trade-types.ts";
+import { createSettledSimulation } from "./sim-test-fixtures.ts";
 
-function createSettledSimulation() {
-  return createSimulation(createMapFromTemplate(settledUniverse, settledPreset), {
-    ignoreCargoCompatibility: true,
-    initialStaggerDurationSeconds: 0,
-  });
+/** Near-complete arriving flight: progress 0.99 so the next tick finishes it. Only the endpoints + travel mode vary between the completion tests. */
+function makeArrivingFlight(parts: {
+  origin: TravelEndpoint;
+  destination: TravelEndpoint;
+  travelMode: TravelMode;
+}): FlightData {
+  return {
+    phase: "arriving",
+    progress: 0.99,
+    origin: parts.origin,
+    destination: parts.destination,
+    phaseStartSeconds: 0,
+    totalElapsedSeconds: 999,
+    flightDurationSeconds: 1,
+    departDistanceFraction: 0.1,
+    flightDistanceFraction: 0.8,
+    arriveDistanceFraction: 0.1,
+    travelMode: parts.travelMode,
+    previousHeadingRadians: null,
+  };
 }
 
 // --- createMapFromTemplate: zone deduplication ---
@@ -57,14 +73,14 @@ test("advanceQueue bursts through instant actions until a blocker", () => {
   );
 
   // Synthetic queue: leading placeholder (always shifted by advanceQueue),
-  // then withdraw + deposit (instant, amount=0 so they no-op the slot but
+  // then withdraw + deposit (instant, amount=0 so they don't touch the slot but
   // still consume queue entries), then a wait blocker. After the call, the
   // queue should collapse to just the blocker.
   ship.actionQueue = [
-    { type: "wait", duration: 0, label: "placeholder" },
+    { type: "wait", durationSeconds: 0, label: "placeholder" },
     { type: "cargo-withdrawal", station, wareId, amount: 0 },
     { type: "cargo-deposit", station, wareId, amount: 0 },
-    { type: "wait", duration: 999, label: "blocker" },
+    { type: "wait", durationSeconds: 999, label: "blocker" },
   ];
 
   advanceQueue(ship, simulation.tradeManager);
@@ -76,14 +92,14 @@ test("advanceQueue bursts through instant actions until a blocker", () => {
     "blocker",
     "right blocker",
   );
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
-test("timer firing at exactly tradeTime fires this tick (boundary is <=, not <)", () => {
-  // Pin the boundary in processDueTimers' fireTime check. A `<= → <` mutation
+test("timer firing at exactly tradeTimeSeconds fires this tick (boundary is <=, not <)", () => {
+  // Pin the boundary in processDueTimers' fireTimeSeconds check. A `<= → <` mutation
   // would let a timer scheduled at the exact tick boundary linger one tick
   // longer. Verify by giving a ship a fresh action queue head, scheduling
-  // its wake-up at tradeTime+delta, ticking by exactly delta, and checking
+  // its wake-up at tradeTimeSeconds+delta, ticking by exactly delta, and checking
   // that the queue head was consumed (advanceQueue ran).
   const simulation = createSettledSimulation();
   // Drain one tick so most ships have moved past their initial deploy timer.
@@ -91,8 +107,8 @@ test("timer firing at exactly tradeTime fires this tick (boundary is <=, not <)"
   const ship = simulation.tradeManager.tradeShips[0]!;
   // Replace the queue head with a synthetic placeholder we can detect; cancel
   // any existing timer for this ship by clearing then rescheduling at exact
-  // tradeTime + 1.
-  ship.actionQueue = [{ type: "wait", duration: 0, label: "boundary-marker" }];
+  // tradeTimeSeconds + 1.
+  ship.actionQueue = [{ type: "wait", durationSeconds: 0, label: "boundary-marker" }];
   simulation.tradeManager.scheduleTimer(ship, 1);
   simulation.tradeManager.tick(1);
   // After ticking by exactly the scheduled delay, the placeholder must have
@@ -101,8 +117,8 @@ test("timer firing at exactly tradeTime fires this tick (boundary is <=, not <)"
     ship.actionQueue.length > 0 &&
     ship.actionQueue[0].type === "wait" &&
     (ship.actionQueue[0] as Extract<ShipAction, { type: "wait" }>).label === "boundary-marker";
-  assertTrue(!headIsBoundaryMarker, "timer at fireTime === now must fire on this tick");
-  simulation.tradeManager.dispose();
+  assertTrue(!headIsBoundaryMarker, "timer at fireTimeSeconds === now must fire on this tick");
+  simulation.tradeManager.destroy();
 });
 
 test("cancelTimersFor at index === timerHead does not surface a consumed timer in pendingTimers", () => {
@@ -125,23 +141,23 @@ test("cancelTimersFor at index === timerHead does not surface a consumed timer i
       cargoAmountByWareId: new Map(),
       reservations: [],
       lastFlightHeadingRadians: null,
-      idleSinceTradeTime: 0,
+      idleSinceTradeTimeSeconds: 0,
     };
   }
   const shipA = makeStubTradeShip("A");
   const shipB = makeStubTradeShip("B");
   const shipC = makeStubTradeShip("C");
-  simulation.tradeManager.registerTradeShip(shipA);
-  simulation.tradeManager.registerTradeShip(shipB);
-  simulation.tradeManager.registerTradeShip(shipC);
-  // Schedule strictly increasing fireTimes — A then B then C.
+  simulation.tradeManager.addRestoredTradeShip(shipA);
+  simulation.tradeManager.addRestoredTradeShip(shipB);
+  simulation.tradeManager.addRestoredTradeShip(shipC);
+  // Schedule strictly increasing fireTimeSeconds — A then B then C.
   simulation.tradeManager.scheduleTimer(shipA, 1);
   simulation.tradeManager.scheduleTimer(shipB, 2);
   simulation.tradeManager.scheduleTimer(shipC, 3);
   simulation.tradeManager.advanceTradeTime(1.5);
   // Drive timerHead past A's entry without invoking the manager's
-  // queue-handling logic — pass a no-op handler so we isolate the boundary.
-  simulation.tradeManager.activeTradeShips.processDueTimers(simulation.tradeManager.tradeTime, () => {});
+  // queue-handling logic — pass an empty handler so we isolate the boundary.
+  simulation.tradeManager.activeTradeShips.processDueTimers(simulation.tradeManager.tradeTimeSeconds, () => {});
   // Sanity-check: B and C are pending after advancing past A.
   const pendingBeforeCancel = simulation.tradeManager.toSnapshot().scheduledTimers;
   assertEqual(pendingBeforeCancel.length, 2, "B and C remain pending after consuming A's timer");
@@ -160,7 +176,7 @@ test("cancelTimersFor at index === timerHead does not surface a consumed timer i
   );
   assertEqual(pendingAfterCancel[0].shipId, shipC.orbitingShipId, "the surviving pending timer is C's");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("decommission observer can read homeStationId after another observer removes the ship", () => {
@@ -180,7 +196,7 @@ test("decommission observer can read homeStationId after another observer remove
   });
 
   ship.actionQueue = [
-    { type: "wait", duration: 0, label: "placeholder" },
+    { type: "wait", durationSeconds: 0, label: "placeholder" },
     { type: "decommission", station: simulation.stations[0], label: "test" },
   ];
   advanceQueue(ship, simulation.tradeManager);
@@ -190,7 +206,7 @@ test("decommission observer can read homeStationId after another observer remove
     expectedHomeStationId,
     "observer B reads home from payload regardless of A",
   );
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 // --- Instance method coverage ---
@@ -214,7 +230,7 @@ test("deregisterShip removes the trade ship from the roster", () => {
     undefined,
     "lookup misses after deregister",
   );
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("deregisterShip releases the deregistered ship's reservations on the station's slot", () => {
@@ -257,7 +273,7 @@ test("deregisterShip releases the deregistered ship's reservations on the statio
     reservedIncomingBefore,
     "slot's reservedIncoming returns to its pre-reservation total after deregister",
   );
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("deregisterShip clears the flight membership for an in-flight ship", () => {
@@ -268,7 +284,8 @@ test("deregisterShip clears the flight membership for an in-flight ship", () => 
   // deregister.
   const simulation = createSettledSimulation();
   // Tick until at least one ship is flying, then locate one we can target.
-  for (let i = 0; i < 60; i++) simulation.tick(0.5);
+  const warmupTicks = 60;
+  for (let i = 0; i < warmupTicks; i++) simulation.tick(0.5);
   let flyingTradeShip: TradeShip | null = null;
   for (const candidate of simulation.tradeManager.tradeShips) {
     if (simulation.tradeManager.isShipInFlight(candidate)) {
@@ -285,7 +302,7 @@ test("deregisterShip clears the flight membership for an in-flight ship", () => 
     !simulation.tradeManager.isShipInFlight(flyingTradeShip!),
     "deregistered in-flight ship is no longer in the flying set",
   );
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("shipManager.removeShip wires through to tradeManager.deregisterShip", () => {
@@ -311,7 +328,7 @@ test("shipManager.removeShip wires through to tradeManager.deregisterShip", () =
     undefined,
     "trade-ship lookup misses after shipManager removal",
   );
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("clearTradeShips() empties the roster on the instance", () => {
@@ -319,7 +336,7 @@ test("clearTradeShips() empties the roster on the instance", () => {
   assertTrue(simulation.tradeManager.tradeShips.length > 0, "roster non-empty before clear");
   simulation.tradeManager.clearTradeShips();
   assertEqual(simulation.tradeManager.tradeShips.length, 0, "roster empty after clear");
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("getTradeShipsByHomeStationId still returns surviving ships after deregistering one homed there", () => {
@@ -349,10 +366,10 @@ test("getTradeShipsByHomeStationId still returns surviving ships after deregiste
   const homedAfter = simulation.tradeManager.getTradeShipsByHomeStationId(multiShipHomeId!);
   assertTrue(homedAfter.has(survivor), "surviving sibling ship still surfaces from the home-station lookup");
   assertTrue(!homedAfter.has(targetTradeShip), "deregistered ship no longer surfaces");
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
-test("registerShip is idempotent — re-enrolling the same orbiting ship returns the existing TradeShip", () => {
+test("registerShip — re-enrolling the same orbiting ship returns the existing TradeShip", () => {
   // Pin the existing-ship early-return guard. Without it, a second registerShip
   // would push a duplicate TradeShip into the roster and overwrite the lookup,
   // leaving stale entries in the by-home set.
@@ -370,15 +387,15 @@ test("registerShip is idempotent — re-enrolling the same orbiting ship returns
     rosterSizeBefore,
     "roster size unchanged after re-enroll",
   );
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
-test("simulation.dispose detaches the lifecycle decommission observer", () => {
-  // Pin the unsubscribeDecommission() call inside Simulation.dispose. Skipping
+test("simulation.destroy detaches the lifecycle decommission observer", () => {
+  // Pin the unsubscribeDecommission() call inside Simulation.destroy. Skipping
   // it leaves a stale lifecycle observer on the trade manager that would call
   // shipManager.removeShip on a freshly-reset shipManager. Strategy: reset the
   // observer array to a single sentinel (the lifecycle observer) by adding
-  // ours, clearing all OTHERS, then disposing — only Simulation.dispose's
+  // ours, clearing all OTHERS, then destroying — only Simulation.destroy's
   // unsubscribe call can detach our lifecycle-style entry.
   const simulation = createSettledSimulation();
   // Reset to a known state: only the lifecycle-style observer wires through
@@ -389,7 +406,7 @@ test("simulation.dispose detaches the lifecycle decommission observer", () => {
   let lifecycleObserverFired = false;
   // Re-mimic the lifecycle wiring: register a decommission observer through
   // the same path simulation uses. Capture the unsubscribe like subscribeSimObservers
-  // does, and stash it where dispose() can find it.
+  // does, and stash it where destroy() can find it.
   // (We replace the private field via a runtime cast — necessary because the
   // lifecycle observer was already wired at construction; we reset it to test
   // the unsubscribe path on a clean observer.)
@@ -399,28 +416,28 @@ test("simulation.dispose detaches the lifecycle decommission observer", () => {
   (simulation as unknown as { unsubscribeDecommission: () => void }).unsubscribeDecommission = newUnsubscribe;
   assertEqual(simulation.tradeManager.decommissionObservers.length, 1, "exactly one observer registered");
 
-  simulation.dispose();
+  simulation.destroy();
 
-  // After dispose, our lifecycle-style observer must be unsubscribed.
+  // After destroy, our lifecycle-style observer must be unsubscribed.
   assertEqual(
     simulation.tradeManager.decommissionObservers.length,
     0,
-    "lifecycle decommission observer detached on simulation.dispose",
+    "lifecycle decommission observer detached on simulation.destroy",
   );
-  assertTrue(!lifecycleObserverFired, "post-dispose: observer never fired during dispose itself");
+  assertTrue(!lifecycleObserverFired, "post-destroy: observer never fired during destroy itself");
 });
 
-test("simulation.dispose is idempotent — calling twice does not re-detach the decommission observer", () => {
-  // Pin the `this.disposed = true` guard in Simulation.dispose. The class doc
-  // says dispose is "safe to call more than once" — and the only protection
+test("simulation.destroy — calling twice does not re-detach the decommission observer", () => {
+  // Pin the `this.destroyed = true` guard in Simulation.destroy. The class doc
+  // says destroy is "safe to call more than once" — and the only protection
   // against double-detach (which would re-invoke unsubscribeDecommission and
-  // also re-run every manager.reset/dispose) is the early-return on
-  // `this.disposed`. A mutation that removed the `this.disposed = true`
+  // also re-run every manager.reset/destroy) is the early-return on
+  // `this.destroyed`. A mutation that removed the `this.destroyed = true`
   // assignment would let the body run on every call.
   //
   // Strategy: install a sentinel decommission observer post-construction, then
   // replace the lifecycle's stored unsubscribe with a callback that counts
-  // invocations. Dispose twice. With the assignment intact, the unsubscribe
+  // invocations. Destroy twice. With the assignment intact, the unsubscribe
   // fires exactly once. With it removed, it fires twice.
   const simulation = createSettledSimulation();
   let unsubscribeCallCount = 0;
@@ -428,29 +445,28 @@ test("simulation.dispose is idempotent — calling twice does not re-detach the 
     unsubscribeCallCount++;
   };
 
-  simulation.dispose();
-  simulation.dispose();
+  simulation.destroy();
+  simulation.destroy();
 
-  assertEqual(unsubscribeCallCount, 1, "unsubscribeDecommission fires exactly once across two dispose calls");
+  assertEqual(unsubscribeCallCount, 1, "unsubscribeDecommission fires exactly once across two destroy calls");
 });
 
-test("dispose clears trade ships, route stats, and route cache so a reused manager has no stale state", () => {
-  // dispose() must wipe activeTradeShips, tradeRouteStats, and
+test("destroy clears trade ships, route stats, and route cache so a reused manager has no stale state", () => {
+  // destroy() must wipe activeTradeShips, tradeRouteStats, and
   // routesCacheByWindow — trade ships, recorded routes, and cached query
-  // results from before disposal shouldn't bleed into post-dispose queries on
+  // results from before destroy shouldn't bleed into post-destroy queries on
   // the same manager. Reuse path only matters for tooling that holds onto a
-  // manager and calls dispose between sessions, but the contract still applies.
+  // manager and calls destroy between sessions, but the contract still applies.
   const simulation = createSettledSimulation();
-  assertTrue(simulation.tradeManager.tradeShips.length > 0, "active roster has ships before dispose");
+  assertTrue(simulation.tradeManager.tradeShips.length > 0, "active roster has ships before destroy");
   simulation.tradeManager.tradeRouteStats.recordDelivery({
-    time: 0,
+    timeSeconds: 0,
     fromStationId: simulation.stations[0].id,
     toStationId: simulation.stations[1].id,
     wareId: "water",
-    amount: 100,
     fillFraction: 1,
   });
-  // Warm the routesCacheByWindow at windowSeconds=Infinity so dispose has something to clear.
+  // Warm the routesCacheByWindow at windowSeconds=Infinity so destroy has something to clear.
   assertEqual(
     simulation.tradeManager.getTradedRoutes(0, Infinity).length,
     1,
@@ -458,37 +474,37 @@ test("dispose clears trade ships, route stats, and route cache so a reused manag
   );
   assertTrue(
     simulation.tradeManager.routesCacheByWindow.has(Infinity),
-    "routesCacheByWindow primed before dispose",
+    "routesCacheByWindow primed before destroy",
   );
 
-  // Tick a couple times so tradeTime is non-zero before dispose, otherwise
-  // the post-dispose check is trivially satisfied.
+  // Tick a couple times so tradeTimeSeconds is non-zero before destroy, otherwise
+  // the post-destroy check is trivially satisfied.
   simulation.tick(0.5);
   simulation.tick(0.5);
-  assertTrue(simulation.tradeManager.tradeTime > 0, "tradeTime advanced before dispose");
+  assertTrue(simulation.tradeManager.tradeTimeSeconds > 0, "tradeTimeSeconds advanced before destroy");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 
-  assertEqual(simulation.tradeManager.tradeShips.length, 0, "active roster cleared by dispose");
-  assertEqual(simulation.tradeManager.tradeTime, 0, "tradeTime reset by dispose");
+  assertEqual(simulation.tradeManager.tradeShips.length, 0, "active roster cleared by destroy");
+  assertEqual(simulation.tradeManager.tradeTimeSeconds, 0, "tradeTimeSeconds reset by destroy");
   assertEqual(
     simulation.tradeManager.tradeRouteStats.getRouteStatsInWindow(0, Infinity).length,
     0,
-    "route stats history is cleared by dispose",
+    "route stats history is cleared by destroy",
   );
   // Cache-size check must come before the public-API query — the query itself
   // re-warms the cache as a side effect.
   assertEqual(
     simulation.tradeManager.routesCacheByWindow.size,
     0,
-    "routesCacheByWindow is cleared by dispose",
+    "routesCacheByWindow is cleared by destroy",
   );
   // Public-API view: even if a future refactor restructures the cache, the
-  // user-facing query must return empty after dispose.
+  // user-facing query must return empty after destroy.
   assertEqual(
     simulation.tradeManager.getTradedRoutes(0, Infinity).length,
     0,
-    "post-dispose getTradedRoutes returns empty",
+    "post-destroy getTradedRoutes returns empty",
   );
 });
 
@@ -508,7 +524,7 @@ test("addShipDecommissionObserver returns an unsubscribe that detaches the first
   const tradeShip = simulation.tradeManager.tradeShips[0]!;
   const orbitingShip = simulation.shipManager.getShip(tradeShip.orbitingShipId)!;
 
-  function fireOneEvent() {
+  function dispatchOneDecommissionEvent() {
     for (const observer of simulation.tradeManager.decommissionObservers) {
       observer({
         tradeShip,
@@ -521,14 +537,14 @@ test("addShipDecommissionObserver returns an unsubscribe that detaches the first
     }
   }
 
-  fireOneEvent();
+  dispatchOneDecommissionEvent();
   assertEqual(observerCallCount, 1, "observer fires before unsubscribe");
 
   unsubscribe();
-  fireOneEvent();
+  dispatchOneDecommissionEvent();
   assertEqual(observerCallCount, 1, "post-unsubscribe fire must not increment count");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("addTradeTransferObserver returns an unsubscribe function that actually detaches the observer", () => {
@@ -551,7 +567,7 @@ test("addTradeTransferObserver returns an unsubscribe function that actually det
   });
   assertTrue(typeof unsubscribe === "function", "unsubscribe is a function");
 
-  function fireOneTransfer() {
+  function dispatchOneTransferEvent() {
     for (const observer of simulation.tradeManager.tradeTransferObservers) {
       observer({
         amount: 1,
@@ -563,28 +579,29 @@ test("addTradeTransferObserver returns an unsubscribe function that actually det
     }
   }
 
-  fireOneTransfer();
+  dispatchOneTransferEvent();
   assertEqual(observerCallCount, 1, "observer fires before unsubscribe");
 
   unsubscribe();
-  fireOneTransfer();
+  dispatchOneTransferEvent();
   assertEqual(observerCallCount, 1, "post-unsubscribe fire must not increment count");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 // --- Snapshot round-trip ---
 
-test("dispose followed by snapshot rehydration on a fresh sim restores trade time and roster", () => {
+test("destroy followed by snapshot rehydration on a fresh sim restores trade time and roster", () => {
   const original = createSettledSimulation();
 
-  for (let i = 0; i < 60; i++) original.tick(0.5);
+  const warmupTicks = 60;
+  for (let i = 0; i < warmupTicks; i++) original.tick(0.5);
 
   // Capture trade-side state (module clock + per-ship snapshots) before tearing down.
   const moduleSnapshot = original.tradeManager.toSnapshot();
   const tradeShipSnapshots = original.tradeManager.tradeShips.map(tradeShipToSnapshot);
   const expectedShipCount = tradeShipSnapshots.length;
-  const expectedTradeTime = moduleSnapshot.tradeTime;
+  const expectedTradeTime = moduleSnapshot.tradeTimeSeconds;
   const expectedTimerCount = moduleSnapshot.scheduledTimers.length;
   // Pin the in-flight count so the registry's `if (tradeShip.flight) flying.add()`
   // wiring on register survives — without it, post-load isShipInFlight would
@@ -622,19 +639,19 @@ test("dispose followed by snapshot rehydration on a fresh sim restores trade tim
 
   // Tear down and reconstruct, then rehydrate through the same code path
   // restoreSavedGame uses internally.
-  original.dispose();
+  original.destroy();
 
   const replay = createSettledSimulation();
   replay.tradeManager.clearTradeShips();
   const tradeShipsByShipId = new Map<string, TradeShip>();
   for (const snapshot of tradeShipSnapshots) {
     const tradeShip = tradeShipFromSnapshot(snapshot, snapshotContext);
-    replay.tradeManager.registerTradeShip(tradeShip);
+    replay.tradeManager.addRestoredTradeShip(tradeShip);
     tradeShipsByShipId.set(snapshot.shipId, tradeShip);
   }
   replay.tradeManager.restoreFromSnapshot(moduleSnapshot, tradeShipsByShipId);
 
-  assertEqual(replay.tradeManager.tradeTime, expectedTradeTime, "tradeTime restored");
+  assertEqual(replay.tradeManager.tradeTimeSeconds, expectedTradeTime, "tradeTimeSeconds restored");
   assertEqual(replay.tradeManager.tradeShips.length, expectedShipCount, "roster size restored");
   assertEqual(
     replay.tradeManager.toSnapshot().scheduledTimers.length,
@@ -654,7 +671,7 @@ test("dispose followed by snapshot rehydration on a fresh sim restores trade tim
 
   // Pin per-ship homeStationId across the round trip. A tradeShipToSnapshot
   // or tradeShipFromSnapshot mutation that wrote orbitingShipId/shipId into
-  // homeStationId would leave counts/tradeTime green but misindex every ship
+  // homeStationId would leave counts/tradeTimeSeconds green but misindex every ship
   // in byHomeStationId (emigration's departure gate goes blind) and misroute
   // recordRouteDeliveryFromTransfer's fromStationId.
   for (const tradeShip of replay.tradeManager.tradeShips) {
@@ -683,7 +700,7 @@ test("dispose followed by snapshot rehydration on a fresh sim restores trade tim
     );
   }
 
-  replay.dispose();
+  replay.destroy();
 });
 
 // --- Demolished-endpoint tolerance (emigration ferry mid-flight) ---
@@ -721,20 +738,20 @@ test("snapshot restore replaces fly with placeholder when origin station is demo
       tradeDirection: null,
       reservations: [],
       lastFlightHeadingRadians: null,
-      idleSinceTradeTime: 0,
+      idleSinceTradeTimeSeconds: 0,
     },
     snapshotContext,
   );
 
-  // Fly action collapses to a no-op wait so the queue still advances when the
+  // Fly action collapses to a do-nothing wait so the queue still advances when the
   // in-progress flight completes.
   assertEqual(restored.actionQueue.length, 2, "queue length preserved");
   assertEqual(restored.actionQueue[0].type, "wait", "fly with demolished origin became wait");
   const placeholder = restored.actionQueue[0] as Extract<ShipAction, { type: "wait" }>;
-  assertEqual(placeholder.duration, 0, "placeholder wait is zero-duration");
+  assertEqual(placeholder.durationSeconds, 0, "placeholder wait is zero-duration");
   assertEqual(restored.actionQueue[1].type, "decommission", "trailing decommission preserved");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("snapshot restore preserves reservations when station and slot still exist", () => {
@@ -770,7 +787,7 @@ test("snapshot restore preserves reservations when station and slot still exist"
         },
       ],
       lastFlightHeadingRadians: null,
-      idleSinceTradeTime: 0,
+      idleSinceTradeTimeSeconds: 0,
     },
     snapshotContext,
   );
@@ -782,7 +799,7 @@ test("snapshot restore preserves reservations when station and slot still exist"
   assertEqual(restored.reservations[0].wareId, reservedWareId, "reservation wareId preserved");
   assertEqual(restored.reservations[0].amount, 200, "reservation amount preserved");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("snapshot restore replaces deposit with placeholder when station is demolished", () => {
@@ -808,7 +825,7 @@ test("snapshot restore replaces deposit with placeholder when station is demolis
       tradeDirection: null,
       reservations: [],
       lastFlightHeadingRadians: null,
-      idleSinceTradeTime: 0,
+      idleSinceTradeTimeSeconds: 0,
     },
     snapshotContext,
   );
@@ -817,7 +834,7 @@ test("snapshot restore replaces deposit with placeholder when station is demolis
   assertEqual(restored.actionQueue[0].type, "wait", "deposit on demolished station became wait");
   assertEqual(restored.actionQueue[1].type, "wait", "withdraw on demolished station became wait");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("flight completion clears ship.flight and advances the queue even when the next queue entry is a wait", () => {
@@ -849,23 +866,14 @@ test("flight completion clears ship.flight and advances the queue even when the 
       deploying: false,
       label: "current",
     },
-    { type: "wait", duration: 999, label: "blocker-1" },
-    { type: "wait", duration: 999, label: "blocker-2" },
+    { type: "wait", durationSeconds: 999, label: "blocker-1" },
+    { type: "wait", durationSeconds: 999, label: "blocker-2" },
   ];
-  tradeShip.flight = {
-    phase: "arriving",
-    progress: 0.99,
+  tradeShip.flight = makeArrivingFlight({
     origin: { stationId: homeStation.id, surfaceOrOrbit: "surface" },
     destination: { stationId: homeStation.id, surfaceOrOrbit: "orbit" },
-    phaseStartSeconds: 0,
-    totalElapsedSeconds: 999,
-    flightDuration: 1,
-    departDistanceFraction: 0.1,
-    flightDistanceFraction: 0.8,
-    arriveDistanceFraction: 0.1,
     travelMode: "local",
-    previousHeading: null,
-  };
+  });
   simulation.tradeManager.activeTradeShips.setInFlight(tradeShip);
 
   simulation.tradeManager.tick(2);
@@ -883,7 +891,7 @@ test("flight completion clears ship.flight and advances the queue even when the 
     "queue head is blocker-1 — the action that follows the consumed fly",
   );
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("flight completion sets lastFlightHeadingRadians to atan2(dy, dx) of origin → destination, not the swapped form", () => {
@@ -926,22 +934,13 @@ test("flight completion sets lastFlightHeadingRadians to atan2(dy, dx) of origin
       deploying: false,
       label: "leg",
     },
-    { type: "wait", duration: 999, label: "blocker" },
+    { type: "wait", durationSeconds: 999, label: "blocker" },
   ];
-  tradeShip.flight = {
-    phase: "arriving",
-    progress: 0.99,
+  tradeShip.flight = makeArrivingFlight({
     origin: { stationId: originStation.id, surfaceOrOrbit: "orbit" },
     destination: { stationId: destinationStation!.id, surfaceOrOrbit: "orbit" },
-    phaseStartSeconds: 0,
-    totalElapsedSeconds: 999,
-    flightDuration: 1,
-    departDistanceFraction: 0.1,
-    flightDistanceFraction: 0.8,
-    arriveDistanceFraction: 0.1,
     travelMode: "interStation",
-    previousHeading: null,
-  };
+  });
   simulation.tradeManager.activeTradeShips.setInFlight(tradeShip);
   // Sentinel value so we can detect "lastFlightHeadingRadians not written at all" vs "wrong value".
   tradeShip.lastFlightHeadingRadians = 9999;
@@ -960,7 +959,7 @@ test("flight completion sets lastFlightHeadingRadians to atan2(dy, dx) of origin
     "lastFlightHeadingRadians equals atan2(dy, dx) of origin → destination",
   );
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });
 
 test("flight completion does not throw when origin or destination station is demolished", () => {
@@ -976,25 +975,16 @@ test("flight completion does not throw when origin or destination station is dem
   // Replace the ship's flight with one whose origin id is missing from the
   // station roster. Phase already at "arriving" and progress near 1 so the
   // next tick completes it.
-  tradeShip.flight = {
-    phase: "arriving",
-    progress: 0.99,
+  tradeShip.flight = makeArrivingFlight({
     origin: { stationId: "GONE", surfaceOrOrbit: "orbit" },
     destination: { stationId: "ALSO-GONE", surfaceOrOrbit: "orbit" },
-    phaseStartSeconds: 0,
-    totalElapsedSeconds: 999,
-    flightDuration: 1,
-    departDistanceFraction: 0.1,
-    flightDistanceFraction: 0.8,
-    arriveDistanceFraction: 0.1,
     travelMode: "interStation",
-    previousHeading: null,
-  };
+  });
   // Tick twice — flight transitions complete on the second pass.
   simulation.tradeManager.tick(2);
   simulation.tradeManager.tick(0.1);
 
   assertTrue(tradeShip.flight === null, "flight cleared after completion");
 
-  simulation.tradeManager.dispose();
+  simulation.tradeManager.destroy();
 });

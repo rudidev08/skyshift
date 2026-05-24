@@ -14,9 +14,8 @@ input_files=("$INPUT_DIR"/*.wav)
 shopt -u nullglob
 
 COUNT=0
-TOTAL=${#input_files[@]}
 
-if [ "$TOTAL" -eq 0 ]; then
+if [ "${#input_files[@]}" -eq 0 ]; then
   echo "No generated clips found in $INPUT_DIR/"
   exit 0
 fi
@@ -34,7 +33,7 @@ for file in "${input_files[@]}"; do
   NAME=$(basename "$file")
   OUTPUT_FILE="$OUTPUT_DIR/$NAME"
 
-  echo "  [$COUNT/$TOTAL] $NAME"
+  echo "  [$COUNT/${#input_files[@]}] $NAME"
   # Radio-style pass: speeds the voice up slightly, narrows the band, and limits peaks for a compact computerized announcement sound.
   ffmpeg -y -i "$file" -filter_complex "
     [0:a]atempo=1.2,highpass=f=400,lowpass=f=2500,volume=3,alimiter=limit=0.9[out]

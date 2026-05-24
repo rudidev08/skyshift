@@ -61,7 +61,7 @@ export interface TradeShip {
   /** Open cargo holds at remote stations — withdrawn at pickup, fulfilled on deposit. */
   reservations: TradeReservation[];
   lastFlightHeadingRadians: number | null;
-  idleSinceTradeTime: number;
+  idleSinceTradeTimeSeconds: number;
 }
 
 export interface TradeTransferEvent {

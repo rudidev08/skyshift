@@ -16,7 +16,7 @@ export function shouldUpdateUI(currentTick: number, lastTick: number, isFocused:
 
 // Warn after this many consecutive dirty evaluations — usually means getValue
 // returns floats that never match (state can never settle).
-const DIRTY_FRAMES_WARN_THRESHOLD = 60;
+const DIRTY_EVALUATIONS_WARN_THRESHOLD = 60;
 
 export interface RenderDirtyState {
   lastTick: number;
@@ -25,10 +25,9 @@ export interface RenderDirtyState {
    *  generational-ship zero-wares inventory) settle after their first draw
    *  instead of firing onDirty forever. */
   firstDrawDone: boolean;
-  /** Optional dev-mode label — warns when this state stays dirty for more than
-   *  DIRTY_FRAMES_WARN_THRESHOLD consecutive evaluations. */
+  /** When set, enables the consecutive-dirty warning in dev mode (see `tickDirtyWarnCounter`). */
   debugLabel?: string;
-  /** Counts toward DIRTY_FRAMES_WARN_THRESHOLD; reset to 0 on a clean evaluation. */
+  /** Counts toward DIRTY_EVALUATIONS_WARN_THRESHOLD; reset to 0 on a clean evaluation. */
   consecutiveDirtyEvaluations: number;
 }
 
@@ -52,9 +51,9 @@ export interface UpdateIfDirtyOptions<TItem> {
   onDirty: () => void;
 }
 
-/** Run `onDirty` if a render needs updating. Throttles by sim tick, compares
- *  current values to a snapshot, and re-snapshots after the callback. Returns
- *  true when the callback ran. */
+/** Calls `onDirty` when throttling and value comparison indicate a redraw is
+ *  needed, then captures a fresh snapshot so the next call has a clean baseline.
+ *  Returns true when the callback ran. */
 export function updateIfDirty<TItem>(options: UpdateIfDirtyOptions<TItem>): boolean {
   const dirty = isDirty(options);
   if (dirty) {
@@ -71,10 +70,7 @@ function isDirty<TItem>(options: UpdateIfDirtyOptions<TItem>): boolean {
   const { state, currentTick, isFocused, forceDirty, items, getValue } = options;
   if (!state.firstDrawDone) return true;
   if (forceDirty) return true;
-  const interval = isFocused
-    ? economyConfig.focusedAttentionIntervalTicks
-    : economyConfig.backgroundAttentionIntervalTicks;
-  if (currentTick === state.lastTick || currentTick % interval !== 0) return false;
+  if (!shouldUpdateUI(currentTick, state.lastTick, isFocused)) return false;
   for (let i = 0; i < items.length; i++) {
     if (getValue(items[i]) !== state.snapshot[i]) return true;
   }
@@ -94,7 +90,7 @@ function captureSnapshot<TItem>(
   }
 }
 
-/** Dev-mode only: warns once after DIRTY_FRAMES_WARN_THRESHOLD consecutive dirty evaluations. */
+/** Dev-mode only: warns once after DIRTY_EVALUATIONS_WARN_THRESHOLD consecutive dirty evaluations. */
 function tickDirtyWarnCounter(state: RenderDirtyState, dirty: boolean): void {
   if (!state.debugLabel || !isDevModeEnabled()) return;
   if (!dirty) {
@@ -102,9 +98,9 @@ function tickDirtyWarnCounter(state: RenderDirtyState, dirty: boolean): void {
     return;
   }
   state.consecutiveDirtyEvaluations++;
-  if (state.consecutiveDirtyEvaluations === DIRTY_FRAMES_WARN_THRESHOLD) {
+  if (state.consecutiveDirtyEvaluations === DIRTY_EVALUATIONS_WARN_THRESHOLD) {
     console.warn(
-      `[updateIfDirty] state "${state.debugLabel}" stayed dirty for ${DIRTY_FRAMES_WARN_THRESHOLD} consecutive evaluations`,
+      `[updateIfDirty] state "${state.debugLabel}" stayed dirty for ${DIRTY_EVALUATIONS_WARN_THRESHOLD} consecutive evaluations`,
     );
   }
 }

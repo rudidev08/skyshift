@@ -1,25 +1,18 @@
-// Game-side tab content for the Overview's Log tab. Wraps the shared
-// StationsTimelapseControl with the upper-right time header and drives
-// the StationRewindOverlay (showing past stations on the map while the
-// player has scrubbed to a past moment).
+// Tab content for the Overview's Log tab. Owns the upper-right time header
+// and drives the StationRewindOverlay (showing past station states on the map
+// while the player has scrubbed to a past moment). The chart itself lives in
+// StationsTimelapseControl; this module connects scrub state to the map
+// overlay.
 
 import { formatElapsed } from "./render-elapsed-time-label";
 import { createStationsTimelapseControl } from "./ui-stations-timelapse-control";
 import { setTextIfChanged } from "./ui-dom-cache";
-import { morseBarGradient } from "./render-morse-bar";
+import { createWareSidebar } from "./ui-overview-sidebar-shell";
 import type { StationHistory } from "./sim-station-history";
 import type { StationRewindOverlay } from "./phaser/station-rewind-overlay";
-import type { TimelapseStep } from "./sim-timelapse-state";
+import { STEP_SECONDS } from "./sim-timelapse-state";
 
 const TWENTY_DAYS_IN_SECONDS = 20 * 24 * 60 * 60;
-const STEP_SECONDS: Record<TimelapseStep, number> = {
-  "-1d": -24 * 3600,
-  "-8h": -8 * 3600,
-  "-1h": -1 * 3600,
-  "+1h": 1 * 3600,
-  "+8h": 8 * 3600,
-  "+1d": 24 * 3600,
-};
 
 export interface StationsTimelapseLogPane {
   update(): void;
@@ -29,41 +22,39 @@ export interface StationsTimelapseLogPane {
 export interface StationsTimelapseLogPaneOptions {
   root: HTMLElement;
   stationHistory: StationHistory;
-  getSimTime: () => number;
+  getSimTimeSeconds: () => number;
   rewindOverlay: StationRewindOverlay;
 }
 
 export function createStationsTimelapseLogPane(
   options: StationsTimelapseLogPaneOptions,
 ): StationsTimelapseLogPane {
-  const { root, stationHistory, getSimTime, rewindOverlay } = options;
+  const { root, stationHistory, getSimTimeSeconds, rewindOverlay } = options;
 
-  const { frameElement, timeElement } = createPaneFrame(root);
+  const { paneElement, timeElement, destroyPane } = createTimelapseLogPaneShell(root);
 
-  // Anchor the playhead at "now" at creation; per-tick tracking happens in
-  // snapPlayheadToNowIfPast below.
-  let playheadTime = getSimTime();
+  // Anchor the playhead at "now" at creation so the scrubber opens at the live edge.
+  let playheadTime = getSimTimeSeconds();
 
   const control = createStationsTimelapseControl({
-    parent: frameElement,
+    parent: paneElement,
     onStep(step) {
       const proposed = playheadTime + STEP_SECONDS[step];
-      playheadTime = clampPlayheadTime(proposed, getSimTime());
+      playheadTime = clampPlayheadTime(proposed, getSimTimeSeconds());
       refreshAfterPlayheadMove();
     },
     onScrubToTime(endTime) {
-      playheadTime = clampPlayheadTime(endTime, getSimTime());
+      playheadTime = clampPlayheadTime(endTime, getSimTimeSeconds());
       refreshAfterPlayheadMove();
     },
   });
 
   function refreshAfterPlayheadMove(): void {
-    const now = getSimTime();
+    const now = getSimTimeSeconds();
     if (playheadTime >= now) {
       rewindOverlay.hide();
     } else {
-      const frame = stationHistory.getStateAt(playheadTime);
-      rewindOverlay.show(frame);
+      rewindOverlay.show(stationHistory.getStateAt(playheadTime));
     }
     repaintPane();
   }
@@ -72,9 +63,9 @@ export function createStationsTimelapseLogPane(
     setTextIfChanged(timeElement, formatElapsed(playheadTime));
     control.update({
       history: stationHistory,
-      // Chart slides forward with sim-time; right edge is always "now", and
-      // the window stretches back TWENTY_DAYS_IN_SECONDS.
-      currentTime: getSimTime(),
+      // Right edge is always current sim-time so the chart scrolls forward
+      // as the game runs; the window shows the last 20 days.
+      currentTime: getSimTimeSeconds(),
       windowSeconds: TWENTY_DAYS_IN_SECONDS,
       // Where the player is currently looking — moves the playhead + drives
       // the per-nation counts row + dims bars after this point.
@@ -85,38 +76,35 @@ export function createStationsTimelapseLogPane(
   repaintPane();
 
   function update(): void {
-    snapPlayheadToNowIfPast();
+    clampPlayheadToNow();
     repaintPane();
   }
 
-  function snapPlayheadToNowIfPast(): void {
-    const now = getSimTime();
+  function clampPlayheadToNow(): void {
+    const now = getSimTimeSeconds();
     if (playheadTime >= now) playheadTime = now;
   }
 
   function destroy(): void {
     rewindOverlay.hide();
     control.destroy();
-    root.innerHTML = "";
+    destroyPane();
   }
 
   return { update, destroy };
 }
 
-function createPaneFrame(root: HTMLElement): {
-  frameElement: HTMLDivElement;
+function createTimelapseLogPaneShell(root: HTMLElement): {
+  paneElement: HTMLDivElement;
   timeElement: HTMLSpanElement;
+  destroyPane: () => void;
 } {
-  root.innerHTML = "";
-  // ware-sidebar gives the same panel chrome (glass background, dashed border,
-  // morse-stripe top accent) the Trading and Emigration tabs use, so the Log
-  // tab visually matches its siblings instead of floating bare on the canvas.
-  const frameElement = document.createElement("div");
-  frameElement.className = "stations-timelapse-frame ware-sidebar";
-  frameElement.style.setProperty(
-    "--morse-bar",
-    morseBarGradient("Log", { letterCount: 3, color: "var(--paper-mute)" }),
-  );
+  // The shared ware-sidebar chrome (glass background, dashed border,
+  // morse-stripe top accent) makes the Log tab match the Trading and
+  // Emigration tabs instead of floating bare on the canvas.
+  const shell = createWareSidebar(root, "Log");
+  const paneElement = shell.sidebar;
+  paneElement.classList.add("stations-timelapse-frame");
 
   const head = document.createElement("div");
   head.className = "stations-timelapse-frame-head";
@@ -126,10 +114,9 @@ function createPaneFrame(root: HTMLElement): {
   timeElement.className = "stations-timelapse-frame-time";
   head.append(title, timeElement);
 
-  frameElement.appendChild(head);
-  root.appendChild(frameElement);
+  paneElement.appendChild(head);
 
-  return { frameElement, timeElement };
+  return { paneElement, timeElement, destroyPane: shell.destroy };
 }
 
 /** Constrain a proposed playhead time to where the player can actually scrub:

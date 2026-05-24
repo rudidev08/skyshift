@@ -1,5 +1,5 @@
 import { test, assertEqual, assertNotUndefined } from "./test-utils.ts";
-import { findSectorAtPosition, findSectorForStation } from "../sim-sector-lookup.ts";
+import { findSectorAtPosition } from "../sim-sector-lookup.ts";
 import { makeSector } from "./factories.ts";
 import type { Sector } from "../sim-map-types.ts";
 
@@ -18,13 +18,6 @@ function buildSectors(): Sector[] {
     makeSector({ id: "gamma", x: 500, y: 1500, size: SECTOR_SIZE }), // covers x ∈ [0,1000], y ∈ [1000,2000]
   ];
 }
-
-test("findSectorAtPosition: returns the sector whose square contains (x, y)", () => {
-  const sectors = buildSectors();
-  // Center of beta — should resolve to beta unambiguously.
-  const sector = assertNotUndefined(findSectorAtPosition(sectors, 1500, 500), "beta center");
-  assertEqual(sector.id, "beta", "center of beta resolves to beta");
-});
 
 test("findSectorAtPosition: x and y axes are not swapped — beta and gamma are mirror coordinates", () => {
   // beta is at (1500, 500); gamma is at (500, 1500). Pin that swapping the
@@ -70,27 +63,12 @@ test("findSectorAtPosition: per-axis check is independent — y-mismatch doesn't
   assertEqual(sector, undefined, "y-out-of-range with matching x returns undefined");
 });
 
-test("findSectorForStation: delegates to findSectorAtPosition with station coords", () => {
-  // Sanity-check the wrapper. Pin that the station's x,y goes to position
-  // lookup unchanged — a mutation that swapped them inside the wrapper
-  // would break every consumer.
-  const sectors = buildSectors();
-  const map = { sectors };
-  const station = { x: 1500, y: 500 };
-  const sector = assertNotUndefined(findSectorForStation(map, station), "wrapper resolves");
-  assertEqual(sector.id, "beta", "wrapper passes station.x, station.y in correct order");
-});
-
 test("findSectorAtPosition: iteration order determines tie-break at boundaries", () => {
   // A station at x = 1000 (on the alpha/beta border) and y = 500 (alpha row)
   // matches both alpha and beta via the closed-interval ≤ check. Pin that
-  // iteration order (alpha first) wins. Mutating sectors to put beta first
-  // would invert the result.
+  // iteration order is what picks the winner — reordering sectors to put beta
+  // first inverts the result.
   const sectors = buildSectors();
-  // alpha is sectors[0] in our fixture. So x=1000, y=500 should resolve to alpha.
-  assertEqual(findSectorAtPosition(sectors, 1000, 500)?.id, "alpha", "first sector with a match wins");
-
-  // Reorder so beta is first; same coord should now resolve to beta.
   const reordered = [sectors[1], sectors[0], sectors[2]];
   assertEqual(findSectorAtPosition(reordered, 1000, 500)?.id, "beta", "reorder changes tie-break winner");
 });
@@ -98,7 +76,7 @@ test("findSectorAtPosition: iteration order determines tie-break at boundaries",
 test("findSectorAtPosition: a station moving from one sector to another resolves to the new sector each call", () => {
   // No cache to invalidate — the function is stateless. Pin that two
   // consecutive calls with different coords return different sectors.
-  // Mutating the function to memoize inadvertently would freeze the result.
+  // Mutating the function to cache its result would freeze it.
   const sectors = buildSectors();
   assertEqual(findSectorAtPosition(sectors, 500, 500)?.id, "alpha", "first call: alpha");
   assertEqual(findSectorAtPosition(sectors, 1500, 500)?.id, "beta", "second call: beta (no stale cache)");

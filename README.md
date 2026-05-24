@@ -53,7 +53,7 @@ The joyful visuals sit on top of an economy simulation engine:
 - **Universe grows and changes.** Nations construct stations; emigration removes them.
 - **Nations have personalities.** Hub-Cluster builds near their core systems, Bio-Annex prefers celestial tree nebulas, Mining Fleet prefers mineable asteroids, Skyshift jumps into deep space, and Farshift scatters frontier observatories.
 - **Browser-first.** Built with TypeScript, Vite, and Phaser v4 so the project stays one click away from trying.
-- **Built under its own rules.** Specs for structure, comments, and mutation-hardened testing ship in [`.claude/coding/`](.claude/coding/) and [`dev/coding/`](dev/coding/), with matching `review-*` agent skills.
+- **Built under its own rules.** Specs for structure, comments, and mutation-hardened testing ship in [`dev/code-rules/`](dev/code-rules/), with matching `review-*` agent skills under [`.claude/skills/`](.claude/skills/).
 
 ## Run it locally
 

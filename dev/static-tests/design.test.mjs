@@ -2,7 +2,7 @@
 // and component classes. No tabs — this test just verifies the page loads,
 // the entry script runs without errors, and the showcase rendered content.
 
-import { checkPage } from "./lib.mjs";
+import { checkPage } from "./page-test-helpers.mjs";
 
 await checkPage({
   name: "design",
@@ -14,6 +14,7 @@ await checkPage({
       idCards: document.querySelectorAll(".id-card").length,
     }));
     if (counts.hudButtons === 0) throw new Error("no .hud-btn samples rendered");
+    if (counts.idCards === 0) throw new Error("no .id-card samples rendered");
     console.log(`[design] hud-buttons=${counts.hudButtons} id-cards=${counts.idCards}`);
   },
 });

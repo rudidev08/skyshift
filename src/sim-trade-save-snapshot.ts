@@ -3,7 +3,7 @@
 // sim-trade-manager.ts: these are pure (de)serializers with zero TradeManager
 // coupling — they take a TradeShip or a SnapshotContext (id→object lookups),
 // never the manager. The manager keeps only its own module-level snapshot
-// (tradeTime + scheduled timers); the per-ship/reservation/action codec is here.
+// (tradeTimeSeconds + scheduled timers); the per-ship/reservation/action codec is here.
 
 import { getInventorySlot, type Station } from "./sim-station";
 import type { Ship } from "./sim-ships";
@@ -43,14 +43,14 @@ export function tradeShipToSnapshot(tradeShip: TradeShip): TradeShipSnapshot {
     flight: tradeShip.flight ? { ...tradeShip.flight } : null,
     targetStationId: tradeShip.targetStationId,
     tradeDirection: tradeShip.tradeDirection,
-    reservations: tradeShip.reservations.map((r) => ({
-      stationId: r.station.id,
-      wareId: r.wareId,
-      amount: r.amount,
-      cargoDirection: r.cargoDirection,
+    reservations: tradeShip.reservations.map((reservation) => ({
+      stationId: reservation.station.id,
+      wareId: reservation.wareId,
+      amount: reservation.amount,
+      cargoDirection: reservation.cargoDirection,
     })),
     lastFlightHeadingRadians: tradeShip.lastFlightHeadingRadians,
-    idleSinceTradeTime: tradeShip.idleSinceTradeTime,
+    idleSinceTradeTimeSeconds: tradeShip.idleSinceTradeTimeSeconds,
   };
 }
 
@@ -63,7 +63,7 @@ export function tradeShipFromSnapshot(snapshot: TradeShipSnapshot, context: Snap
   return {
     orbitingShipId: snapshot.shipId,
     homeStationId: snapshot.homeStationId,
-    cargoAmountByWareId: new Map(snapshot.cargo.map((c) => [c.wareId, c.amount])),
+    cargoAmountByWareId: new Map(snapshot.cargo.map((cargoEntry) => [cargoEntry.wareId, cargoEntry.amount])),
     actionQueue: snapshot.actionQueue.map((actionSnapshot) =>
       shipActionFromSnapshot(actionSnapshot, context),
     ),
@@ -72,7 +72,7 @@ export function tradeShipFromSnapshot(snapshot: TradeShipSnapshot, context: Snap
     tradeDirection: snapshot.tradeDirection,
     reservations: reservationsFromSnapshot(snapshot.reservations, context),
     lastFlightHeadingRadians: snapshot.lastFlightHeadingRadians,
-    idleSinceTradeTime: snapshot.idleSinceTradeTime,
+    idleSinceTradeTimeSeconds: snapshot.idleSinceTradeTimeSeconds,
   };
 }
 
@@ -108,33 +108,23 @@ function shipActionFromSnapshot(snapshot: ShipActionSnapshot, context: SnapshotC
 
 /** Reconstruct reservations from snapshot, dropping ones whose station or slot
  *  is gone — a saved reservation can legitimately outlive its target if the
- *  station was demolished post-save. */
+ *  station was demolished post-save; drop on load instead of carrying a
+ *  dangling ref. */
 function reservationsFromSnapshot(
   snapshots: ReservationSnapshot[],
   context: SnapshotContext,
 ): TradeReservation[] {
   const reservations: TradeReservation[] = [];
   for (const snapshot of snapshots) {
-    const reservation = reservationFromSnapshot(snapshot, context);
-    if (reservation) reservations.push(reservation);
+    const station = context.stations.get(snapshot.stationId);
+    if (!station) continue;
+    if (!getInventorySlot(station, snapshot.wareId)) continue;
+    reservations.push({
+      station,
+      wareId: snapshot.wareId,
+      amount: snapshot.amount,
+      cargoDirection: snapshot.cargoDirection,
+    });
   }
   return reservations;
-}
-
-function reservationFromSnapshot(
-  snapshot: ReservationSnapshot,
-  context: SnapshotContext,
-): TradeReservation | null {
-  // Tolerate missing station/slot — a saved reservation can legitimately
-  // outlive its target (station demolished post-save); drop on load instead of
-  // carrying a dangling ref.
-  const station = context.stations.get(snapshot.stationId);
-  if (!station) return null;
-  if (!getInventorySlot(station, snapshot.wareId)) return null;
-  return {
-    station,
-    wareId: snapshot.wareId,
-    amount: snapshot.amount,
-    cargoDirection: snapshot.cargoDirection,
-  };
 }

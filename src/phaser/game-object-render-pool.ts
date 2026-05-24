@@ -9,14 +9,9 @@ export class GameObjectRenderPool<
   private readonly scene: Scene;
   private readonly createObject: (scene: Scene) => TGameObject;
 
-  constructor(scene: Scene, createObject: (scene: Scene) => TGameObject, initialSize = 0) {
+  constructor(scene: Scene, createObject: (scene: Scene) => TGameObject) {
     this.scene = scene;
     this.createObject = createObject;
-    for (let i = 0; i < initialSize; i++) {
-      const object = createObject(scene);
-      object.setVisible(false);
-      this.pool.push(object);
-    }
   }
 
   /** Returned object is already shown; pool grows on demand if exhausted. */

@@ -4,13 +4,22 @@ import type { Station } from "../sim-station-types";
 import { closeViewAlpha } from "./camera-fade";
 import { getAllInventorySlots, type InventorySlot } from "../sim-station";
 import { sortWares } from "../sim-ware-template";
-import { bodyRadiusBySize } from "../../data/stations";
-import { ringTwinkles, segmentTwinkles, stationVisuals } from "../../data/station-visuals";
-import { getSegmentArcsForSlotCount, type WareInventoryArc } from "./inventory-ring-render";
-import { hexToNumber } from "../util-hex-color";
+import { bodyRadiusBySize, shortNameBySize } from "../../data/stations";
+import {
+  ringTwinkles,
+  segmentTwinkles,
+  stationOrbitRingRadius,
+  stationVisuals,
+} from "../../data/station-visuals";
+import { displaySlotsForRing, getSegmentArcsForSlotCount, type WareInventoryArc } from "./inventory-ring-render";
+import { hexToColorNumber, hexToRgb } from "../util-hex-color";
 import { LABEL_STYLE } from "./text-styles";
 import { createRenderDirtyState, type RenderDirtyState } from "../render-dirty-state";
-import { ensureStationRingTexture, getStationIconTextureKey, ICON_TEXTURE_SIZE } from "./texture-cache";
+import {
+  getOrCreateStationRingTexture,
+  getStationIconTextureKey,
+  ICON_TEXTURE_SIZE,
+} from "./texture-cache";
 import { Layer } from "../../data/visuals-layers";
 import { StationSelectionTarget } from "./station-render-selection";
 import { destroyStatusBadge } from "./station-render-status-badge";
@@ -21,14 +30,13 @@ export function getStationBodyRadius(station: { size: StationSize }): number {
   return bodyRadiusBySize[station.size];
 }
 
-/** Lighten (positive `brightnessDelta`) or darken (negative) a hex color by
- *  that fraction of full white/black. Returns an `rgb(...)` string. */
-function lightenOrDarkenHexColor(hex: string, brightnessDelta: number): string {
-  const num = hexToNumber(hex);
-  const r = Math.max(0, Math.min(255, ((num >> 16) & 0xff) + Math.round(255 * brightnessDelta)));
-  const g = Math.max(0, Math.min(255, ((num >> 8) & 0xff) + Math.round(255 * brightnessDelta)));
-  const b = Math.max(0, Math.min(255, (num & 0xff) + Math.round(255 * brightnessDelta)));
-  return `rgb(${r},${g},${b})`;
+/** Shift a hex color toward white (positive `brightnessDelta`) or black
+ *  (negative) by that fraction. Returns an `rgb(...)` string. */
+function shiftHexBrightness(hexColor: string, brightnessDelta: number): string {
+  const { r, g, b } = hexToRgb(hexColor);
+  const delta = Math.round(255 * brightnessDelta);
+  const shift = (channel: number) => Math.max(0, Math.min(255, channel + delta));
+  return `rgb(${shift(r)},${shift(g)},${shift(b)})`;
 }
 
 /** One pulsing dot on the inventory ring — angle is fixed, brightness oscillates from phase + speed × time. Render-only. */
@@ -56,13 +64,12 @@ export interface StationVisualBundle {
   overlayTextureKey: string;
   // Sorted produced-then-input, in canonical ware order. Sorted once at creation since slot set and order never change; the slot objects themselves stay live because they're shared with sim.
   sortedSlots: readonly InventorySlot[];
-  ringRadius: number;
   ringTwinkles: StationTwinkle[];
   segmentTwinkles: StationTwinkle[];
   segmentArcs: WareInventoryArc[];
   producedIds: Set<string>;
   segmentDirtyState: RenderDirtyState;
-  lastSegmentSelected: boolean;
+  segmentSelectedLastDraw: boolean;
   labelDirtyState: RenderDirtyState;
   statusBadgeCircle?: Phaser.GameObjects.Arc;
   statusBadgeText?: Phaser.GameObjects.Text;
@@ -74,32 +81,32 @@ export interface StationVisualBundle {
 function drawStationBaseLayer(
   scene: Scene,
   station: Station,
-  hex: string,
+  hexColor: string,
   textureSize: number,
 ): { image: Phaser.GameObjects.Image; textureKey: string } {
   const textureKey = `station-base-${station.id}`;
   const canvas = scene.textures.createCanvas(textureKey, textureSize, textureSize);
   if (canvas) {
-    const ctx = canvas.getContext();
+    const context = canvas.getContext();
     const centerX = textureSize / 2;
     const centerY = textureSize / 2;
 
-    ctx.fillStyle = "#000000";
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, stationVisuals.iconRadius, 0, Math.PI * 2);
-    ctx.fill();
+    context.fillStyle = "#000000";
+    context.beginPath();
+    context.arc(centerX, centerY, stationVisuals.iconRadius, 0, Math.PI * 2);
+    context.fill();
 
-    ctx.strokeStyle = hex;
-    ctx.lineWidth = stationVisuals.atmosphereRingWidth;
-    ctx.beginPath();
-    ctx.arc(
+    context.strokeStyle = hexColor;
+    context.lineWidth = stationVisuals.atmosphereRingWidth;
+    context.beginPath();
+    context.arc(
       centerX,
       centerY,
       stationVisuals.iconRadius + stationVisuals.atmosphereRingWidth / 2,
       0,
       Math.PI * 2,
     );
-    ctx.stroke();
+    context.stroke();
 
     canvas.refresh();
   }
@@ -111,34 +118,34 @@ function drawStationBaseLayer(
 function drawStationOverlayLayer(
   scene: Scene,
   station: Station,
-  hex: string,
+  hexColor: string,
   textureSize: number,
 ): { image: Phaser.GameObjects.Image; textureKey: string } {
   const textureKey = `station-overlay-${station.id}`;
   const canvas = scene.textures.createCanvas(textureKey, textureSize, textureSize);
   if (canvas) {
-    const ctx = canvas.getContext();
+    const context = canvas.getContext();
     const centerX = textureSize / 2;
     const centerY = textureSize / 2;
     const radius = getStationBodyRadius(station);
 
-    const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
-    gradient.addColorStop(0, lightenOrDarkenHexColor(hex, 0.25));
-    gradient.addColorStop(0.5, hex);
-    gradient.addColorStop(1, lightenOrDarkenHexColor(hex, -0.35));
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-    ctx.fill();
+    const gradient = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+    gradient.addColorStop(0, shiftHexBrightness(hexColor, 0.25));
+    gradient.addColorStop(0.5, hexColor);
+    gradient.addColorStop(1, shiftHexBrightness(hexColor, -0.35));
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    context.fill();
 
-    ctx.strokeStyle = hex;
-    ctx.lineWidth = stationVisuals.atmosphereRingWidth;
-    ctx.globalAlpha = 0.2;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius + stationVisuals.atmosphereRingWidth / 2, 0, Math.PI * 2);
-    ctx.stroke();
+    context.strokeStyle = hexColor;
+    context.lineWidth = stationVisuals.atmosphereRingWidth;
+    context.globalAlpha = 0.2;
+    context.beginPath();
+    context.arc(centerX, centerY, radius + stationVisuals.atmosphereRingWidth / 2, 0, Math.PI * 2);
+    context.stroke();
 
-    ctx.globalAlpha = 1;
+    context.globalAlpha = 1;
     canvas.refresh();
   }
   const image = scene.add.image(station.x, station.y, textureKey).setDepth(Layer.StationBase);
@@ -163,7 +170,7 @@ function createStationIconImage(
 
 /** Twinkle dots distributed around the inventory ring perimeter. Count varies by station size. */
 function createInventoryRingTwinkles(station: Station): StationTwinkle[] {
-  const ringCount = ringTwinkles.count[station.size] ?? 1;
+  const ringCount = ringTwinkles.count[station.size];
   const twinkles: StationTwinkle[] = [];
   for (let i = 0; i < ringCount; i++) {
     twinkles.push({
@@ -179,7 +186,7 @@ function createInventoryRingTwinkles(station: Station): StationTwinkle[] {
 function createInventorySegmentTwinkles(station: Station, segmentArcs: WareInventoryArc[]): StationTwinkle[] {
   const twinkles: StationTwinkle[] = [];
   for (const arc of segmentArcs) {
-    const segmentCount = segmentTwinkles.count[station.size] ?? 8;
+    const segmentCount = segmentTwinkles.count[station.size];
     for (let i = 0; i < segmentCount; i++) {
       const t = Math.random();
       twinkles.push({
@@ -208,14 +215,22 @@ function buildInventoryRingLayout(station: Station): {
     if (aIsOutput !== bIsOutput) return aIsOutput ? -1 : 1;
     return sortWares(a.ware, b.ware);
   });
-  const displayCount = sortedSlots.length === 0 ? 1 : sortedSlots.length;
-  const segmentArcs = getSegmentArcsForSlotCount(displayCount);
+  const segmentArcs = getSegmentArcsForSlotCount(displaySlotsForRing(sortedSlots).length);
   return { sortedSlots, producedIds, segmentArcs };
 }
 
 /** Y offset from station center to the top of the name label (shared with the editor so dragged stations match production placement). */
 export function getStationNameLabelOffsetY(): number {
-  return bodyRadiusBySize.L + stationVisuals.inventoryRingDistanceFromBody + 18;
+  return stationOrbitRingRadius + 18;
+}
+
+/** Type/size line under the station name: a build banner while under
+ *  construction, otherwise the short-code + nation + station-type form. */
+export function formatStationTypeAndSizeLabel(station: Station): string {
+  if (station.state === "building") {
+    return `Building ${station.stationType.name} (${station.size})`;
+  }
+  return `${shortNameBySize[station.size]} ${station.nation.codeName} ${station.stationType.name}`;
 }
 
 /** Two-line station name + type/size label below the inventory ring. */
@@ -224,7 +239,7 @@ function createStationNameLabel(scene: Scene, station: Station): Phaser.GameObje
     .text(
       station.x,
       station.y + getStationNameLabelOffsetY(),
-      `${station.name!}\n${station.typeAndSizeLabel}`,
+      `${station.name!}\n${formatStationTypeAndSizeLabel(station)}`,
       { ...LABEL_STYLE, align: "center", lineSpacing: 2 },
     )
     .setOrigin(0.5, 0)
@@ -241,48 +256,43 @@ function createStationGraphics(scene: Scene): Phaser.GameObjects.Graphics {
 
 /** Inventory ring texture (shared across stations), positioned at the station and hidden by default. */
 function createStationRingImage(scene: Scene, station: Station): Phaser.GameObjects.Image {
-  const ringImage = scene.add.image(station.x, station.y, ensureStationRingTexture(scene));
+  const ringImage = scene.add.image(station.x, station.y, getOrCreateStationRingTexture(scene));
   ringImage.setDepth(Layer.StationBase);
   ringImage.setVisible(false);
   return ringImage;
 }
 
-/** Build all per-station Phaser objects + render state, register the
- *  station's selection target so it's clickable. Pass an already-created
- *  `Station`. */
+/** Build all per-station Phaser objects + render state and register the
+ *  station's selection target so it's clickable. */
 export function createStationVisualBundle(
   scene: Scene,
   station: Station,
   selection: Selection,
 ): StationVisualBundle {
-  const hex = station.nation.color;
-  const nationColor = hexToNumber(hex);
-  // Texture diameter sized for the size-independent black-disc base radius
-  // (iconRadius, larger than any S/M/L body) plus a 10px buffer for the
-  // atmosphere ring stroke — same canvas reused for all sizes.
+  const hexColor = station.nation.color;
+  const nationColor = hexToColorNumber(hexColor);
+  // Texture diameter: the size-independent black-disc base radius (iconRadius,
+  // larger than any S/M/L body) plus a 10px buffer for the atmosphere ring
+  // stroke. All station sizes share this canvas size.
   const textureSize = (stationVisuals.iconRadius + 10) * 2;
 
   const { image: baseImage, textureKey: baseTextureKey } = drawStationBaseLayer(
     scene,
     station,
-    hex,
+    hexColor,
     textureSize,
   );
-  baseImage.setData("stationId", station.id);
   const { image: overlayImage, textureKey: overlayTextureKey } = drawStationOverlayLayer(
     scene,
     station,
-    hex,
+    hexColor,
     textureSize,
   );
   const iconImage = createStationIconImage(scene, station, nationColor);
 
   const nameLabel = createStationNameLabel(scene, station);
-  baseImage.setData("label", nameLabel);
 
   const graphics = createStationGraphics(scene);
-  // Ring is always at L body radius + ring distance regardless of station size.
-  const ringRadius = bodyRadiusBySize.L + stationVisuals.inventoryRingDistanceFromBody;
   const ringImage = createStationRingImage(scene, station);
 
   const ringTwinkles = createInventoryRingTwinkles(station);
@@ -305,15 +315,28 @@ export function createStationVisualBundle(
     baseTextureKey,
     overlayTextureKey,
     sortedSlots,
-    ringRadius,
     ringTwinkles,
     segmentTwinkles,
     segmentArcs,
     producedIds,
     segmentDirtyState: createRenderDirtyState(),
-    lastSegmentSelected: false,
+    segmentSelectedLastDraw: false,
     labelDirtyState: createRenderDirtyState(),
   };
+}
+
+/** Show or hide every game object in a station bundle. Field list lives here
+ *  with the bundle shape so it stays in step as the bundle gains members. */
+export function setStationVisualBundleVisible(bundle: StationVisualBundle, visible: boolean): void {
+  bundle.baseImage.setVisible(visible);
+  bundle.overlayImage.setVisible(visible);
+  bundle.iconImage.setVisible(visible);
+  bundle.ringImage.setVisible(visible);
+  bundle.graphics.setVisible(visible);
+  bundle.nameLabel.setVisible(visible);
+  for (const label of bundle.inventoryLabels) label.setVisible(visible);
+  bundle.statusBadgeCircle?.setVisible(visible);
+  bundle.statusBadgeText?.setVisible(visible);
 }
 
 /** Tear down all bundle surfaces, unregister from selection, and remove
@@ -337,7 +360,7 @@ export function destroyStationVisualBundle(
 }
 
 // Zoom-cached state for updateStationDetails + updateStationLabels — alpha is constant per zoom level, so both helpers early-return when zoom is unchanged. One shared cache so the two `lastZoom` cursors can't drift apart.
-const zoomedInCache: {
+const zoomDetailLabelCache: {
   lastDetailZoom: number | null;
   lastLabelZoom: number | null;
   labelState: { visible: boolean; alpha: number };
@@ -347,18 +370,18 @@ const zoomedInCache: {
   labelState: { visible: false, alpha: 0 },
 };
 
-/** Reset cached zoom state. Call on scene recreation. */
+/** Reset cached zoom state. Call when the scene remounts or stations are added mid-session, so the next update applies current-zoom alpha. */
 export function resetStationZoomDetailCache() {
-  zoomedInCache.lastDetailZoom = null;
-  zoomedInCache.lastLabelZoom = null;
-  zoomedInCache.labelState = { visible: false, alpha: 0 };
+  zoomDetailLabelCache.lastDetailZoom = null;
+  zoomDetailLabelCache.lastLabelZoom = null;
+  zoomDetailLabelCache.labelState = { visible: false, alpha: 0 };
 }
 
 /** Crossfade gradient sphere (zoomed out) ↔ black disc + icon (zoomed in).
  *  Only updates when zoom changes — alpha is constant per zoom level. */
-export function updateStationDetails(stationBundles: StationVisualBundle[], zoom: number) {
-  if (zoom === zoomedInCache.lastDetailZoom) return;
-  zoomedInCache.lastDetailZoom = zoom;
+export function updateStationDetails(stationBundles: readonly StationVisualBundle[], zoom: number) {
+  if (zoom === zoomDetailLabelCache.lastDetailZoom) return;
+  zoomDetailLabelCache.lastDetailZoom = zoom;
 
   const detailAlpha = closeViewAlpha(zoom);
 
@@ -371,12 +394,12 @@ export function updateStationDetails(stationBundles: StationVisualBundle[], zoom
 
 /** Show station name labels only at close zoom and fade them with the same curve as the icon. Returns the cached visibility state so the caller can skip its own per-bundle setVisible loop when nothing changed. */
 export function updateStationLabels(
-  stationBundles: StationVisualBundle[],
+  stationBundles: readonly StationVisualBundle[],
   zoom: number,
   stationLabelsVisible: boolean,
 ): { visible: boolean; alpha: number } {
-  if (zoom === zoomedInCache.lastLabelZoom) return zoomedInCache.labelState;
-  zoomedInCache.lastLabelZoom = zoom;
+  if (zoom === zoomDetailLabelCache.lastLabelZoom) return zoomDetailLabelCache.labelState;
+  zoomDetailLabelCache.lastLabelZoom = zoom;
 
   const labelAlpha = closeViewAlpha(zoom);
   const showLabels = labelAlpha > 0;
@@ -386,7 +409,7 @@ export function updateStationLabels(
   if (showLabels) {
     for (const bundle of stationBundles) bundle.nameLabel.setAlpha(labelAlpha);
   }
-  zoomedInCache.labelState.visible = showLabels;
-  zoomedInCache.labelState.alpha = labelAlpha;
-  return zoomedInCache.labelState;
+  zoomDetailLabelCache.labelState.visible = showLabels;
+  zoomDetailLabelCache.labelState.alpha = labelAlpha;
+  return zoomDetailLabelCache.labelState;
 }

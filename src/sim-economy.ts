@@ -36,12 +36,31 @@ export function staggerStationTicks(stations: Station[]) {
   }
 }
 
+/** Where a produced ware's output goes. Sink wares (`productionOutput === 0`)
+ *  produce nothing; non-sink wares credit an output slot. */
+type ProductionOutputTarget = { kind: "sink" } | { kind: "slot"; slot: InventorySlot };
+
+/** Resolve a produced ware's output target, or null if the batch must not run.
+ *  Sink wares always have a target. A non-sink ware needs an output slot with
+ *  room — a missing slot (in-flight build) or a full slot blocks the batch. */
+function resolveProductionOutput(
+  station: Station,
+  ware: WareTemplate,
+  wareId: WareId,
+): ProductionOutputTarget | null {
+  if (ware.productionOutput === 0) return { kind: "sink" };
+  const slot = getInventorySlot(station, wareId);
+  if (!slot || slot.current >= slot.max) return null;
+  return { kind: "slot", slot };
+}
+
 /** Produce one batch of `wareId` at this station if all preconditions hold:
  *  output slot has room (sink wares skip this), and every input slot has
  *  enough stock past its outgoing reservation. Returns true if a batch ran. */
 function tickWareProductionIfReady(station: Station, wareId: WareId): boolean {
   const ware = getWareTemplate(wareId);
-  if (!hasProductionOutputRoom(station, ware, wareId)) return false;
+  const outputTarget = resolveProductionOutput(station, ware, wareId);
+  if (!outputTarget) return false;
 
   // Pre-compute adjusted costs so the deduction pass reuses them. Only
   // populated if every input passes its precondition.
@@ -60,38 +79,27 @@ function tickWareProductionIfReady(station: Station, wareId: WareId): boolean {
     slot.current -= adjustedCost;
   }
 
-  creditProductionOutput(station, ware, wareId);
+  if (outputTarget.kind === "slot") {
+    outputTarget.slot.current = Math.min(
+      outputTarget.slot.max,
+      outputTarget.slot.current + scaleByStationSize(ware.productionOutput, station),
+    );
+  }
   return true;
 }
 
-function hasProductionOutputRoom(station: Station, ware: WareTemplate, wareId: WareId): boolean {
-  // Sink wares consume without producing — no output slot to gate on.
-  if (ware.productionOutput === 0) return true;
-  const outputSlot = getInventorySlot(station, wareId);
-  return !!outputSlot && outputSlot.current < outputSlot.max;
-}
-
-function creditProductionOutput(station: Station, ware: WareTemplate, wareId: WareId): void {
-  if (ware.productionOutput === 0) return;
-  const outputSlot = getInventorySlot(station, wareId)!;
-  outputSlot.current = Math.min(
-    outputSlot.max,
-    outputSlot.current + scaleByStationSize(ware.productionOutput, station),
-  );
-}
-
-/** Advance one station's tick clock and run its production pass when the per-station
- *  interval elapses. Sets `didProduceLastTick` to whether any ware produced this tick. */
+/** Run a station's production pass each sim tick, firing once per
+ *  `simulationIntervalSeconds`. Sets `didProduceLastTick` to whether any ware produced. */
 function tickStationProduction(station: Station, deltaSeconds: number): void {
   station.secondsSinceLastTick += deltaSeconds;
   if (station.secondsSinceLastTick < economyConfig.simulationIntervalSeconds) return;
   station.secondsSinceLastTick -= economyConfig.simulationIntervalSeconds;
 
-  let anyProduced = false;
+  let producedAnyWare = false;
   for (const wareId of station.stationType.produces) {
-    if (tickWareProductionIfReady(station, wareId)) anyProduced = true;
+    if (tickWareProductionIfReady(station, wareId)) producedAnyWare = true;
   }
-  station.didProduceLastTick = anyProduced;
+  station.didProduceLastTick = producedAnyWare;
 }
 
 export function tickEconomy(stations: Station[], timer: EconomyTimer, deltaSeconds: number) {

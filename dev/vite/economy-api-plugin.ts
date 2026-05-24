@@ -48,6 +48,8 @@ type EconomySavePayload = {
   wares?: EconomyWareOutputChange[];
 };
 
+type SendJson = (status: number, data: object) => void;
+
 const economyDataFiles = [
   "data/economy-config.ts",
   "data/ships.ts",
@@ -56,13 +58,45 @@ const economyDataFiles = [
   "data/map-preset-settled.ts",
 ];
 
+const draftsDirectoryName = "drafts.local";
+const backupDirectoryName = "backup.local";
+
+function draftsDirectoryPath(repositoryRoot: string): string {
+  return resolve(repositoryRoot, draftsDirectoryName);
+}
+
+function draftFilePath(repositoryRoot: string, safeName: string): string {
+  return resolve(repositoryRoot, draftsDirectoryName, `${safeName}.json`);
+}
+
+function backupRootPath(repositoryRoot: string): string {
+  return resolve(repositoryRoot, backupDirectoryName);
+}
+
 function sanitizeDraftName(name: unknown): string {
   return String(name ?? "")
     .replace(/[^a-zA-Z0-9 _-]/g, "")
     .substring(0, 64);
 }
 
-/** Replaces the first match of `regexSource` inside the 2000-char window after `anchor`. The regex's first capture group is preserved as the prefix; the captured text plus `newValue` replaces the match. The window keeps each anchored edit local to its target declaration so a later same-name match elsewhere in the file isn't touched. */
+function editFile(filePath: string, edit: (content: string) => string): void {
+  writeFileSync(filePath, edit(readFileSync(filePath, "utf-8")));
+}
+
+function requireValidDraftName(
+  payload: { name: unknown },
+  sendJson: SendJson,
+  handler: (safeName: string) => void,
+): void {
+  const safeName = sanitizeDraftName(payload.name);
+  if (!safeName) {
+    sendJson(400, { error: "Invalid draft name" });
+    return;
+  }
+  handler(safeName);
+}
+
+/** Scopes the edit to a 2000-char window after `anchor` so a same-named match elsewhere in the file isn't touched. Capture group 1 is preserved as the prefix; `newValue` follows it. */
 function replaceAfterAnchor(
   content: string,
   anchor: string,
@@ -77,82 +111,78 @@ function replaceAfterAnchor(
   return content.substring(0, anchorIndex) + updatedRegion + content.substring(windowEnd);
 }
 
+function applyChangesToFile<Entry>(
+  repositoryRoot: string,
+  relativePath: string,
+  entries: readonly Entry[],
+  applyEntry: (content: string, entry: Entry) => string,
+): void {
+  editFile(resolve(repositoryRoot, relativePath), (content) => {
+    for (const entry of entries) {
+      content = applyEntry(content, entry);
+    }
+    return content;
+  });
+}
+
 function applyConfigChanges(repositoryRoot: string, changes: EconomyConfigChange[]) {
-  const filePath = resolve(repositoryRoot, "data/economy-config.ts");
-  let content = readFileSync(filePath, "utf-8");
-  for (const entry of changes) {
-    content = replaceAfterAnchor(content, "economyConfig", `(${entry.field}:\\s*)[\\d.]+`, entry.value);
-  }
-  writeFileSync(filePath, content);
+  applyChangesToFile(repositoryRoot, "data/economy-config.ts", changes, (content, entry) =>
+    replaceAfterAnchor(content, "economyConfig", `(${entry.field}:\\s*)[\\d.]+`, entry.value),
+  );
 }
 
 function applyShipChanges(repositoryRoot: string, ships: EconomyShipChange[]) {
-  const filePath = resolve(repositoryRoot, "data/ships.ts");
-  let content = readFileSync(filePath, "utf-8");
-  for (const ship of ships) {
+  applyChangesToFile(repositoryRoot, "data/ships.ts", ships, (content, ship) => {
     content = replaceAfterAnchor(
       content,
       `export const ${ship.id}:`,
       "(cargoCapacity:\\s*)[\\d.]+",
       ship.cargoCapacity,
     );
-    content = replaceAfterAnchor(content, `export const ${ship.id}:`, "(speed:\\s*)[\\d.]+", ship.speed);
-  }
-  writeFileSync(filePath, content);
+    return replaceAfterAnchor(content, `export const ${ship.id}:`, "(speed:\\s*)[\\d.]+", ship.speed);
+  });
 }
 
 function applyWareOutputChanges(repositoryRoot: string, wares: EconomyWareOutputChange[]) {
-  const filePath = resolve(repositoryRoot, "data/wares.ts");
-  let content = readFileSync(filePath, "utf-8");
-  for (const ware of wares) {
-    content = replaceAfterAnchor(
+  applyChangesToFile(repositoryRoot, "data/wares.ts", wares, (content, ware) =>
+    replaceAfterAnchor(
       content,
       `export const ${ware.id}:`,
       "(productionOutput:\\s*)[\\d.]+",
       ware.productionOutput,
-    );
-  }
-  writeFileSync(filePath, content);
+    ),
+  );
 }
 
 /** Inner wareId disambiguates between multiple inputs on the same ware; the outer context only scopes to the consuming ware's declaration. */
 function applyWareInputChanges(repositoryRoot: string, inputs: EconomyWareInputChange[]) {
-  const filePath = resolve(repositoryRoot, "data/wares.ts");
-  let content = readFileSync(filePath, "utf-8");
-  for (const input of inputs) {
-    content = replaceAfterAnchor(
+  applyChangesToFile(repositoryRoot, "data/wares.ts", inputs, (content, input) =>
+    replaceAfterAnchor(
       content,
       `export const ${input.wareId}:`,
       `(\\{ wareId: "${input.inputWareId}", unitsPerTick: )[\\d.]+`,
       input.unitsPerTick,
-    );
-  }
-  writeFileSync(filePath, content);
+    ),
+  );
 }
 
 function applyConsumptionChanges(repositoryRoot: string, entries: EconomyConsumptionChange[]) {
-  const filePath = resolve(repositoryRoot, "data/stations.ts");
-  let content = readFileSync(filePath, "utf-8");
-  for (const entry of entries) {
-    content = replaceAfterAnchor(
+  applyChangesToFile(repositoryRoot, "data/stations.ts", entries, (content, entry) =>
+    replaceAfterAnchor(
       content,
       `id: "${entry.stationTypeId}"`,
       `(wareId: "${entry.wareId}", amount: )[\\d.]+`,
       entry.amount,
-    );
-  }
-  writeFileSync(filePath, content);
+    ),
+  );
 }
 
 /** Match `stationId:`, not `id:` — the file's own `id: "settled"` preset key would otherwise match first. */
 function removeStationsFromSettledPreset(repositoryRoot: string, stationIds: string[]) {
-  const filePath = resolve(repositoryRoot, "data/map-preset-settled.ts");
-  let content = readFileSync(filePath, "utf-8");
-  for (const stationId of stationIds) {
+  applyChangesToFile(repositoryRoot, "data/map-preset-settled.ts", stationIds, (content, stationId) => {
     const stationPattern = new RegExp(`[ \\t]*\\{[^}]*stationId: "${stationId}"[^}]*\\},?\\n`);
-    content = content.replace(stationPattern, "");
-  }
-  writeFileSync(filePath, content);
+    return content.replace(stationPattern, "");
+  });
 }
 
 function applyEconomyChanges(repositoryRoot: string, payload: EconomySavePayload) {
@@ -166,20 +196,18 @@ function applyEconomyChanges(repositoryRoot: string, payload: EconomySavePayload
 }
 
 function backupEconomyFiles(repositoryRoot: string) {
-  const backupRoot = resolve(repositoryRoot, "backup.local");
+  const backupRoot = backupRootPath(repositoryRoot);
 
   for (const relativePath of economyDataFiles) {
     const sourcePath = resolve(repositoryRoot, relativePath);
     const backupPath = resolve(backupRoot, relativePath);
-    if (!existsSync(sourcePath)) continue;
-
     mkdirSync(dirname(backupPath), { recursive: true });
     copyFileSync(sourcePath, backupPath);
   }
 }
 
 function revertEconomyFiles(repositoryRoot: string): boolean {
-  const backupRoot = resolve(repositoryRoot, "backup.local");
+  const backupRoot = backupRootPath(repositoryRoot);
   const hasAnyBackup = economyDataFiles.some((relativePath) => existsSync(resolve(backupRoot, relativePath)));
   if (!hasAnyBackup) return false;
 
@@ -192,8 +220,8 @@ function revertEconomyFiles(repositoryRoot: string): boolean {
   return true;
 }
 
-function readDraftsDirectory(repositoryRoot: string): string[] {
-  const draftsDirectory = resolve(repositoryRoot, "drafts.local");
+function listDraftNames(repositoryRoot: string): string[] {
+  const draftsDirectory = draftsDirectoryPath(repositoryRoot);
   if (!existsSync(draftsDirectory)) return [];
   return readdirSync(draftsDirectory)
     .filter((fileName) => fileName.endsWith(".json"))
@@ -202,7 +230,7 @@ function readDraftsDirectory(repositoryRoot: string): string[] {
 
 function parseJsonBody<T>(
   request: IncomingMessage,
-  sendJson: (status: number, data: object) => void,
+  sendJson: SendJson,
   handler: (payload: T) => void,
 ) {
   let body = "";
@@ -210,11 +238,81 @@ function parseJsonBody<T>(
     body += chunk;
   });
   request.on("end", () => {
+    let payload: T;
     try {
-      handler(JSON.parse(body) as T);
+      payload = JSON.parse(body) as T;
+    } catch (error) {
+      sendJson(400, { error: `Invalid JSON: ${String(error)}` });
+      return;
+    }
+    try {
+      handler(payload);
     } catch (error) {
       sendJson(500, { error: String(error) });
     }
+  });
+}
+
+function handleEconomySave(request: IncomingMessage, sendJson: SendJson, repositoryRoot: string) {
+  parseJsonBody<EconomySavePayload>(request, sendJson, (payload) => {
+    backupEconomyFiles(repositoryRoot);
+    applyEconomyChanges(repositoryRoot, payload);
+    sendJson(200, { success: true });
+  });
+}
+
+function handleEconomyRevert(sendJson: SendJson, repositoryRoot: string) {
+  try {
+    if (revertEconomyFiles(repositoryRoot)) sendJson(200, { success: true });
+    else sendJson(404, { error: "No backup found" });
+  } catch (error) {
+    sendJson(500, { error: String(error) });
+  }
+}
+
+function handleDraftsList(sendJson: SendJson, repositoryRoot: string) {
+  try {
+    sendJson(200, { drafts: listDraftNames(repositoryRoot) });
+  } catch (error) {
+    sendJson(500, { error: String(error) });
+  }
+}
+
+function handleDraftSave(request: IncomingMessage, sendJson: SendJson, repositoryRoot: string) {
+  parseJsonBody<{ name: unknown; snapshot: unknown }>(request, sendJson, (payload) => {
+    requireValidDraftName(payload, sendJson, (safeName) => {
+      const draftsDirectory = draftsDirectoryPath(repositoryRoot);
+      mkdirSync(draftsDirectory, { recursive: true });
+      writeFileSync(
+        draftFilePath(repositoryRoot, safeName),
+        JSON.stringify(payload.snapshot, null, 2),
+      );
+      sendJson(200, { success: true });
+    });
+  });
+}
+
+function handleDraftLoad(request: IncomingMessage, sendJson: SendJson, repositoryRoot: string) {
+  parseJsonBody<{ name: unknown }>(request, sendJson, (payload) => {
+    requireValidDraftName(payload, sendJson, (safeName) => {
+      const filePath = draftFilePath(repositoryRoot, safeName);
+      if (!existsSync(filePath)) {
+        sendJson(404, { error: "Draft not found" });
+        return;
+      }
+      const snapshot = JSON.parse(readFileSync(filePath, "utf-8"));
+      sendJson(200, { snapshot });
+    });
+  });
+}
+
+function handleDraftDelete(request: IncomingMessage, sendJson: SendJson, repositoryRoot: string) {
+  parseJsonBody<{ name: unknown }>(request, sendJson, (payload) => {
+    requireValidDraftName(payload, sendJson, (safeName) => {
+      const filePath = draftFilePath(repositoryRoot, safeName);
+      if (existsSync(filePath)) unlinkSync(filePath);
+      sendJson(200, { success: true });
+    });
   });
 }
 
@@ -228,87 +326,33 @@ export function economyApiPlugin(): Plugin {
       server.middlewares.use((request, response, next) => {
         if (!request.url?.startsWith("/api/economy/")) return next();
 
-        const sendJson = (status: number, data: object) => {
+        const sendJson: SendJson = (status, data) => {
           response.writeHead(status, { "Content-Type": "application/json" });
           response.end(JSON.stringify(data));
         };
 
         if (request.url === "/api/economy/save" && request.method === "POST") {
-          parseJsonBody<EconomySavePayload>(request, sendJson, (payload) => {
-            backupEconomyFiles(repositoryRoot);
-            applyEconomyChanges(repositoryRoot, payload);
-            sendJson(200, { success: true });
-          });
+          handleEconomySave(request, sendJson, repositoryRoot);
           return;
         }
-
         if (request.url === "/api/economy/revert" && request.method === "POST") {
-          try {
-            if (revertEconomyFiles(repositoryRoot)) sendJson(200, { success: true });
-            else sendJson(404, { error: "No backup found" });
-          } catch (error) {
-            sendJson(500, { error: String(error) });
-          }
+          handleEconomyRevert(sendJson, repositoryRoot);
           return;
         }
-
         if (request.url === "/api/economy/drafts/list" && request.method === "GET") {
-          try {
-            sendJson(200, { drafts: readDraftsDirectory(repositoryRoot) });
-          } catch (error) {
-            sendJson(500, { error: String(error) });
-          }
+          handleDraftsList(sendJson, repositoryRoot);
           return;
         }
-
         if (request.url === "/api/economy/drafts/save" && request.method === "POST") {
-          parseJsonBody<{ name: unknown; snapshot: unknown }>(request, sendJson, ({ name, snapshot }) => {
-            const safeName = sanitizeDraftName(name);
-            if (!safeName) {
-              sendJson(400, { error: "Invalid draft name" });
-              return;
-            }
-
-            const draftsDirectory = resolve(repositoryRoot, "drafts.local");
-            mkdirSync(draftsDirectory, { recursive: true });
-            writeFileSync(resolve(draftsDirectory, `${safeName}.json`), JSON.stringify(snapshot, null, 2));
-            sendJson(200, { success: true });
-          });
+          handleDraftSave(request, sendJson, repositoryRoot);
           return;
         }
-
         if (request.url === "/api/economy/drafts/load" && request.method === "POST") {
-          parseJsonBody<{ name: unknown }>(request, sendJson, ({ name }) => {
-            const safeName = sanitizeDraftName(name);
-            if (!safeName) {
-              sendJson(400, { error: "Invalid draft name" });
-              return;
-            }
-
-            const filePath = resolve(repositoryRoot, "drafts.local", `${safeName}.json`);
-            if (!existsSync(filePath)) {
-              sendJson(404, { error: "Draft not found" });
-              return;
-            }
-
-            const snapshot = JSON.parse(readFileSync(filePath, "utf-8"));
-            sendJson(200, { snapshot });
-          });
+          handleDraftLoad(request, sendJson, repositoryRoot);
           return;
         }
-
         if (request.url === "/api/economy/drafts/delete" && request.method === "POST") {
-          parseJsonBody<{ name: unknown }>(request, sendJson, ({ name }) => {
-            const safeName = sanitizeDraftName(name);
-            if (!safeName) {
-              sendJson(400, { error: "Invalid draft name" });
-              return;
-            }
-
-            const filePath = resolve(repositoryRoot, "drafts.local", `${safeName}.json`);
-            if (existsSync(filePath)) unlinkSync(filePath);
-            sendJson(200, { success: true });
-          });
+          handleDraftDelete(request, sendJson, repositoryRoot);
           return;
         }
 

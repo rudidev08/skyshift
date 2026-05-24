@@ -21,7 +21,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
-import { renderPng } from "./_render-svg.mjs";
+import { renderPng } from "./svg-to-png.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "../..");

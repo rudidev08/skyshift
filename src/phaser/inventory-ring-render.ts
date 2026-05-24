@@ -1,4 +1,3 @@
-import { type Scene } from "phaser";
 import { inventoryRingVisuals } from "../../data/station-visuals";
 
 const {
@@ -59,6 +58,15 @@ const layoutsBySlotCount: WareInventoryArc[][] = [
   ],
 ];
 
+/** The slots to draw on a station's inventory ring: the real slots, or a single
+ *  empty placeholder so a no-inventory station (generational ship) shows one
+ *  segment with a "No Wares" label instead of a blank circle. */
+export function displaySlotsForRing(
+  slots: readonly InventoryRingSlot[],
+): readonly InventoryRingSlot[] {
+  return slots.length === 0 ? [{ current: 0, max: 1 }] : slots;
+}
+
 export function getSegmentArcsForSlotCount(slotCount: number): WareInventoryArc[] {
   return layoutsBySlotCount[slotCount] ?? layoutsBySlotCount[3];
 }
@@ -116,10 +124,10 @@ function drawSegment(request: SegmentDrawRequest) {
     let fillStart: number;
     let fillEnd: number;
     if (fillFrom === "center") {
-      const mid = (arc.startAngle + arc.endAngle) / 2;
-      const halfFill = (totalArc * fillRatio) / 2;
-      fillStart = mid - halfFill;
-      fillEnd = mid + halfFill;
+      const midAngle = (arc.startAngle + arc.endAngle) / 2;
+      const halfFillArc = (totalArc * fillRatio) / 2;
+      fillStart = midAngle - halfFillArc;
+      fillEnd = midAngle + halfFillArc;
     } else if (fillFrom === "start") {
       fillStart = arc.startAngle;
       fillEnd = arc.startAngle + totalArc * fillRatio;
@@ -146,23 +154,4 @@ export function drawInventorySegments(request: InventoryRingDrawRequest) {
       alpha,
     });
   }
-}
-
-/** Standalone inventory ring for entities without station twinkle rendering (ships). */
-export interface InventoryRing {
-  graphics: Phaser.GameObjects.Graphics;
-  arcs: WareInventoryArc[];
-}
-
-/** Top segment from the 3-slot layout — ship cargo ring. */
-export const TOP_SEGMENT_ARC: WareInventoryArc[] = [layoutsBySlotCount[3][0]];
-
-export function createInventoryRing(scene: Scene, arcs: WareInventoryArc[], depth: number): InventoryRing {
-  const graphics = scene.add.graphics();
-  graphics.setDepth(depth);
-  return { graphics, arcs };
-}
-
-export function destroyInventoryRing(ring: InventoryRing) {
-  ring.graphics.destroy();
 }

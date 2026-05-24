@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* global document */ // referenced inside page.evaluate() callbacks (browser context).
 // Frame-jank / GC-pressure check — records a CDP trace covering V8 GC events
 // and frame timing while the game runs at realistic per-frame allocation
 // rate, then summarizes the GC events and saves the full trace for visual
@@ -25,10 +24,17 @@
 //   --out         dev/performance/traces.local
 //   --headed      visible browser (default: headless)
 
-import puppeteer from "puppeteer";
-import { readFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import {
+  formatRunId,
+  ensureOutDir,
+  launchInstrumentedBrowser,
+  gotoGameUrlAndSettle,
+  clickDevSpeed,
+  BROWSER_ARGS_TRACE_ONLY,
+} from "./puppeteer-helpers.mjs";
 
 const { values: args } = parseArgs({
   options: {
@@ -47,18 +53,17 @@ if (!Number.isFinite(durationSeconds) || durationSeconds <= 0)
 if (!Number.isFinite(accelerateSpeed) || accelerateSpeed < 0)
   throw new Error(`--accelerate must be non-negative, got "${args.accelerate}"`);
 
-const runId = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
-const outDir = join(args.out, runId);
-if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+const outDir = join(args.out, formatRunId());
+ensureOutDir(outDir);
 const tracePath = join(outDir, "trace.json");
 
 console.log(
   `[frame-jank] url=${args.url} duration=${durationSeconds}s accelerate=${accelerateSpeed}x out=${outDir}`,
 );
 
-const browser = await puppeteer.launch({
+const browser = await launchInstrumentedBrowser({
   headless: !args.headed,
-  args: ["--enable-precise-memory-info"],
+  args: BROWSER_ARGS_TRACE_ONLY,
 });
 
 try {
@@ -66,22 +71,10 @@ try {
   await page.setViewport({ width: 1280, height: 800 });
 
   console.log(`[frame-jank] navigating...`);
-  await page.goto(args.url, { waitUntil: "networkidle2", timeout: 60_000 });
-  await page.waitForSelector("canvas", { timeout: 30_000 });
-  await new Promise((resolve) => setTimeout(resolve, 3_000));
+  await gotoGameUrlAndSettle(page, args.url, 3);
 
   if (accelerateSpeed > 0) {
-    const clicked = await page.evaluate((speed) => {
-      const button = document.querySelector(`[data-dev-speed="${speed}"]`);
-      if (!button) return false;
-      button.click();
-      return true;
-    }, accelerateSpeed);
-    if (clicked) {
-      console.log(`[frame-jank] clicked ${accelerateSpeed}× dev speed`);
-    } else {
-      console.log(`[frame-jank] WARNING: no [data-dev-speed="${accelerateSpeed}"] button — running at 1×`);
-    }
+    await clickDevSpeed(page, accelerateSpeed, "[frame-jank]");
   }
 
   console.log(`[frame-jank] tracing for ${durationSeconds}s...`);
@@ -104,31 +97,32 @@ try {
 // Quick parse for GC summary. Full timeline lives in the .json — load it in
 // chrome://tracing or DevTools Performance for ship-position correlation.
 const trace = JSON.parse(readFileSync(tracePath, "utf-8"));
-const events = trace.traceEvents ?? trace;
+const events = trace.traceEvents;
 
-let minorGcCount = 0;
-let minorGcTotalMicroseconds = 0;
-let minorGcMaxMicroseconds = 0;
-let majorGcCount = 0;
-let majorGcTotalMicroseconds = 0;
-let majorGcMaxMicroseconds = 0;
-for (const event of events) {
-  if (event.dur == null || !event.cat?.includes("v8")) continue;
-  const isMinor = event.name === "V8.GCScavenger" || event.name === "MinorGC";
-  const isMajor =
-    event.name === "V8.GCMarkCompactor" || event.name === "MajorGC" || event.name === "V8.GCFinalizeMC";
-  if (isMinor) {
-    minorGcCount++;
-    minorGcTotalMicroseconds += event.dur;
-    if (event.dur > minorGcMaxMicroseconds) minorGcMaxMicroseconds = event.dur;
-  } else if (isMajor) {
-    majorGcCount++;
-    majorGcTotalMicroseconds += event.dur;
-    if (event.dur > majorGcMaxMicroseconds) majorGcMaxMicroseconds = event.dur;
+function summarizeGcEvents(events) {
+  const minor = { count: 0, totalMicroseconds: 0, maxMicroseconds: 0 };
+  const major = { count: 0, totalMicroseconds: 0, maxMicroseconds: 0 };
+  for (const event of events) {
+    if (event.dur == null || !event.cat?.includes("v8")) continue;
+    const isMinor = event.name === "V8.GCScavenger" || event.name === "MinorGC";
+    const isMajor =
+      event.name === "V8.GCMarkCompactor" || event.name === "MajorGC" || event.name === "V8.GCFinalizeMC";
+    if (isMinor) {
+      minor.count++;
+      minor.totalMicroseconds += event.dur;
+      if (event.dur > minor.maxMicroseconds) minor.maxMicroseconds = event.dur;
+    } else if (isMajor) {
+      major.count++;
+      major.totalMicroseconds += event.dur;
+      if (event.dur > major.maxMicroseconds) major.maxMicroseconds = event.dur;
+    }
   }
+  return { minor, major };
 }
 
-function formatStats(label, count, totalMicroseconds, maxMicroseconds) {
+const { minor, major } = summarizeGcEvents(events);
+
+function printGcSummaryLine(label, { count, totalMicroseconds, maxMicroseconds }) {
   const totalMilliseconds = totalMicroseconds / 1000;
   const avgMilliseconds = count > 0 ? totalMilliseconds / count : 0;
   const ratePerSecond = count / durationSeconds;
@@ -139,21 +133,21 @@ function formatStats(label, count, totalMicroseconds, maxMicroseconds) {
 }
 
 console.log(`\n=== GC summary over ${durationSeconds}s ===`);
-formatStats("minor GC (scavenge)", minorGcCount, minorGcTotalMicroseconds, minorGcMaxMicroseconds);
-formatStats("major GC (mark-compact)", majorGcCount, majorGcTotalMicroseconds, majorGcMaxMicroseconds);
+printGcSummaryLine("minor GC (scavenge)", minor);
+printGcSummaryLine("major GC (mark-compact)", major);
 
 // Thresholds (codex + 2 review-agent consensus, 2026-05-05): single-pause and
 // overhead %, separate minor/major. Rate alone is informational — high rate
 // with low max+overhead is fine.
-const minorMaxMs = minorGcMaxMicroseconds / 1000;
-const majorMaxMs = majorGcMaxMicroseconds / 1000;
-const minorOverheadPercent = (minorGcTotalMicroseconds / 1000 / (durationSeconds * 1000)) * 100;
-const majorOverheadPercent = (majorGcTotalMicroseconds / 1000 / (durationSeconds * 1000)) * 100;
+const minorMaxMilliseconds = minor.maxMicroseconds / 1000;
+const majorMaxMilliseconds = major.maxMicroseconds / 1000;
+const minorOverheadPercent = (minor.totalMicroseconds / 1000 / (durationSeconds * 1000)) * 100;
+const majorOverheadPercent = (major.totalMicroseconds / 1000 / (durationSeconds * 1000)) * 100;
 
 const issues = [];
-if (minorMaxMs > 3) issues.push(`minor-GC max ${minorMaxMs.toFixed(2)}ms exceeds 3ms`);
+if (minorMaxMilliseconds > 3) issues.push(`minor-GC max ${minorMaxMilliseconds.toFixed(2)}ms exceeds 3ms`);
 if (minorOverheadPercent > 3) issues.push(`minor-GC overhead ${minorOverheadPercent.toFixed(2)}% exceeds 3%`);
-if (majorMaxMs > 10) issues.push(`major-GC max ${majorMaxMs.toFixed(2)}ms exceeds 10ms`);
+if (majorMaxMilliseconds > 10) issues.push(`major-GC max ${majorMaxMilliseconds.toFixed(2)}ms exceeds 10ms`);
 if (majorOverheadPercent > 0.5)
   issues.push(`major-GC overhead ${majorOverheadPercent.toFixed(2)}% exceeds 0.5%`);
 

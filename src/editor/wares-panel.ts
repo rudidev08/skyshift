@@ -6,8 +6,10 @@ import { allWares } from "../../data/wares";
 import type { WareTemplate, WareId } from "../../data/ware-types";
 import type { PlacedStation } from "../../data/station-types";
 import { getWareTemplate } from "../sim-ware-template";
-import { createStation, getStationRates } from "../sim-station";
+import { buildStationRateRecords } from "./util-station-rates";
 import { wareProducedCellId, wareConsumedCellId, wareNetCellId } from "./cell-ids";
+import { closePanel, openPanel } from "./panel-chrome";
+import { baselineWares } from "./edit-baselines";
 
 function computeUniverseTotals(stations: PlacedStation[]): {
   produced: Map<WareId, number>;
@@ -16,10 +18,7 @@ function computeUniverseTotals(stations: PlacedStation[]): {
   const produced = new Map<WareId, number>();
   const consumed = new Map<WareId, number>();
 
-  for (const mapStation of stations) {
-    const station = createStation(mapStation);
-    const rates = getStationRates(station);
-
+  for (const { rates } of buildStationRateRecords(stations)) {
     for (const [wareId, amount] of rates.production) {
       produced.set(wareId, (produced.get(wareId) ?? 0) + amount);
     }
@@ -43,9 +42,10 @@ function buildWaresTableHeaderHtml(): string {
   return html;
 }
 
-function buildWareRowsHtml(ware: WareTemplate): string {
+function buildWareRowGroupHtml(ware: WareTemplate): string {
   const inputs = ware.productionInputs;
   const rowCount = Math.max(1, inputs.length);
+  const baseline = baselineWares.find((wareItem) => wareItem.id === ware.id);
   let html = "";
 
   for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
@@ -54,7 +54,7 @@ function buildWareRowsHtml(ware: WareTemplate): string {
 
     if (rowIndex === 0) {
       html += `<td class="label-cell">${ware.name}</td>`;
-      html += `<td class="numeric-cell input-cell"><input type="number" data-target="ware-output" data-id="${ware.id}" data-field="productionOutput" value="${ware.productionOutput}" step="0.25"></td>`;
+      html += `<td class="numeric-cell input-cell"><input type="number" data-target="ware-output" data-id="${ware.id}" data-field="productionOutput" value="${ware.productionOutput}" data-baseline="${baseline?.productionOutput ?? ware.productionOutput}" step="0.25"></td>`;
     } else {
       html += "<td></td><td></td>";
     }
@@ -62,8 +62,9 @@ function buildWareRowsHtml(ware: WareTemplate): string {
     if (rowIndex < inputs.length) {
       const input = inputs[rowIndex];
       const inputWareName = getWareTemplate(input.wareId).name;
+      const baselineInput = baseline?.productionInputs.find((item) => item.wareId === input.wareId);
       html += `<td>${inputWareName}</td>`;
-      html += `<td class="numeric-cell input-cell"><input type="number" class="small" data-target="ware-input-units" data-ware="${ware.id}" data-input="${input.wareId}" data-field="unitsPerTick" value="${input.unitsPerTick}" step="0.5"></td>`;
+      html += `<td class="numeric-cell input-cell"><input type="number" class="small" data-target="ware-input-units" data-ware="${ware.id}" data-input="${input.wareId}" data-field="unitsPerTick" value="${input.unitsPerTick}" data-baseline="${baselineInput?.unitsPerTick ?? input.unitsPerTick}" step="0.5"></td>`;
     } else {
       html += "<td></td><td></td>";
     }
@@ -84,23 +85,22 @@ function buildWareRowsHtml(ware: WareTemplate): string {
 
 export function renderWaresTable(applyReadOnlyMode: () => void) {
   const container = document.getElementById("wares-container")!;
-  let html = '<div class="panel">';
-  html += '<div class="panel-header"><h2>Wares</h2></div>';
+  let html = openPanel("Wares");
 
   html += '<div class="table-scroll">';
   html += '<table id="wares-table">';
   html += buildWaresTableHeaderHtml();
 
   for (const ware of allWares) {
-    html += buildWareRowsHtml(ware);
+    html += buildWareRowGroupHtml(ware);
   }
 
-  html += "</table></div></div>";
+  html += `</table></div>${closePanel()}`;
   container.innerHTML = html;
   applyReadOnlyMode();
 }
 
-function applyNetCellFormatting(netCell: HTMLElement, produced: number, consumed: number): void {
+function updateNetCell(netCell: HTMLElement, produced: number, consumed: number): void {
   if (produced === 0 && consumed === 0) {
     netCell.textContent = "";
     netCell.className = "";
@@ -126,6 +126,6 @@ export function updateUniverseTotals(stations: PlacedStation[]) {
 
     if (producedCell) producedCell.textContent = produced > 0 ? produced.toFixed(1) : "";
     if (consumedCell) consumedCell.textContent = consumed > 0 ? consumed.toFixed(1) : "";
-    if (netCell) applyNetCellFormatting(netCell, produced, consumed);
+    if (netCell) updateNetCell(netCell, produced, consumed);
   }
 }

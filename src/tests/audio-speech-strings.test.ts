@@ -1,11 +1,9 @@
 import { test, assertEqual, assertTrue } from "./test-utils.ts";
 import {
-  collectAnnouncementSpeechStringsFromMapStations,
-  collectCoreSpeechStrings,
-} from "../audio-speech-strings.ts";
-import {
   applyTextToSpeechOverride,
-  collectCoreVoiceKeys,
+  collectSharedSpeechStrings,
+  collectSharedVoiceKeys,
+  collectSpeechStringsFromMapStations,
   collectVoiceKeysFromMapStations,
   nameToVoiceKey,
   textToVoiceKey,
@@ -36,9 +34,9 @@ test("text-to-speech override helpers convert roman numerals and digits into spo
   );
 });
 
-test("core announcement helpers derive keys and speech strings from canonical game data", () => {
-  const voiceKeys = collectCoreVoiceKeys();
-  const speechStrings = collectCoreSpeechStrings();
+test("shared announcement helpers derive keys and speech strings from canonical game data", () => {
+  const voiceKeys = collectSharedVoiceKeys();
+  const speechStrings = collectSharedSpeechStrings();
 
   assertTrue(voiceKeys.has("hub-cluster"), "short nation names should be converted to voice keys");
   assertTrue(voiceKeys.has("medical-lab"), "station types should become voice keys");
@@ -67,7 +65,7 @@ test("core announcement helpers derive keys and speech strings from canonical ga
 test("map station helpers keep full names and deduplicate repeats", () => {
   const mapStations = [{ name: "Accord III" }, { name: "Accord III" }, { name: "Moss Gate" }, {}];
   const voiceKeys = collectVoiceKeysFromMapStations(mapStations);
-  const speechStrings = collectAnnouncementSpeechStringsFromMapStations(mapStations);
+  const speechStrings = collectSpeechStringsFromMapStations(mapStations);
 
   assertEqual(voiceKeys.size, 2, "map station voice key set size");
   assertEqual(speechStrings.size, 2, "map station speech string set size");

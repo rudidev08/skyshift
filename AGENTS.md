@@ -1,7 +1,7 @@
 # Skyshift Agent Notes
 
 - `AGENTS.md` is the main source for repo coding style and architecture guidance.
-- **Scope discipline.** Coding style, vocabulary, architecture, and file conventions only. Operational/git rules live in `AGENTS-private.md`. Deployment, release, performance budgets, and other non-style content go elsewhere — `review-structure` and `deep-simplify` subagents load this file in full, so keep it focused.
+- **Scope discipline.** Coding style, vocabulary, architecture, and file conventions only. Operational/git rules live outside this public-facing file. Deployment, release, performance budgets, and other non-style content go elsewhere — `review-structure` and `deep-simplify` subagents load this file in full, so keep it focused.
 - Project-local Claude-style skills live in `.claude/skills/`.
 - When a referenced Claude skill is used, read the corresponding `SKILL.md` and follow it directly instead of rewriting the workflow from memory.
 - Prefer the current stable entrypoints mentioned by those skills:
@@ -30,11 +30,11 @@
   - **Per-type catalog**: one template shared by many runtime instances, which select it via a `*TypeId` union. Name it `XTypeTemplate`. Examples: `StationTypeTemplate` (`StationTypeId`) + runtime `Station`; `ShipTypeTemplate` (`ShipTypeId`) + runtime `Ship`.
   - **Canonical/definitional**: one template ↔ one runtime thing, no `*TypeId`. Keep `XTemplate` + bare runtime name. Examples: `WareTemplate`; `NationTemplate` + `Nation`; `SectorTemplate` + `Sector`; `MapTemplate` + `GameMap`; `StationZoneTemplate` + `StationZone`.
   A runtime-composed per-instance record is **not** a template and never takes a `*Template` name — e.g. `PlacedStation` is built from a `PresetStation` (and by `placeBuild` / emigration / the editor) into the flat runtime `Station`. When the runtime adds fields, compose with intersection (`Template & { extras }` or `Omit<Template, K> & { extras }`), not by nesting the template inside a wrapper object. Template and runtime types live on opposite sides of the `data/` ⇄ `src/` boundary; a file declaring both is a signal it straddles the boundary — split into the `data/<entity>-types.ts` + `src/sim-<entity>-types.ts` pair.
-- Pre-release game: no backward compat, no forward compat without explicit user approval, users don't edit saves. In "preserve current pattern" vs "forward-looking change" trade-offs (`code-rules/structure.md` § Forward-looking refactor decisions), favor the forward-looking option — patterns that land now become the template future contributors copy.
+- Pre-release game: no backward compat, no forward compat without explicit user approval, users don't edit saves. In "preserve current pattern" vs "forward-looking change" trade-offs (`.claude/skills/review-structure/structure.md` § Forward-looking refactor decisions), favor the forward-looking option — patterns that land now become the template future contributors copy.
 
 ## Project Vocabulary
 
-The universal style rules live at `.claude/skills/review-structure/structure.md` and `.claude/skills/review-structure/structure-comments.md`. This section carries the project-specific verb reservations, rejected jargon, preferred patterns, and framework specifics that those rules reference but don't define.
+The universal style rules live in the project-local coding-style reference (`.claude/skills/review-structure/structure.md` + `.claude/skills/review-structure/structure-comments.md`). This section carries the project-specific verb reservations, rejected jargon, preferred patterns, and framework specifics that those rules reference but don't define.
 
 ### Reserved verbs
 
@@ -52,7 +52,7 @@ Use the named alternative; don't introduce these into new code, and rename when 
 - `world` → `map` for project coord/space vocabulary. Phaser API comments and lore uses ("world events", "extraction world") stay.
 - `*Definition` / `*Data` (as type-name suffixes for `data/` shapes) → `XTypeTemplate` (per-type catalog) or `XTemplate` (canonical/definitional shape) in `data/`, + bare name (runtime instance types in `src/`).
 - `authored` / `authoring` / `pre-authored` (as a descriptor for data) → name the actual contrast instead. Use `template` for type shapes, `the data files` / `from data files` for references to data values, `predefined` for fixed names vs. dynamic draws, `the initial state` / `the map template` for seed contexts, `hand-tuned` / `hand-written` for designer-set values. Carve-out: `edit` / `editing surface` for the in-browser editor's UI vocabulary stays.
-- `mint` (for id generation) → `generate`. Commit `4b5b1af` ("Review-structure batch 002") was a user-driven repo-wide sweep that renamed `mintCounterId` → `generateCounterId` and its siblings; the user rejected `mint` as distant-domain jargon not in this project's vocabulary. `generate*` is the established verb for unique-id minters (`generateCounterId`, `generateUniqueId`, `generateUniqueShipCode`, `generateUniqueZoneCode`). Carve-out: plain-English "mint" outside id generation (e.g. a test assertion about a minted value) stays.
+- `mint` (for id generation) → `generate`. A user-driven repo-wide sweep renamed `mintCounterId` → `generateCounterId` and its siblings because `mint` was rejected as distant-domain jargon outside this project's vocabulary. `generate*` is the established verb for unique-id minters (`generateCounterId`, `generateUniqueId`, `generateUniqueShipCode`, `generateUniqueZoneCode`). Carve-out: plain-English "mint" outside id generation (e.g. a test assertion about a minted value) stays.
 
 ### Preferred patterns
 

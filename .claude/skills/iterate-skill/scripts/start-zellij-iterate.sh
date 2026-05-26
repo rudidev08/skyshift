@@ -105,9 +105,19 @@ fi
 # `list-sessions --short` reports them identically to running ones, which would
 # cause `attach` to resurrect an empty session and never reach the
 # create-with-layout path below.
-if zellij list-sessions --no-formatting 2>/dev/null \
+sessions=$(zellij list-sessions --no-formatting 2>/dev/null || true)
+
+if printf '%s\n' "$sessions" \
     | awk -v name="$session_name" '$1 == name && !/EXITED/ { found=1 } END { exit !found }'; then
   exec zellij attach "$session_name"
+fi
+
+# A dead/EXITED session with the same name blocks --new-session-with-layout —
+# zellij refuses to create a session whose name collides. Delete it first.
+if printf '%s\n' "$sessions" \
+    | awk -v name="$session_name" '$1 == name && /EXITED/ { found=1 } END { exit !found }'; then
+  zellij delete-session "$session_name" >/dev/null 2>&1 \
+    || fail "could not delete exited session: $session_name"
 fi
 
 quoted_args=""

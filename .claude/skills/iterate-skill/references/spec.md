@@ -6,7 +6,7 @@ This reference covers spec generation and the spec format. The loop that consume
 
 ## Generating the spec — three agents, two waves
 
-At run start (Phase 1), after copying the target skill folder to `candidate/`, the orchestrator dispatches three agents in **two waves** — the scenario catalog depends on the fixture, so its agent runs second.
+At run start (Phase 1), after copying the target skill folder to `candidate/`, the orchestrator dispatches three agents in **two waves** — the scenario catalog depends on the fixture, so its agent runs second. The orchestrator pins each sub-step's completion to a `Phase-1 substate` marker in `progress.md` (full step list in `SKILL.md`'s Phase 1 section), so a `/clear` mid-Phase-1 resumes from the first incomplete sub-step rather than redoing finished work.
 
 **Wave 1 — `contract-extractor` and `fixture-assembler`, in parallel.** Both read only `candidate/SKILL.md` (and any `candidate/references/*`):
 
@@ -26,6 +26,8 @@ A spec agent that fails transiently — an overload, a crash, malformed output �
 The draft `test-spec.md` — whose Part 1 manifests the assembled `fixture/` — is shown to the user. This is the **only** approval gate before the loop. If the `scenario-mapper` flagged any gated check as exercised by no scenario, the orchestrator lists each as an explicit open item in the draft — the checkpoint must resolve it by the adjustments named next (add a scenario, or move the check to non-gating); a draft with an unresolved uncovered gated check is not frozen. The user approves it as-is or asks for adjustments (more or fewer sample files, an added scenario, a check moved between buckets). Adjustments are applied in one revision pass, including any re-assembly of `fixture/` an input change requires; then `test-spec.md` is **frozen**: written to the work folder, recorded in `progress.md`, never regenerated for the rest of the run. A run that needs a materially different spec is a new run — reset the work folder.
 
 Freezing matters: the loop measures convergence against a fixed target. A spec that drifted mid-run would make "the defect rate fell" meaningless.
+
+The freeze is enforced both ways. The orchestrator never regenerates the spec mid-run; the fixer enforces the inverse — when a planned edit would remove or rename a section, step, or identifier any Part 3 `how to verify` clause references, the fixer marks that pinpoint `flagged — spec drift` and surfaces it to the user instead of applying (full mechanics in `references/agent-prompts.md`'s fixer Step 3). The user resolves a spec-drift flag by reverting the fix, resetting the run with a corrected spec, or accepting the drift.
 
 ## The frozen spec — `test-spec.md`
 
@@ -138,7 +140,7 @@ Borderline requirements go to non-gating: a check that gates convergence must be
 
 ## Running a scenario — the candidate as a file
 
-A run executes the target skill **by following `candidate/SKILL.md` as a file**, not by `/`-invoking the installed skill — which would load `~/.claude/skills/<target-skill-name>/`, the live copy, not the candidate. Following the file is what puts the candidate copy under test and leaves the installed skill untouched until the user approves promotion.
+A run executes the target skill **by following `candidate/SKILL.md` as a file**, not by `/`-invoking the installed skill — which would load `.claude/skills/<target-skill-name>/`, the live copy, not the candidate. Following the file is what puts the candidate copy under test and leaves the installed skill untouched until the user approves promotion.
 
 The run instruction the orchestrator follows:
 
@@ -146,4 +148,6 @@ The run instruction the orchestrator follows:
 
 The only thing `/`-invocation adds over following the file is the skill system binding the skill's base directory; the run instruction supplies that explicitly — base directory is `candidate/` — so the behavior under test is the same. If a run ever shows the framing itself changed behavior, that is a finding for the report, not something the loop silently absorbs.
 
-**Each run works on a fresh fixture copy.** A run mutates its repo — the target skill writes a work folder and applies edits. Before each run the orchestrator resets the workspace: `rm -rf workspace && cp -R fixture workspace` (or from `held-out` for the held-out pass). `fixture/` and `held-out/` themselves stay pristine. The run's transcript is captured to `transcripts/i<N>-<scenario>-<seq>.md`; the target skill's own progress files stay in `workspace/` for the judge to read.
+**Each run works on a fresh fixture copy.** A run mutates its repo — the target skill writes a work folder and applies edits. Before a **fresh** scenario run the orchestrator resets the workspace: `rm -rf workspace && cp -R fixture workspace` (or from `held-out` for the held-out pass). On resume of the **second half** of a mid-scenario `/clear`, the orchestrator skips the reset — the partial state is what the resume scenario tests (the carve-out is pinned in the Phase 2 loop in `SKILL.md`). `fixture/` and `held-out/` themselves stay pristine.
+
+The run's transcript is captured to `transcripts/<run-id>.md` (`<run-id>` format defined in `SKILL.md`'s ledger format). The orchestrator writes it as a single `Write` call when the scenario reaches its terminal state or the helper queues a mid-run `/clear`: one line per orchestrator step (tool, outcome, target progress-file delta), each prompted target question and the scripted answer, the target skill's progress-file paths under `workspace/.<target-skill-name>.local/` as they stood at scenario end, then a `Terminal: <reached | cleared-at-<cut-point>>` footer. The judge reads this file plus the on-disk progress files.

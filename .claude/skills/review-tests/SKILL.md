@@ -5,142 +5,137 @@ description: "[rp] Mutation-test specified tests via sequential subagents — ap
 
 # Review Tests (Mutation Testing)
 
-Orchestrate mutation testing across the test files the user passes in. One focused subagent per domain (a test file plus the exclusive source files it covers). Each agent applies ~10 small logic mutations to the source code, runs its test file, and records which mutants the tests fail to catch ("survivors"). Survivors get either a strengthened test or — if the mutation revealed a real bug — a code fix.
+## Goal
 
-Default execution is **sequential** in the main checkout — one agent at a time. The user can opt into parallel-worktree mode if they explicitly want it; see "Why sequential, not parallel" below.
+- Orchestrate sequential mutation-testing subagents (one per domain) over user-specified tests; apply small logic mutations to source, strengthen tests against survivors or fix real bugs, and propose pruning candidates.
 
-This skill is **user-initiated**: only run when explicitly invoked (via `/review-tests` or a direct request to mutation-test specific tests).
+## Rules
+
+- User-initiated only — run only via `/review-tests` or a direct request to mutation-test specific tests.
+- Default: sequential agents in the main checkout (no worktrees). User may opt into parallel-worktree mode explicitly.
+- Exclusive source-file ownership: each source file is owned by exactly one agent's domain.
+- Skill never commits to the starting branch. Work branch only; step 8 unwinds.
+- Hard cap: 20 mutants per agent.
+- If `$ARGUMENTS` is empty, ask the user — don't auto-pick.
 
 ## Convergence on re-run
 
-Running the skill twice on the same scope is a healthy convergence test, not a redundancy. The expected pattern after one round of strengthening:
-
-- Some domains return **zero survivors** — the strengthening landed and the obvious gaps are closed.
-- Some domains return **new survivors** — agents pick different mutations on a re-run (different operator, different boundary, different file) and surface gaps the first pass missed.
-
-A non-decreasing survivor count between runs is fine. The warning sign is *increasing* survivor count on the same domain — either the strengthening didn't apply (verify the diff is in the work branch) or the suite has multiple distinct gap surfaces and a third run is warranted.
-
-Don't expect Run #N to find zero survivors. Expect it to find FEWER survivors than Run #N-1 and to flag DIFFERENT mutation classes.
+- Re-running on the same scope is a convergence test, not a duplicate. Expect FEWER survivors and DIFFERENT mutation classes vs. prior run, not zero.
+- Non-decreasing survivor count is fine. *Increasing* count on the same domain is the warning sign — ask the user whether the prior run's strengthening was committed to `<starting>` (the skill hands changes back uncommitted at step 8 and the user writes their own commit messages, so a `git log` grep for `agent <domain>:` won't find anything even after a successful prior run). If the user confirms the prior strengthening landed and survivors still went up, a third run is warranted.
 
 ## Files to test
 
 `$ARGUMENTS`
 
-If `$ARGUMENTS` is empty, ask the user which tests to mutate (named files, a directory, or "all"). Don't pick autonomously — the budget is dozens of mutants, not hundreds.
+If empty, ask the user which tests to mutate (named files, a directory, or "all").
 
 ## Workflow
 
-0. **Pre-flight: green baseline.** Before dispatching any agents, run the project's test command (`npm test`, `cargo test`, `pytest`, etc.) and confirm all tests pass. Mutation testing assumes a clean baseline — a pre-existing failure produces phantom survivors. Dirty `git status` is OK — step 0.5 commits any uncommitted state to the work branch so agents see it.
+0. **Pre-flight green baseline.** Run the project's test command (`npm test`, `cargo test`, `pytest`, etc.) and confirm all tests pass. Mutation testing assumes a clean baseline. Dirty `git status` is OK — step 0.5 captures it.
 
-0.5. **Create the work branch.** All integration commits during the skill go to a temporary branch, not the starting branch. This isolates work-in-progress from the user's primary branches, preserves any pre-existing uncommitted state, and means a pause/interruption can never lose work.
-   - Capture the starting branch: `STARTING=$(git rev-parse --abbrev-ref HEAD)`.
-   - Refuse to start if `STARTING` is detached HEAD — surface to the user.
-   - Generate a short id (timestamp or random) and create the work branch: `git checkout -b review-tests-wip-<id>`.
-   - **If `git status` was dirty**, commit the uncommitted state on the work branch as a single "WIP for mutation testing" commit (`git add -A && git commit -m "WIP: pre-skill working state"`). This carries the user's in-progress work forward so agents see it. Step 8 unwinds this commit on hand-back.
-   - Detect orphan work branches from prior aborted runs (`git branch --list 'review-tests-wip-*'`). If any exist, surface them and ask the user whether to delete or resume. Don't auto-resolve.
+0.5. **Create the work branch.** Do these in order; later steps depend on earlier ones:
+   - **Capture starting branch:** run `git rev-parse --abbrev-ref HEAD` and **remember the value**. Substitute this name into every `<starting>` reference in later steps — Bash invocations get fresh shells, so a `STARTING=...` shell variable does not persist.
+   - **Refuse if detached HEAD:** test with `git symbolic-ref -q HEAD` (exit code 1 = detached). If detached, surface to the user and stop. (`git rev-parse --abbrev-ref HEAD` returns the literal string `HEAD` in this state — don't treat that as a branch name.)
+   - **Refuse if in-progress merge/rebase/cherry-pick:** check for `.git/MERGE_HEAD`, `.git/rebase-merge/`, `.git/rebase-apply/`, `.git/CHERRY_PICK_HEAD`, or any `git ls-files -u` output. If present, surface to the user and stop — committing through unresolved conflict markers would corrupt both the work branch and the user's in-progress operation.
+   - **Detect orphan work branches BEFORE creating new one:** `git branch --list 'review-tests-wip-*'`. If any exist, surface and ask user to delete or resume. Don't auto-resolve. (Order matters: doing this AFTER `checkout -b` would always match the just-created branch.)
+   - **Create the work branch:** `git checkout -b review-tests-wip-<id>` (short timestamp or random id).
+   - **If `git status` was dirty:** use `git add -u && git commit -m "WIP: pre-skill working state"` — stages only modified TRACKED files. Then surface untracked files (`git ls-files --others --exclude-standard` — exits 0 whether the list is empty or not) to the user and ask which (if any) to include in a follow-up `git add <files> && git commit --amend --no-edit`. Never blanket-`-A` — that sweeps `.env`, scratch dirs, `*.local.md` drafts, and other intentionally-untracked content into the WIP commit and onto `<starting>` at step 8 unwind.
 
-1. **Resolve the file list** from `$ARGUMENTS` or the user's clarification. Confirm the scope before dispatching when it's broad.
+1. **Resolve the file list** from `$ARGUMENTS` or clarification. Confirm scope before dispatching when broad.
 
 2. **Map tests to source files mechanically.**
-   a. For each test file, extract imports (e.g. `grep -E "^import.*from \"\.\." <test>` for TS/JS). Resolve each relative import to its concrete path under the project's source root (e.g. `../foo.ts` → `src/foo.ts`).
-   b. **Trace through fixture files.** When a test imports a fixture (`*-test-fixtures.ts`, `factories.ts`, `conftest.py`), open the fixture and follow ITS imports — those source files are part of the test's coverage scope.
-   c. Build a `Map<source-file, test-files-that-import-it>`. Any source file with ≥2 importers forces those tests into a single domain (exclusive source-file ownership: no source file may be mutated by two agents).
-   d. After resolving forced groupings, balance domain size by source-file LOC, not test-file count. Aim for similar total LOC per domain — pairing a large dense cluster (e.g. 2000 LOC) with a tiny pure-transform file (e.g. 100 LOC) under one agent wastes the small file's budget.
-   e. Print the mapping (`Domain N: <test files> → <source files> (~N LOC)`) for user sanity-check before dispatch.
-   f. Agent count is fallout from steps 2c–2d, not a target. Sane range 3–10. Below 3 → likely over-merged (split the largest domain); above 10 → likely over-split (fold the smallest into a sibling).
+   a. Extract test imports (e.g. `grep -E "^import.*from \"\.\." <test>`) and resolve relative paths to concrete source paths.
+   b. **Trace through fixture files** (`*-test-fixtures.ts`, `factories.ts`, `conftest.py`) — follow their imports too; those source files are in scope.
+   c. Build `Map<source-file, test-files-that-import-it>`. Any source file with ≥2 importers forces those tests into one domain.
+   d. Balance domains by source-file LOC, not test-file count. Aim for similar total LOC per domain — pairing a 2000-LOC cluster with a 100-LOC pure-transform under one agent wastes the small file's budget.
+   e. Print mapping: `Domain <name>: <test files> → <source files> (~N LOC)` for user sanity-check before dispatch. `<name>` is a short slug derived from the dominant source-file prefix (e.g. `sim-trade`, `sim-station`, `sim-ship-action`) — reuse this slug as `<domain>` in step 4's commit message and the per-domain gotcha matcher.
+   f. Agent count is fallout, not a target. Sane range 3–10. Below 3 → over-merged (split largest); above 10 → over-split (fold smallest into sibling).
 
-3. **Dispatch subagents sequentially** using the prompt template below. One agent at a time in the main checkout — no `isolation: "worktree"`. After each agent finishes, integrate its findings (step 4) before launching the next. Sequential is the trade-off for working in the main checkout: agents can't clobber each other's source-file mutations, and the agents see the work branch's HEAD (including any pre-existing uncommitted state committed in step 0.5).
+3. **Dispatch subagents sequentially.** One agent at a time in the main checkout — no `isolation: "worktree"`. Use the agent prompt template below. Integrate (step 4) before launching the next.
+   - Sequential avoids parallel agents writing the same files at once and corrupting test runs.
+   - Worktree-parallel is opt-in only (see Parallel-worktree mode).
 
-   Why not parallel: parallel agents would all be writing to the same files at once, which corrupts test runs (`agent A mid-mutation on sim-station.ts` poisons `agent B`'s test that imports it transitively). Worktree isolation would fix that but is blocked by user policy in many setups. Sequential is the safe default. Wall time is ~N× longer for N agents; the user can opt into worktree-parallel mode explicitly if they want it.
-
-4. **Per-agent integration (between agents).** When each agent returns:
-   - Inspect the working tree: `git status --porcelain` and `git diff --stat`. Source changes mean either an explicit bug fix (verify it matches the agent's report) or a stray mutation that wasn't reverted; surprise files are speculative cleanup that doesn't belong.
-   - Read the agent's summary; verify the survivor count and resolutions.
+4. **Per-agent integration (between agents).**
+   - Inspect: `git status --porcelain` and `git diff --stat`. Source changes mean an explicit bug fix (verify vs. report) or a stray mutation; surprise files are speculative cleanup that doesn't belong.
+   - Read the agent's summary; verify survivor count and resolutions.
    - Apply any code fixes the agent flagged as real bugs (rare — most survivors are test gaps).
-   - **Commit immediately to the work branch.** No approval prompt needed — the work branch is not main. Commit message: `Run #N agent <domain>: <N> tests strengthened (<X> mutations, <Y> killed, <Z> source fixes)`.
-   - Confirm the working tree is clean before dispatching the next agent.
+   - **Commit immediately to the work branch** — no approval prompt needed (work branch is throwaway).
+     Commit message: `agent <domain>: <T> tests strengthened (<X> mutations, <Y> killed, <Z> source fixes)` where `<T>` is the count of strengthened tests, `<X>` total mutations tried, `<Y>` killed by the unmodified suite, `<Z>` real bug fixes the agent committed. No run-number prefix — re-runs are tracked by the user's invocation count, not by commit metadata; the Convergence check (above) reads prior `agent <domain>:` commits from `<starting>` to detect re-runs.
+   - Confirm working tree clean before dispatching the next agent.
 
-5. **Final integration check.** After all agents have run and their changes are committed:
-   - Verify `git log --oneline <starting>..HEAD` shows the WIP commit (if any) plus one strengthening commit per agent.
-   - Verify `git diff <starting>..HEAD --stat` reports only test-file changes plus any intentional source bug fixes.
+5. **Final integration check.**
+   - `git log --oneline <starting>..HEAD` shows WIP commit (if any), one strengthening commit per agent (`agent <domain>:`), and any `fix:` commits agents committed mid-session per Workflow-per-mutant step 2e. Extra `fix:` commits are expected and legitimate — don't squash or drop them.
+   - `git diff <starting>..HEAD --stat` reports only test-file changes plus any intentional source bug fixes.
 
-6. **Validate the integrated state.** Run the project's full test command, type checker, and linter on the work branch — all must pass before continuing. If any fail, debug and fix in a follow-up commit on the work branch (don't unwind the prior commit).
+6. **Validate integrated state.** Run full test command, type checker, and linter on the work branch — all must pass. If any fail, debug and fix in a follow-up commit on the work branch (don't unwind the prior commit).
 
-7. **Walk pruning candidates with the user.** Each agent's report has a "Pruning candidates" section with three tiers:
-   - **Safe-delete** — sibling test catches the same mutants. Batch all Safe-delete candidates into one user-confirmation. After approval, delete in a single commit on the work branch.
-   - **Review** — looks low-value but proof is incomplete. Walk one-by-one with the user. Each is a judgment call; don't intermix with the Safe-delete batch. Approved deletes go into a separate commit (or fold into the same commit as Safe-deletes if the user prefers).
+7. **Walk pruning candidates with the user.** Each agent's report has a "Pruning candidates" section:
+   - **Safe-delete** — sibling test catches same mutants. Batch all into one user-confirmation; delete in a single work-branch commit after approval.
+   - **Review** — looks low-value but proof incomplete. Walk one-by-one; don't intermix with Safe-delete batch. Approved deletes go into a separate commit (or fold with Safe-deletes if the user prefers).
    - **Keep** — surfaced for transparency; no action.
 
-8. **Hand the work branch back as uncommitted changes.** The skill never commits to the user's starting branch. All work-branch commits get unwound on hand-back; the user commits when they're ready.
-   - Show the user `git log --oneline <starting>..HEAD` (WIP commit, if any, plus per-agent strengthening commits, plus any pruning commits).
-   - Get explicit approval before unwinding.
-   - On the work branch: `git reset --soft <starting>` (rewinds HEAD to `<starting>`, keeps all changes staged).
-   - `git restore --staged .` (unstages everything; working tree unchanged).
-   - `git checkout <starting>` (branches now point to the same commit; switching is a no-op for the working tree).
-   - `git branch -D <work-branch>` (use `-D` because the reset detaches commits the branch ref previously pointed to).
-   - User is back on `<starting>` with: any pre-existing uncommitted state + mutation-test strengthening + approved prunings, all unstaged. No worktree cleanup needed — there were no worktrees.
-   - The user reviews the resulting `git diff` on their own and commits when ready. The skill does NOT commit or push.
+8. **Return to `<starting>`.** Path A hands changes back as uncommitted edits; path B parks them on a side branch.
+   - Show user `git log --oneline <starting>..HEAD` and `git log --stat <starting>..HEAD`.
+   - **Warn explicitly when a WIP commit exists:** "Your pre-skill dirty state was captured as commit `<wip-sha>`; path A will mix it into one unstaged diff with the skill's strengthening + prunings. The boundary is recoverable only via path B."
+   - Get explicit approval, and ask which path to take:
+     - **A (no WIP, or user accepts mixed state):** on the work branch, `git reset --soft <starting>` (moves the work-branch ref to `<starting>`'s commit, keeps changes staged) → `git restore --staged .` (unstages; working tree unchanged) → `git checkout <starting>` (no-op for working tree since both refs point to the same commit) → `git branch -d <work-branch>` (deletes — succeeds because the branch's tip equals HEAD, so it's fully merged; if `-d` refuses, STOP and surface to the user — don't fall back to `-D`, which would discard commits silently).
+     - **B (WIP exists, user wants boundary preserved):** the work branch keeps everything; just step off and rename. `git checkout <starting>` (the work branch's WT is clean from the last integration commit, so the checkout switches HEAD cleanly), then `git branch -m review-tests-wip-<id> review-tests-prior-<id>`. The user's working tree is now clean on `<starting>` — the pre-skill WIP and the skill's strengthening both live on `review-tests-prior-<id>` only. **Tell the user explicitly:** "Your pre-skill edits are NOT in the working tree anymore — they're on `review-tests-prior-<id>` as commit `<wip-sha>`. To restore them as uncommitted edits: `git checkout review-tests-prior-<id> -- .` then `git restore --staged .`." Give them two diff commands using the captured `<wip-sha>` from the warning above: `git diff <starting>..<wip-sha>` shows only the WIP; `git diff <wip-sha>..review-tests-prior-<id>` shows only the skill's strengthening + prunings + any agent `fix:` commits. User cleans up `review-tests-prior-<id>` when done.
+   - Either way: skill does NOT commit or push to `<starting>`; user reviews and commits when ready.
 
 ## Mutant budget
 
-The user's likely budget is **dozens, not hundreds** of mutants. Default scales with the LOC owned by the domain:
-
-- Small domains (under ~300 LOC of source): 8–12 mutants
-- Medium domains (~300–800 LOC): 10–14 mutants
-- Large domains (~800+ LOC of dense logic): 14–20 mutants
-
-**Hard cap at 20 per agent.** Past that, the marginal mutation is more likely contrived than informative. If 20 mutants leave a high-survival rate, dispatch a follow-up agent rather than letting the first one drift past the cap.
-
-**Productive expansion is fine.** If an agent identifies more high-value mutations than its budget allows, expanding by ~50% (8 → 12, 12 → 18) keeps quality high. The cap is the brake; the budget is the suggestion. Many small sim-files have 12+ genuinely observable mutations even at 100 LOC, so the small-domain default is conservative.
-
-Don't let domain-imbalance happen silently — if one domain wants 40 and another wants 5, that's a grouping signal: split the large domain or merge the small one before dispatch.
+- Small domains (<~300 LOC): 8–12 mutants.
+- Medium (~300–800 LOC): 10–14.
+- Large (~800+ LOC dense): 14–20.
+- **Hard cap: 20 per agent.** If 20 leave high survival, dispatch a follow-up agent rather than drifting past.
+- Productive expansion (~50%: 8→12, 12→18) is fine when high-value mutations exceed budget. The cap is the brake; the budget is the suggestion.
+- Big imbalance (one domain wants 40, another 5) is a grouping signal — split or merge before dispatch.
 
 ## Non-applicable mutations are healthy
 
-Agents will flag some mutations as "non-applicable" — the mutation can't be observed by the assigned tests because:
+Agents flag a mutation as "non-applicable" when:
 - The mutated function is unexported / private to the file.
-- The branch is defensive code that no current input reaches.
+- The branch is defensive code no current input reaches.
 - The path is render-only or pure-logging (no observable simulation effect).
-- The mutation is an equivalent transformation (e.g., `parsed >= 1` → `parsed > 1` when both branches return the same value at the boundary).
+- The mutation is an equivalent transformation (e.g., `>= 1` → `> 1` when both branches return the same value at the boundary).
 
-Non-applicable is a legitimate outcome, not a survivor. It signals test scope boundaries, not test gaps. Agents should NOT contrive new tests to cover non-applicable mutations — that's how implementation-detail pins enter the suite.
+Non-applicable is a legitimate outcome, not a survivor. Agents must NOT contrive tests to cover non-applicable mutations — that's how implementation-detail pins enter the suite.
 
-If a domain has many non-applicable mutations (e.g., 4+ in a 10-mutation budget), suspect the source file has substantial defensive or render-only code. That's a finding for the agent to report; not a problem the orchestrator needs to solve.
+Many non-applicables (4+ in a 10-mutation budget) signal heavy defensive/render-only code — a finding for the agent to report, not an orchestrator problem.
 
 ## Pruning low-value tests
 
-Each mutation agent runs an embedded pruning scan as the last step of its workflow — by then, the agent's own strengthening has landed in the working tree, so the scan is post-strengthening within that domain. Cross-domain test obviation is rare given exclusive source ownership, so a separate orchestrator-side pruning pass usually isn't needed.
+Each agent runs an embedded pruning scan as its last step (post-strengthening within its domain). Cross-domain test obviation is rare under exclusive ownership, so a separate orchestrator-side pruning pass usually isn't needed.
 
-A test is a pruning candidate when at least one of these holds AND a sibling test in the same domain provably catches what the candidate does:
+A test is a pruning candidate when at least one holds AND a named sibling provably catches what it does:
 
-- **Subset of a stronger sibling** — every assertion is also made by another test that exercises a longer path.
-- **Tautological / setup-restating** — the assertion only proves values the test just assigned.
+- **Subset of a stronger sibling** — every assertion is also made by another test on a longer path.
+- **Tautological / setup-restating** — assertion only proves what setup just assigned.
 - **Implementation-detail pin** — asserts on private collection size, helper call order, or cached internals (`array.length === 0`, `Map.size`, observer registry layout) instead of behavior.
-- **Orphan path** — the branch under test is unreachable from current authored data (e.g. a dedup branch when current data has no duplicates to dedup).
+- **Orphan path** — branch under test is unreachable from current authored data (e.g. a dedup branch when current data has no duplicates).
 - **Setup-heavy / payoff-thin** — large fixture protects a trivial outcome already covered.
-- **Comment-restating without scenario** — the test narrates intent but doesn't verify behavior. (Tests MAY narrate setup; the problem is an assertion that only restates setup, not the comment itself.)
-- **Symmetric-axis duplicate** — two tests pass through the same production branch and kill the same mutants (e.g. x-only and y-only variants when the production code is field-wise symmetric).
+- **Comment-restating without scenario** — assertion only restates setup. (Setup narration is fine; the issue is the assertion.)
+- **Symmetric-axis duplicate** — two tests pass through the same production branch and kill the same mutants (e.g. x-only and y-only variants when production code is field-wise symmetric).
 
 Classify each candidate:
-
-- **Safe-delete** — a named sibling test catches the same mutants; remove the candidate, re-apply the relevant mutation, and the sibling still kills it.
-- **Review** — looks low-value but proof is incomplete. Report; do not propose deletion.
+- **Safe-delete** — a named sibling catches the same mutants; remove candidate, re-apply mutation, sibling still kills it.
+- **Review** — looks low-value but proof incomplete. Report; do not propose deletion.
 - **Keep** — the only guard for a user-visible behavior, boundary, regression, or reachable code path.
 
 **Don't:**
-- Prune to fit a budget. Zero candidates is a fine result; 5 contrived ones is not.
-- Prune tests added or strengthened in THIS run. Strengthenings need at least one downstream review before they become pruning candidates.
-- Prune a test because it "feels redundant." Point at the specific sibling and the specific mutants both would catch.
-- Prune scenario-narration tests in user-flow files just because they share setup with siblings. Symmetric-axis duplicates ARE candidates; named distinct user actions are NOT.
-- Prune around boundary tests. Off-by-one / empty-input / single-element cases are rarely subsumed by general-case tests.
+- Prune to fit a budget. Zero candidates is fine; 5 contrived ones is not.
+- Prune tests added or strengthened in THIS run.
+- Prune because it "feels redundant." Point at the specific sibling and the specific mutants both would catch.
+- Prune scenario-narration tests in user-flow files just for shared setup. Symmetric-axis duplicates ARE candidates; named distinct user actions are NOT.
+- Prune around boundary tests (off-by-one / empty-input / single-element). Rarely subsumed by general-case tests.
 
-**If pruning empties a test file**, delete the file too. An empty test file (or one reduced to a single trivial smoke-check) is itself a pruning candidate — surface it during the user walk-through and remove it on approval.
+If pruning empties a test file, delete the file too. Surface it during the user walk-through.
 
-**Approval cadence when walking candidates:** see Workflow step 7.
+Approval cadence: see Workflow step 7.
 
 ## Agent prompt template
 
-Send this to each subagent. Replace `<test files>` with the assigned test file path(s), `<source files>` with the exclusive source files, and `<other agents>` with the count of other agents that will run before or after this one. **If the project has `dev/code-rules/testing.md`, append its contents to the Project conventions section at the bottom of this template before sending.**
+Send this to each subagent. Substitute every `<...>` placeholder in the template body before sending: `<domain name>`, `<test files>`, `<source files>`, and `<mutant budget>` (the per-domain count from `## Mutant budget` — small=8–12, medium=10–14, large=14–20). **If the project has `dev/code-rules/testing.md`, append its contents to the Project conventions section at the bottom before sending.**
 
 ```
 You are doing **mutation testing** on the <domain name> code.
@@ -154,20 +149,21 @@ Verify that <test files> actually catch small logic errors in the production cod
 - **Test file(s):** <test files>
 - **Source file(s) you may mutate:** <source files>
 
-Do NOT mutate any other file. The orchestrator runs one agent at a time across multiple domains; staying inside your assigned source files keeps attribution clean and ensures the per-agent integration commit only carries your changes.
+Do NOT mutate any other file. The orchestrator runs one agent at a time across multiple domains; staying inside your assigned source files keeps attribution clean.
 
 ## Workflow per mutant
 
 1. **Read each source file end to end** before picking mutants. Read the test file(s) too — focus on logic those tests actually observe.
 2. For each candidate mutation:
    a. Apply with Edit (one mutation at a time).
-   b. Run the relevant test file (project-specific command, e.g. `npx tsx <test file>`, `cargo test <name>`, `pytest <test file>`). Killed = non-zero exit. Survived = zero exit.
-   c. **Revert and verify the chained check.** Edit back, then BOTH (i) `git diff <source file>` returns empty AND (ii) re-run the test, exit 0. If either fails, STOP — do `git checkout -- <source file>`, re-run the test until both checks pass before continuing. A drifted file silently turns the next "killed" into a phantom kill (or "survived" into a phantom survivor); skipping the chain compounds invalid results.
+   b. Run the relevant test file (e.g. `npx tsx <test file>`, `cargo test <name>`, `pytest <test file>`). Killed = non-zero exit. Survived = zero exit.
+   c. **Revert and verify the chained check.** Edit back, then BOTH (i) `git diff -- <source files>` (list ALL owned source files explicitly, e.g. `git diff -- src/foo.ts src/bar.ts` — singular `git diff <source file>` returns empty when you accidentally edited a different owned file, false-passing the check) returns empty AND (ii) re-run the test, exit 0. If either fails, STOP — do `git checkout -- <source files>`, re-run until both pass before continuing. A drifted file silently turns the next "killed" into a phantom kill (or "survived" into a phantom survivor).
    d. Do not move to the next mutation until both checks pass.
+   e. **If you commit a real bug fix mid-session** (per Handling survivors below), commit it to the work branch BEFORE proceeding to the next mutation: `git add -- <source files> && git commit -m "fix: <bug>"`. Otherwise the bug fix stays in the working tree and the next mutation's chain check (i) will see the bug-fix diff and fail — and `git checkout -- <source files>` would discard your fix.
 
 ## Mutation strategy
 
-Generate **8–12 candidates** focused on observable logic. Pick from:
+Generate **<mutant budget> candidates** focused on observable logic. Pick from:
 
 - Comparison flips: `<` ↔ `<=`, `>` ↔ `>=`, `===` ↔ `!==`, `<` ↔ `>`
 - Boolean swaps: `&&` ↔ `||`
@@ -181,42 +177,58 @@ Generate **8–12 candidates** focused on observable logic. Pick from:
 - Loop-index pinning (`array[i]` → `array[0]` — survives single-element tests)
 - Swapping argument order in critical calls
 - Return-value mutations (return wrong branch / wrong variable)
-- **Paired-branch coverage**: when source code uses a paired condition (`x > y`, OR `||`, x/y axis), check that the test catches the symmetric case too. Asymmetric branch coverage is the most common test gap.
-- **Range-boundary tests**: when the source compares against a cutoff or capacity, place an event AT the boundary. Well-inside or well-outside values won't catch a `<` ↔ `<=` flip.
+- **Paired-branch coverage**: when source uses a paired condition (`x > y`, OR `||`, x/y axis), check the test catches the symmetric case too. Asymmetric branch coverage is the most common test gap.
+- **Range-boundary tests**: place an event AT the boundary when source compares against cutoff/capacity. Well-inside or well-outside values won't catch a `<` ↔ `<=` flip.
 - **`Math.max(0, ...)` clamps**: swap for bare `x` — common survivor when tests cover only the happy non-negative path.
 - **Set/Map.add side-effect skip**: drop a `takenIds.add(...)` or `cache.set(...)` — survivor when tests don't assert uniqueness across many generated items.
-- **Regex flag changes**: drop `g`/`i` from a `/pattern/g`. Tests with single-occurrence inputs miss this.
-- **`await` removal**: drop `await` on a single call — survives whenever the test doesn't observe the awaited result.
+- **Regex flag changes**: drop `g`/`i` from a `/pattern/g`. Single-occurrence inputs miss this.
+- **`await` removal**: drop `await` on a single call — survives when test doesn't observe the awaited result.
 - **Other operator swaps**: `??` and `||` fallback swaps, optional-chain removal (`?.` → `.`), sort comparator flips (`a - b` → `b - a`), nullish-coalesce argument-order swaps (`a ?? b` → `b ?? a`), object-key swaps in same-typed positions.
-- **Public-API entry points over internal helpers**: when the source exposes both a class/factory AND internal helpers used inside it, prefer mutating logic reachable through the public API. Mutations to internal helpers may be non-applicable if the assigned tests only call the public API.
+- **Public-API entry points over internal helpers**: prefer mutating logic reachable through the public API. Mutations to internal helpers may be non-applicable if assigned tests only call the public API.
 
-Skip mutations whose effect can't be detected by the assigned tests (pure logging, render-only paths, dead branches, defensive guards no input reaches). Note them as "non-applicable" rather than counting as survivors.
+Skip mutations whose effect can't be detected by assigned tests (pure logging, render-only paths, dead branches, defensive guards no input reaches). Note as "non-applicable" rather than survivors.
 
 ## Handling survivors
 
-For each survived mutant, decide between strengthening the test and fixing the code using this test:
+For each survived mutant, decide between strengthening the test and fixing the code:
 
-- **Strengthen the test if:** the original code was correct and the mutation is a contrived alternative behavior the test happens not to observe (boundary the tests didn't exercise; `Math.max` ↔ `Math.min` swap on always-in-range data; defensive code path tests can't reach).
-- **Fix the code if:** the mutation produces behavior the surrounding code relies on (a missing `Math.max(0, x)` clamp lets a counter go negative, breaking a downstream availability calc; a missing `takenIds.add(id)` lets two records share an id, breaking a registry lookup).
-- **The decision rule:** ask "does any other code in the system already trust the un-mutated behavior to hold?" If yes → real bug, fix the code. If no → test gap, strengthen the test.
+- **Strengthen the test if:** original code was correct and the mutation is a contrived alternative behavior the test happens not to observe (untested boundary; `Math.max` ↔ `Math.min` swap on always-in-range data; defensive code path tests can't reach).
+- **Fix the code if:** mutation produces behavior surrounding code relies on (a missing `Math.max(0, x)` clamp lets a counter go negative, breaking a downstream availability calc; a missing `takenIds.add(id)` lets two records share an id, breaking a registry lookup).
+- **Decision rule:** ask "does any other code in the system already trust the un-mutated behavior to hold?" If yes → real bug, fix the code. If no → test gap, strengthen the test.
 
-**Don't** add an assertion that pins internal storage shape — array lengths on private observer registries, cache `.size`, the order of the current random shuffle. Those break under behavior-preserving refactors. Test the public contract (call the API, observe the result) instead. When unsure, lean toward strengthening; bug fixes carry more risk than test additions.
+**Don't** add an assertion pinning internal storage shape — array lengths on private observer registries, cache `.size`, the order of the current random shuffle. Test the public contract (call the API, observe the result) instead. When unsure, lean toward strengthening; bug fixes carry more risk than test additions.
 
-**Comment style for strengthened tests.** When you add an assertion or test to kill a survivor, write a one-sentence comment naming the specific mutation it pins. Format: `// Pin <X>. <Mutation> would <observable failure>.` Six months later, no one will remember why a magic value was the right test number — the comment makes it self-documenting.
+**Comment style for strengthened tests.** When adding an assertion or test to kill a survivor, write a one-sentence comment naming the specific mutation it pins. Format: `// Pin <X>. <Mutation> would <observable failure>.`
 
-**New test files are OK when a survivor doesn't fit any existing one.** Most strengthenings fit an existing test file in the assigned scope; create a new file in the same test directory when the survivor exercises a distinct module or domain shape that doesn't match. Splitting a long existing test file for tidiness is a structural call — propose it in the report (the orchestrator surfaces it for user approval) rather than executing it autonomously.
+**New test files are OK** when a survivor doesn't fit any existing one — create in the same test directory. Splitting a long existing test file for tidiness is a structural call — propose in the report, don't execute autonomously.
 
 ## Pruning scan
 
-After resolving survivors, scan the assigned test files for prunable tests using the categories and safety classification in `SKILL.md § Pruning low-value tests`. Cap at ~5 candidates per agent — pruning is a side-channel, not the primary output. Report under a "Pruning candidates" heading separate from survivors. Do NOT delete tests — propose only.
+After resolving survivors, scan the assigned test files for prunable tests. Cap at ~5 candidates per agent. Report under a "Pruning candidates" heading separate from survivors.
+
+**A test is a candidate when at least one holds AND a named sibling provably catches what it does:**
+- **Subset of a stronger sibling** — every assertion is also made by another test on a longer path.
+- **Tautological / setup-restating** — assertion only proves what setup just assigned.
+- **Implementation-detail pin** — asserts on private collection size, helper call order, cached internals (`array.length === 0`, `Map.size`, observer registry layout) instead of behavior.
+- **Orphan path** — branch under test is unreachable from current authored data.
+- **Setup-heavy / payoff-thin** — large fixture protects a trivial outcome already covered.
+- **Comment-restating without scenario** — assertion only restates setup.
+- **Symmetric-axis duplicate** — two tests pass through the same production branch and kill the same mutants (e.g. x-only and y-only variants when production code is field-wise symmetric).
+
+**Classify each candidate:**
+- **Safe-delete** — perform the proof: temporarily remove the candidate, re-apply a mutation the candidate used to kill, run the sibling test, confirm sibling still kills it, then RESTORE the candidate (final tree must contain all original tests — orchestrator deletes at step 7 after user approval). Report the sibling test name + line and the specific mutation used.
+- **Review** — looks low-value but proof incomplete or no clean sibling. Report; do not propose deletion.
+- **Keep** — the only guard for a user-visible behavior, boundary, regression, or reachable code path.
+
+**Don't:** prune to fit a budget; prune tests added or strengthened in THIS run; prune because it "feels redundant" without naming the sibling + mutants both would catch; prune scenario-narration tests in user-flow files just for shared setup (symmetric-axis duplicates ARE candidates; named distinct user actions are NOT); prune boundary tests (off-by-one / empty-input / single-element).
+
+The agent does NOT permanently delete any test file — the Safe-delete proof restores everything. The orchestrator handles real deletion at step 7 after user approval.
 
 ## Final state
 
-The working tree's `git diff` must contain ONLY:
-- Strengthened test code
-- Real bug fixes (only if you found any)
+The working tree's `git diff` must contain ONLY strengthened test code in YOUR assigned test files. Real bug fixes (per Workflow per mutant step 2e) are already committed — they are not in the working tree.
 
-NO stray mutations. Verify with `git diff <source files>` returning empty (or showing only intentional bug fixes). Then run the project's full test command to confirm the full suite still passes. The orchestrator will commit your changes before launching the next agent — leaving stray mutations would poison the next agent's baseline.
+NO stray mutations, NO edits to files outside your assigned scope. Verify with `git diff -- <source files>` empty (substitute YOUR assigned source files explicitly — not all source files in the repo) and `git diff -- <test files>` showing only your intentional strengthening. Then run the test file(s) for your domain (NOT the full suite — other domains' tests are out of scope and may be flaky for unrelated reasons). The orchestrator commits your changes immediately at its step 4 (no approval gate — the work branch is throwaway) and runs the full suite at its step 6 — any stray mutation gets committed verbatim and poisons the next agent's baseline.
 
 ## Reporting format
 
@@ -233,7 +245,10 @@ Return:
 | # | File:Line | Mutation (before → after) | Result | Re-run command |
 |---|-----------|---------------------------|--------|----------------|
 | 1 | `src/foo.ts:142` | `< amount` → `<= amount` | killed | `npx tsx tests/foo.test.ts` |
+| 2 | `src/foo.ts:88` | dropped `takenIds.add(id)` | non-applicable (private helper, no test reaches it) | — |
 ...
+
+Result column values: `killed` / `survived` / `non-applicable` (with parenthetical reason).
 
 ## Survivors and resolutions
 
@@ -244,58 +259,87 @@ Return:
 - **Resolution:** strengthened `tests/foo.test.ts:88` (added boundary case)
 - **Confidence:** high / medium / low (gap is real / could be borderline non-applicable / unsure)
 
+## Pruning candidates (N total)
+
+### Safe-delete: <test name>
+- **File:** `tests/foo.test.ts:42`
+- **Why prunable:** subset of stronger sibling `tests/foo.test.ts:88 'full happy path'`
+- **Proof:** removed candidate, re-applied mutation `src/foo.ts:142 < → <=`, sibling at line 88 still killed it, restored candidate.
+
+### Review: <test name>
+- **File:** `tests/foo.test.ts:60`
+- **Why suspected prunable:** tautological — assertion only restates setup
+- **Why not Safe-delete:** no clean sibling covers this setup case; orchestrator should walk with user.
+
+### Keep: <test name>
+- **File:** `tests/foo.test.ts:120`
+- **Why surfaced:** boundary case for `x === 0`; not subsumed by general-case tests.
+
+(Omit any tier with zero entries.)
+
 ## Final test run
-<test command>: X passed, 0 failed
+<test command for assigned tests only>: X passed, 0 failed
 
 ## Files changed
-- tests/...
-- src/...ts (bug fixes only, if any)
+- tests/... (strengthening; deletions only if you removed a test file's last test)
+- src/...ts (bug fixes only, if any — these are already committed per workflow step 2e)
 
 ## Summary footer (orchestrator-greppable)
-SUMMARY: <mutations> tried, <killed> killed, <survived> survived, <test-strengthenings> tests strengthened, <bug-fixes> source fixes.
+SUMMARY: <mutations> tried, <killed> killed, <survived> survived, <non-applicable> non-applicable, <test-strengthenings> tests strengthened, <bug-fixes> source fixes, <pruning-candidates> pruning candidates (<safe-delete>/<review>/<keep>).
+
+Note: `tried = killed + survived + non-applicable` — non-applicables are reported separately so the arithmetic closes.
 ```
 
 If you have **zero survivors**, report it honestly. Don't manufacture findings.
 
 ## Project conventions
 
-<The orchestrator inserts the "Project conventions to add to each agent prompt" section from `dev/code-rules/testing.md` (project root) here, if it exists. Otherwise this section is empty and the agent relies on the user-global coding rules already loaded via CLAUDE.md.>
+<Orchestrator inserts "Project conventions to add to each agent prompt" from `dev/code-rules/testing.md` here, if it exists. Otherwise empty and the agent relies on project-local coding rules.>
 
 ## Per-domain gotchas
 
-<The orchestrator inserts the matching bullet from `dev/code-rules/testing.md` § "Per-domain gotchas" here based on the assigned domain. If the project has no `dev/code-rules/testing.md`, or no bullet matches the domain, this section is empty.>
+<Orchestrator inserts the matching bullet from `dev/code-rules/testing.md` § "Per-domain gotchas" here based on the assigned domain. If no file or no match, empty.>
 ```
-
-## Why exclusive source-file ownership
-
-Sequential dispatch (step 3) means only one agent is writing to the filesystem at a time, so there is no race condition. But exclusive source-file ownership still matters: it ensures clean attribution (each strengthening commit names which agent/domain produced it) and balanced workloads (each domain owns a coherent slice of source LOC). Without exclusive ownership, two agents would pick overlapping mutations and waste budget on the same surface.
-
-When tests share a source file, fold them into one domain rather than splitting. A larger domain takes longer but stays correct.
-
-## Why a work branch
-
-Integration creates a window of uncommitted local state — between when an agent's changes land in the working tree and when they are committed. Anything that touches the working tree during that window can erase the work silently: a working-tree-level `git checkout`, an external sync tool, a pause-and-resume mechanism that snapshots state, a manual revert. Working-tree reverts don't update reflog, so a loss in this window leaves no trace.
-
-The work branch (step 0.5) closes the window. Each integration commits immediately to the work branch — no waiting for user approval to commit, since the work branch is throwaway and never reaches the starting branch as commits. The starting branch is untouched throughout the skill. If anything goes wrong mid-skill, the work branch holds the only canonical copy on disk; the user can inspect, recover, or discard.
-
-The work branch also preserves pre-existing uncommitted state. If the user had a refactor in progress when they invoked the skill, step 0.5 commits it as a WIP commit so the agents see it (otherwise the agents would work against stale-on-disk code that doesn't match local state). Step 8 unwinds the WIP commit and all strengthening commits on hand-back, returning the user to their starting branch with: any pre-existing uncommitted state + strengthening + approved prunings, all unstaged. The user commits when they're ready — the skill never lands commits on the starting branch.
-
-The flow is also resumable: an aborted skill leaves the work branch behind. A re-run detects it (step 0.5) and surfaces the choice to delete or resume.
-
-## Why sequential, not parallel
-
-The Agent tool's `isolation: "worktree"` parameter would allow parallel agents — but it has two failure modes in practice:
-
-1. **Worktree-base divergence.** The worktree harness sometimes branches new worktrees from `origin/main` (or another remote anchor) rather than the local work branch. When the user has an in-progress refactor that renamed/moved files, agents see the OLD paths in their worktree and write tests that won't apply cleanly to the work branch. Symptoms: agents reporting "file is `src/X.foo.ts` in this worktree, not `src/foo-X.ts`"; tests using helpers under old names; `git apply` rejecting patches at integration time.
-
-2. **Isolation bypass.** Agents sometimes resolve absolute file paths to the originating repo and write there directly, bypassing their worktree. The worktree's diff is empty (so the harness auto-cleans it on completion), and the agent's changes leak to the parent repo's working tree. Symptoms: worktree directories vanish despite the agent reporting changes; main repo `git status` shows test-file modifications the orchestrator didn't expect.
-
-3. **User policy.** Many users (including the default CLAUDE.md template) ban `git worktree` use without explicit permission.
-
-Sequential dispatch in the main checkout sidesteps all three. Wall time is ~N× longer for N domains, but each agent sees the actual local state and writes through the normal filesystem boundary.
-
-If the user explicitly opts into parallel-worktree mode (e.g. "use worktrees, I'm fine with the trade-off"), fall back to the parallel path: dispatch all agents in parallel with `isolation: "worktree"` at step 3, then in step 4 generate per-worktree patches (`git -C <worktree> diff HEAD > /tmp/agent-<id>.patch`) and apply with `git apply --3way`. After step 8 lands, remove each worktree with `git worktree remove --force --force .claude/worktrees/agent-<id>` — double `--force` is required because the harness locks worktrees with `git worktree lock`. Be ready to manually port test additions when the worktree-base divergence hits (agents may see a stale anchor instead of the local work branch HEAD).
 
 ## Per-domain gotchas (orchestrator instructions)
 
-If the project has `dev/code-rules/testing.md` with a "Per-domain gotchas" section, the orchestrator matches each domain to a bullet at dispatch time and splices the matching bullet into the agent prompt's `<Per-domain gotchas>` placeholder. Each bullet typically names which clusters are dense, where survivors concentrate, which file types stub the DOM, etc. Domains that don't match any bullet leave the placeholder empty.
+If the project has `dev/code-rules/testing.md` with a `## Per-domain gotchas` section, the orchestrator matches each dispatched domain to a bullet at dispatch time and splices the matching bullet into the agent prompt's `<Per-domain gotchas>` placeholder. Matching:
+
+- Bullet headers are domain keywords (e.g. `- **trade**:`, `- **economy/station**:`, `- **render**:`).
+- Match each dispatched domain to a bullet by the `<name>` slug from step 2e or by primary source-file prefix (e.g. domain `sim-trade` → `**trade**:` bullet).
+- A domain that matches no bullet leaves the placeholder empty — replace the entire `<Per-domain gotchas>` tag with a blank line (don't leave the literal `<>` tag in the agent prompt — an LLM agent could read it as an instruction).
+- Same applies to `<Project conventions>`: if `dev/code-rules/testing.md` has no `## Project conventions to add to each agent prompt` section, replace the tag with a blank line.
+
+## Why sequential, not parallel
+
+Worktree-parallel mode has three failure modes in practice:
+
+1. **Worktree-base divergence** — the worktree harness sometimes branches from `origin/main` rather than the local work branch. Agents see OLD paths when a local refactor renamed/moved files; tests reference helpers under old names; `git apply` rejects at integration time.
+2. **Isolation bypass** — agents sometimes resolve absolute file paths to the originating repo and write there directly. Worktree diff is empty (auto-cleaned); main repo `git status` shows unexpected test-file changes.
+3. **User policy** — many users (including the default CLAUDE.md template) ban `git worktree` use without explicit permission.
+
+Sequential dispatch in the main checkout sidesteps all three. Wall time is ~N× longer for N domains; the trade-off buys correctness.
+
+## Parallel-worktree mode (opt-in)
+
+If user explicitly opts in (e.g. "use worktrees, I'm fine with the trade-off"):
+
+- **Step 3 (dispatch):** dispatch all agents in parallel with `isolation: "worktree"`.
+- **Verify base BEFORE agents do real work:** as soon as worktrees exist, run `git -C <worktree> rev-parse HEAD` for each and compare against the work-branch tip (`git rev-parse review-tests-wip-<id>`). If any differs, the harness anchored elsewhere (commonly `origin/main`) — abort that agent and warn the user that worktree-base divergence will produce patches that won't apply. Don't let agents burn budget on a stale base.
+- **Discover worktree paths:** use `git worktree list --porcelain` to enumerate active worktrees (don't assume a hardcoded path like `.claude/worktrees/agent-<id>` — the harness may place them elsewhere).
+- **Step 4 (integration):** generate per-worktree patches (`git -C <worktree> diff HEAD > /tmp/agent-<id>.patch`) and apply each as a SEPARATE commit on the work branch with the per-agent commit message from step 4 (preserving per-agent attribution). Apply with `git apply --3way`. If `--3way` rejects (two patches touched the same line), surface both patches to the user — do NOT skip silently; the rejected agent's work is undeployed.
+- **Cleanup at step 8:** for each path returned by `git worktree list --porcelain`, run `git worktree remove --force <path>`. If the worktree is locked (`git worktree list` shows `locked`), run `git worktree unlock <path>` first (NOT a second `--force` — `--force` does not bypass locks). Double `--force` exists only to override the modified-files check, which `--3way` integration leaves clean anyway.
+- **When worktree-base divergence hits:** be ready to manually port test additions (agents authored against the stale anchor's filenames; patches reject for renamed/moved paths). The base-verification step above catches this proactively.
+
+## Why a work branch
+
+- Integration creates a window of uncommitted state between agent return and commit. Working-tree-level operations (external sync tools, pause/resume snapshots, manual reverts, a working-tree `git checkout`) can erase work silently, with no reflog trace.
+- Work branch closes the window: each integration commits immediately to the work branch (no approval gate, since the branch is throwaway and never reaches the starting branch). Starting branch untouched throughout.
+- Work branch preserves pre-existing uncommitted state as a WIP commit (step 0.5) so agents see it. Step 8 either (A) unwinds WIP + strengthening together as one unstaged diff on `<starting>` or (B) renames the work branch to `review-tests-prior-<id>` so the WIP↔strengthening boundary stays inspectable as separate commits. User commits when ready.
+- Flow is resumable: aborted skill leaves the work branch; re-run detects via step 0.5 and surfaces resume/delete choice.
+
+## Why exclusive source-file ownership
+
+- Sequential dispatch eliminates the race condition, but exclusive ownership still: (a) gives clean attribution (each commit names its agent/domain) and (b) balances workloads (each domain owns a coherent LOC slice).
+- Without it, two agents would pick overlapping mutations and waste budget on the same surface.
+- When tests share a source file, fold into one domain rather than splitting. Larger but correct beats split.

@@ -6,38 +6,38 @@ allowed-tools: Read, Edit, Write, Bash(node *), Glob, Grep
 
 # Generate Image
 
-Create or modify procedurally generated image assets for the game.
-
 ## Context
 
-This project uses Node.js scripts with the `canvas` library to procedurally generate PNG textures. The generation scripts live in `dev/images/` and output to `src/assets/backgrounds/`.
+- Node.js + `canvas` library generates PNG textures.
+- Scripts live in `dev/images/`; output goes to `src/assets/backgrounds/`.
 
 ## Existing scripts
 
 - `dev/images/generate-nebulas.mjs` — colored nebula textures (1500x1500)
 - `dev/images/generate-dark-nebulas.mjs` — dark overlay nebulas (3000x3000)
 - `dev/images/generate-overgrowth-nebula.mjs` — bespoke tree-like nebula variant
-- `dev/images/generate-stars.mjs` — star field tile backgrounds (1024x1024, uses `sharp`)
+- `dev/images/generate-stars.mjs` — star field tile backgrounds (1024x1024, uses `sharp`; stitches pre-made tiles, not procedural)
+- `dev/images/nebula-helpers.mjs` — shared helpers: `mulberry32`, `hashStr`, `phaseRng`, `splatDensity`, `compositeLayer`
 
-## Best practices (MUST follow)
+## Rules
 
-1. **Deterministic PRNG**: Always use `mulberry32` seeded via `hashStr`. Never use `Math.random()`.
-2. **Phase-based RNG**: Use `phaseRng(id, phase)` to create separate RNG streams per layer/phase. This keeps each phase stable when other phases change.
-3. **Fixed anchor positions**: Place cluster/blob anchors at hardcoded coordinates, not random ones. The RNG should only add jitter around fixed positions. This makes the output adjustable by tweaking coordinates rather than re-rolling.
-4. **Density buffer workflow**: Use `Float32Array` density buffers with `splatDensity()`, then render via `renderDensity()` or `compositeLayer()`. This gives smooth, natural-looking results.
-5. **Edge fade**: For textures that shouldn't tile, apply radial edge fade so they blend into the background.
-6. **Multi-layer compositing**: Build up images in phases (base density, overlays, accents) composited onto a canvas.
-7. **Minimal randomness**: Prefer fixed parameters (positions, angles, lengths) over random ones. Use RNG only for jitter and variation within fixed structures. The user prefers to adjust numbers rather than re-roll dice.
+- Procedural textures use deterministic PRNG only: `mulberry32` seeded via `hashStr`. Never `Math.random()`. (Tile-stitching pipelines like `generate-stars.mjs` are exempt.)
+- Use `phaseRng(id, phase)` to give each layer/phase its own RNG stream so phases stay stable when others change.
+- Place cluster/blob anchors at hardcoded coordinates; RNG only adds jitter around fixed positions.
+- Density-buffer workflow: `Float32Array` + `splatDensity()` (shared), then `compositeLayer()` (shared) or a per-script density-to-canvas function (e.g. `renderDensity` in `generate-nebulas.mjs`, `densityToCanvas` in `generate-dark-nebulas.mjs`).
+- Apply radial edge fade for textures that shouldn't tile.
+- Build images in phases (base density, overlays, accents) composited onto a canvas.
+- Prefer fixed parameters (positions, angles, lengths); use RNG only for jitter. User adjusts numbers rather than re-rolls dice.
 
 ## Workflow
 
-1. Read the closest existing generation script to understand the current pattern. Prefer `dev/images/generate-nebulas.mjs`, `dev/images/generate-dark-nebulas.mjs`, or `dev/images/generate-overgrowth-nebula.mjs` as references for deterministic nebula work.
-2. Create or modify the appropriate script
-3. Run it with `node dev/images/<script>.mjs`
-4. If adding new textures, update:
-   - `src/scenes/Game.ts` — add import, preload, and nebulaMap entry
-   - `data/maps/forge/sectors.ts` — add preview sector if applicable
+1. Read the closest existing script for the current pattern. Prefer `dev/images/generate-nebulas.mjs`, `dev/images/generate-dark-nebulas.mjs`, or `dev/images/generate-overgrowth-nebula.mjs` for deterministic nebula work.
+2. Create or modify the appropriate script.
+3. Run: `node dev/images/<script>.mjs`.
+4. When adding new textures, update:
+   - `src/phaser/backgrounds-render.ts` — asset import + `backgroundTextures` entry.
+   - `data/map-nebulas.ts` — map placement if the texture appears in the game map.
 
 ## Arguments
 
-`$ARGUMENTS` — describe what image to create or modify (e.g., "make dark-nebula1 more opaque", "add a new red nebula variant")
+- `$ARGUMENTS` — describes what image to create or modify (e.g., "make dark-nebula1 more opaque", "add a new red nebula variant").

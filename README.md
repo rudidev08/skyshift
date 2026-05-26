@@ -53,7 +53,16 @@ The joyful visuals sit on top of an economy simulation engine:
 - **Universe grows and changes.** Nations construct stations; emigration removes them.
 - **Nations have personalities.** Hub-Cluster builds near their core systems, Bio-Annex prefers celestial tree nebulas, Mining Fleet prefers mineable asteroids, Skyshift jumps into deep space, and Farshift scatters frontier observatories.
 - **Browser-first.** Built with TypeScript, Vite, and Phaser v4 so the project stays one click away from trying.
-- **Built under its own rules.** Specs for structure, comments, and mutation-hardened testing ship in [`dev/code-rules/`](dev/code-rules/), with matching `review-*` agent skills under [`.claude/skills/`](.claude/skills/).
+
+## Agent skills
+
+Located at [`.claude/skills/`](.claude/skills/). Since the LLM field is moving rapidly, these can become obsolete pretty quickly, so think of these as a snapshot of what was used with the project. Usually include separate markdown file with before/after code samples and explanation why.
+
+- **deep-simplify:** looks for dead code, redundancies, unnecessary wrappers, and ways to combine logic into simpler structure.
+- **review-structure:** naming, coding patterns and organization. Iterated on while working on this repo early on.
+- **review-tests:** makes small (wrong) changes to code, and sees how tests react.
+- **iterate-skill:** run skill on files few times, ironing out issues. Highly experimental.
+- **compact-skill-rewriter:** rewrite skill prose to terse bullets while preserving the important parts.
 
 ## Run it locally
 
@@ -61,6 +70,15 @@ The joyful visuals sit on top of an economy simulation engine:
 npm install
 npm run dev
 ```
+
+## Testing and stability
+
+- **Headless simulation:** entire economy flow: trade, saves, construction, and emigration (tsx: src/tests/*.test.ts).
+- **Static pages:** loads each page and looks for console error and basic interaction failures. No in-depth functionality tests (Puppeteer: dev/static-tests/*.test.mjs).
+- **Economy report:** long-run shortages, stalls, and balance gaps. Mostly obsolete by timelapse tool, which is visually easier to follow (bash: dev/economy/report.sh).
+- **Heap leak check:** looks for memory leaks while the universe runs for longer period of time (Puppeteer: dev/performance/heap-leak-check.mjs).
+- **Scene switch check:** looks for Phaser objects left behind between starts (Puppeteer: dev/performance/scene-switch-check.mjs).
+- **Frame jank trace:** garbage collection pauses and per-frame stutter (Puppeteer: dev/performance/frame-jank-check.mjs).
 
 ## Tools and reference pages
 

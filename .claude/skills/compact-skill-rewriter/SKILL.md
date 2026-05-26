@@ -1,19 +1,19 @@
 ---
 name: compact-skill-rewriter
-description: "[rp] Rewrite a skill into compact bullet-point instructions while preserving behavior and constraints. User-initiated only; do not trigger on generic mentions of compact-skill-rewriter."
+description: "[rp] Rewrite a skill in place into compact bullet-point instructions while preserving behavior and constraints. User-initiated only; do not trigger on generic mentions of compact-skill-rewriter."
 ---
 
 # Compact Skill Rewriter
 
 ## Inputs
 
-- Target: read it fully before rewriting.
+- Target skill: read its `SKILL.md` fully before rewriting.
 - Sample style: read `compact-skill-rewriter-sample.md` from the same directory as this `SKILL.md`; abort if missing.
-- Mode: `draft` by default; `edit` only when the user explicitly asks to write in place.
+- Edit policy: write the rewrite directly to the target `SKILL.md`; rely on git version control for review or revert.
 
 ## Preserve
 
-- YAML frontmatter unless the user explicitly requests frontmatter or trigger metadata changes.
+- YAML frontmatter — leave it exactly as-is unless the user explicitly asks to change it (e.g. to update the trigger description).
 - Meaning and behavior.
 - Hard constraints and bans.
 - Tool rules.
@@ -51,24 +51,16 @@ description: "[rp] Rewrite a skill into compact bullet-point instructions while 
 
 1. Read target and sample files; abort if sample is missing.
 2. Identify contractual material per Preserve list.
-3. Draft the rewrite: apply Rewrite Style, strip items matching Remove, preserve broad rules semantically, and keep exact contractual strings verbatim.
-4. Preserve YAML frontmatter exactly unless frontmatter or trigger metadata changes were explicitly requested.
-5. Compare draft against the Preserve list; flag any rule that couldn't be compressed safely.
-6. Validate draft YAML frontmatter before delivery; abort on parse failure.
-7. Deliver per mode.
+3. Rewrite the target: apply Rewrite Style and follow the sample as a worked example, strip items matching Remove, preserve broad rules semantically, keep exact contractual strings verbatim, and leave YAML frontmatter unchanged unless the user asked for frontmatter changes.
+4. Compare rewritten content against the Preserve list; flag any rule that couldn't be compressed safely.
+5. Validate rewritten YAML frontmatter before writing; abort on parse failure.
+6. Write only the rewritten content in place; never write notes into the file.
+7. Re-read the file after writing; confirm YAML frontmatter parses.
 
 ## Output
 
-- Draft mode (default):
-  - Validate draft YAML frontmatter before returning; abort on parse failure.
-  - Return the rewritten content.
-  - Add notes in chat only: preserved constraints, removals, rules flagged unsafe to compress.
-- Edit mode (only when explicitly requested):
-  - Validate draft YAML frontmatter before asking to write; abort on parse failure.
-  - Show unified diff and ask `y/n/q`.
-  - Write only the rewritten content in place on `y`; never write notes into the file.
-  - Re-read the file after writing; confirm YAML frontmatter parses.
-  - Report: file path, character-count reduction as `old chars -> new chars (delta chars)`, rules flagged unsafe to compress.
+- Report: file path, character-count reduction as `old chars -> new chars (delta chars)`, rules flagged unsafe to compress.
+- Do not return the full rewritten file unless the user explicitly asks.
 
 ## Avoid
 

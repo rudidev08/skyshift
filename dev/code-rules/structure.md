@@ -1,12 +1,12 @@
 # Skyshift structure-style supplement
 
-This file supplements the user-global structure-style guide at `.claude/skills/review-structure/structure.md`. The base rules and worked examples live in the user-global file; this supplement carries Skyshift-specific file-pattern guidance and project carve-outs.
+This file supplements the project-local structure-style guide at `.claude/skills/review-structure/structure.md`. The base rules and worked examples live in that file; this supplement carries Skyshift-specific file-pattern guidance and project carve-outs.
 
-Tools that walk the structure rules read both files: user-global first, then this supplement as additions/overrides.
+Tools that walk the structure rules read both files: base guide first, then this supplement as additions/overrides.
 
 ## Project file patterns
 
-These map common Skyshift file patterns to specific gotcha classes plus the relevant user-global rules.
+These map common Skyshift file patterns to specific gotcha classes plus the relevant base rules.
 
 - **Sim files** (`sim-*.ts`) — see "Code with preconditions or invariants" gotcha; rule D.1 (defensive guards justified by runtime correctness — preserve those that enforce real rules). Guards in these files often enforce real runtime invariants the simulator depends on.
 - **Phaser/render files** (`src/phaser/*.ts`, `src/render-*.ts`) — see "Performance-tuned code" gotcha; rule B.5 (framework-prescribed lifecycles are exempt from "no init-then-do"). Phaser's framework-prescribed lifecycle methods are `init` / `preload` / `create` / `update`.

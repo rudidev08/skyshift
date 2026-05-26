@@ -1,0 +1,381 @@
+:root {
+  --paper: #f6f1e3;
+  --ink: #1a1812;
+  --ink-strong: #0a0906;
+  --ink-soft: #3c3830;
+  --ink-muted: #7a7464;
+  --line: #b4a682;
+  --line-soft: #d4c694;
+  --rule: #1a1812;
+}
+
+@page { size: letter; margin: 1.5cm; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); }
+body {
+  font-family: "Charter", "Iowan Old Style", "Cambria", Georgia, serif;
+  font-size: 11pt;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.sheet { max-width: 7.2in; margin: 0 auto; padding: 0.6in 0.5in 1in; }
+@media print {
+  .sheet { padding: 0; max-width: none; }
+  body { font-size: 10pt; }
+}
+
+/* ─── Title page — atlas frontispiece ────────────────────── */
+
+header.title {
+  text-align: center;
+  margin: 12pt 0 36pt;
+  padding: 14pt 0 18pt;
+  position: relative;
+}
+header.title::before,
+header.title::after {
+  content: "";
+  position: absolute;
+  left: 15%; right: 15%;
+  height: 1pt;
+  background: var(--ink-strong);
+}
+header.title::before { top: 0; box-shadow: 0 4pt 0 -3.25pt var(--ink-strong); }
+header.title::after  { bottom: 0; box-shadow: 0 -4pt 0 -3.25pt var(--ink-strong); }
+header.title .reticle {
+  width: 64pt;
+  height: 64pt;
+  color: var(--ink-strong);
+  margin: 0 auto 14pt;
+  display: block;
+}
+header.title .bureau-label {
+  display: block;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 8pt;
+  letter-spacing: 0.30em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin: 0 0 10pt;
+}
+header.title h1 {
+  font-family: "Optima", "Avenir Next", "Avenir", sans-serif;
+  font-size: 42pt;
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+  font-weight: 300;
+  margin: 0 0 10pt;
+  color: var(--ink-strong);
+}
+header.title .metaline {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 8pt;
+  letter-spacing: 0.02em;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+/* ─── Chapter heads ──────────────────────────────────────── */
+
+section.chapter {
+  padding-top: 44pt;
+}
+section.chapter > header {
+  display: flex;
+  align-items: center;
+  gap: 18pt;
+  max-width: 6.4in;
+  margin: 0 auto 36pt;
+  padding-bottom: 14pt;
+  border-bottom: 0.5pt solid var(--line);
+}
+.chapter-bar {
+  width: 4pt;
+  height: 38pt;
+  background: var(--ink-strong);
+  flex: 0 0 4pt;
+}
+h2.chapter-title {
+  flex: 1;
+  margin: 0;
+  text-align: left;
+  font-family: "Optima", "Avenir Next", sans-serif;
+  font-size: 30pt;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 300;
+  color: var(--ink-strong);
+}
+.chapter-num {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10pt;
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+/* ─── Entity cards ──────────────────────────────────────── */
+
+article.entity {
+  margin: 0 0 14pt;
+  padding: 4pt 0 8pt;
+  border-bottom: 0.5pt solid var(--line);
+}
+article.entity:last-child { border-bottom: 0; padding-bottom: 0; margin-bottom: 0; }
+article.entity.nation { margin-bottom: 22pt; padding-bottom: 14pt; }
+
+/* Sectors / stations / ships are short — keep cards tight */
+article.entity.sector,
+article.entity.station-type,
+article.entity.ship {
+  margin: 0 0 8pt;
+  padding: 2pt 0 6pt;
+}
+
+h3.entity-name {
+  font-family: "Optima", "Avenir Next", sans-serif;
+  font-size: 15pt;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+  margin: 0 0 4pt;
+  color: var(--ink-strong);
+  display: flex;
+  align-items: baseline;
+  gap: 10pt;
+  flex-wrap: wrap;
+}
+h3.entity-name::before {
+  content: "✦";
+  font-size: 8pt;
+  color: var(--ink-muted);
+  align-self: center;
+}
+/* Tighter heading for compact entity types */
+article.entity.sector h3.entity-name,
+article.entity.station-type h3.entity-name,
+article.entity.ship h3.entity-name {
+  font-size: 13pt;
+  margin-bottom: 2pt;
+  gap: 8pt;
+}
+
+.entity-code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 8pt;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  border: 0;
+  padding: 0;
+  font-weight: 500;
+  order: 99;
+}
+.entity-code::before { content: "· "; }
+
+.entity-shortname,
+.entity-env,
+.entity-meta {
+  font-family: "Charter", Georgia, serif;
+  font-style: italic;
+  font-size: 10pt;
+  color: var(--ink-muted);
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.entity-shortname::before,
+.entity-env::before,
+.entity-meta::before { content: "· "; color: var(--ink-muted); font-style: normal; }
+article.entity.sector .entity-shortname,
+article.entity.sector .entity-env,
+article.entity.station-type .entity-meta,
+article.entity.ship .entity-meta {
+  font-size: 9pt;
+}
+
+dl.meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 16pt;
+  row-gap: 2pt;
+  margin: 0 0 4pt;
+  font-size: 9.5pt;
+  max-width: 6in;
+}
+dl.meta dt {
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 7.5pt;
+  padding-top: 2pt;
+  font-family: "Optima", "Avenir Next", sans-serif;
+  font-weight: 500;
+}
+dl.meta dd { margin: 0; color: var(--ink-soft); }
+
+.stat-label {
+  font-family: "Optima", "Avenir Next", sans-serif;
+  font-size: 7.5pt;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--ink-muted);
+  margin-right: 5pt;
+}
+
+p.lore {
+  margin: 2pt 0 0;
+  line-height: 1.55;
+  max-width: 6.2in;
+  color: var(--ink);
+}
+article.entity.nation p.lore { margin: 8pt 0 4pt; line-height: 1.6; }
+
+h4 {
+  font-family: "Optima", "Avenir Next", sans-serif;
+  font-size: 9pt;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--ink-muted);
+  margin: 12pt 0 4pt;
+}
+h4 .count {
+  font-family: "Charter", Georgia, serif;
+  font-style: italic;
+  font-size: 9pt;
+  color: var(--ink-muted);
+  margin-left: 6pt;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+ol.name-list {
+  margin: 0 0 6pt;
+  padding: 0;
+  column-count: 4;
+  column-gap: 18pt;
+  font-size: 10pt;
+  list-style: none;
+  counter-reset: nameindex;
+}
+ol.name-list li {
+  break-inside: avoid;
+  padding: 1.5pt 0 1.5pt 20pt;
+  counter-increment: nameindex;
+  position: relative;
+}
+ol.name-list li::before {
+  content: counter(nameindex);
+  position: absolute;
+  left: 0; top: 1.5pt;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 7.5pt;
+  color: var(--ink-muted);
+  width: 16pt;
+  text-align: right;
+}
+
+.suffix-list {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5pt;
+  margin: 0 0 6pt;
+  color: var(--ink-soft);
+  line-height: 1.8;
+}
+
+/* ─── Sector mini-map ───────────────────────────────────── */
+
+.sector-minimap {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(5, auto);
+  max-width: 5.5in;
+  margin: 0 auto 22pt;
+  border: 0.75pt solid var(--ink-strong);
+}
+.minimap-cell {
+  border: 0.5pt solid var(--ink-soft);
+  padding: 4pt 4pt 5pt;
+  min-height: 0.55in;
+  display: flex;
+  flex-direction: column;
+  gap: 1pt;
+}
+.minimap-coord {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 6pt;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+.minimap-name {
+  font-family: "Optima", "Avenir Next", sans-serif;
+  font-size: 6.5pt;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  color: var(--ink-strong);
+}
+
+/* ─── Sector rows ───────────────────────────────────────── */
+
+.sector-row { margin: 0 0 16pt; }
+.sector-row .row-label {
+  font-family: "Optima", "Avenir Next", sans-serif;
+  font-size: 9pt;
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--ink-muted);
+  margin: 0 0 6pt;
+  padding-bottom: 2pt;
+  border-bottom: 0.5pt solid var(--line);
+}
+.sector-row .row-label::before { content: "✦ "; color: var(--ink-strong); }
+
+/* ─── Compact lists (wares / presets / save messages) ───── */
+
+ul.ware-list, ul.kv-list {
+  list-style: none; margin: 0; padding: 0; font-size: 10pt;
+}
+ul.ware-list li {
+  display: grid;
+  grid-template-columns: 1.3in 0.9in 1fr;
+  column-gap: 16pt;
+  padding: 5pt 0;
+  border-bottom: 0.5pt solid var(--line);
+  break-inside: avoid;
+  align-items: baseline;
+}
+ul.kv-list li {
+  display: grid;
+  grid-template-columns: 1.4in 1fr;
+  column-gap: 16pt;
+  padding: 5pt 0;
+  border-bottom: 0.5pt solid var(--line);
+  break-inside: avoid;
+  align-items: baseline;
+}
+ul.ware-list .ware-name {
+  font-family: "Optima", "Avenir Next", sans-serif;
+  font-weight: 500;
+  color: var(--ink-strong);
+  letter-spacing: 0.02em;
+}
+ul.ware-list li .lore {
+  grid-column: 1 / -1;
+  margin: 4pt 0 0;
+  font-size: 9.5pt;
+  color: var(--ink-soft);
+}
+ul.kv-list .kv-key {
+  font-family: "Optima", "Avenir Next", sans-serif;
+  font-weight: 500;
+  color: var(--ink-strong);
+  letter-spacing: 0.02em;
+}
+ul.kv-list.mono-keys .kv-key {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9pt;
+  letter-spacing: 0.04em;
+}
+ul.kv-list .kv-value { color: var(--ink); }

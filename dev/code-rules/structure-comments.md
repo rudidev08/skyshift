@@ -1,8 +1,8 @@
 # Skyshift comments-style supplement
 
-This file supplements the user-global comments-style guide at `.claude/skills/review-structure/structure-comments.md`. The base rules and worked examples live in the user-global file; this supplement carries Skyshift-specific file-pattern guidance and concrete in-repo examples.
+This file supplements the project-local comments-style guide at `.claude/skills/review-structure/structure-comments.md`. The base rules and worked examples live in that file; this supplement carries Skyshift-specific file-pattern guidance and concrete in-repo examples.
 
-Tools that walk the comments rules read both files: user-global first, then this supplement as additions/overrides.
+Tools that walk the comments rules read both files: base guide first, then this supplement as additions/overrides.
 
 ## Project file patterns
 

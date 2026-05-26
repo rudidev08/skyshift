@@ -33,11 +33,11 @@ Skyshift uses these commands in the SKILL.md workflow placeholders:
 - Per-mutant test run (agent workflow per mutant, step 2b): `npx tsx <test file>`
 - Final validation (workflow step 6): `npm test`, `npm run typecheck`, `npm run lint`
 
-The user-level skill text uses generic placeholders (`<test command>`); the orchestrator substitutes Skyshift's commands when running this skill in the Skyshift project.
+The base skill text uses generic placeholders (`<test command>`); the orchestrator substitutes Skyshift's commands when running this skill in the Skyshift project.
 
 ## Orchestrator reference: Skyshift-specific examples
 
-These are illustrative anchors for the generic guidance in the user-level `review-tests` skill. **They are NOT spliced into agent prompts** — the orchestrator uses them when communicating with the user about specific Skyshift cases (e.g. when reviewing pruning candidates and needing to point at the canonical example).
+These are illustrative anchors for the generic guidance in the project-local `review-tests` skill. **They are NOT spliced into agent prompts** — the orchestrator uses them when communicating with the user about specific Skyshift cases (e.g. when reviewing pruning candidates and needing to point at the canonical example).
 
 - **Domain-balance example:** pairing a 2000-line trade cluster with a 100-line audio file under one agent wastes the small file's budget.
 - **Common orphan branch:** dedup logic on a station type whose authored data has only one produced ware — the dedup never fires.

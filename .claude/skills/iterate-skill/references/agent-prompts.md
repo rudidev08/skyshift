@@ -131,7 +131,7 @@ Constraints: write only inside `fixture/` and `held-out/`. Do not edit `candidat
 
 ## `judge`
 
-Replace `<work-folder>`, `<run-id>`, `<scenario-id>`, `<cut-point>`, and `<iteration-num>`.
+Replace `<work-folder>`, `<run-id>`, `<scenario-id>`, `<cut-point>`, `<iteration-num>`, and `<branch>`. `<run-id>` is `i<N>-<scenario-id>-<seq>` (defined in `SKILL.md`'s ledger format); `<branch>` is `fixture` for loop runs or `held-out` for the post-convergence held-out pass.
 
 ```
 Evaluate one run of a candidate skill against the test spec. **Evaluate only — never edit the candidate, never edit the workspace, never fix anything.**
@@ -139,7 +139,7 @@ Evaluate one run of a candidate skill against the test spec. **Evaluate only —
 You are the judge. You are independent of the agent that fixes the skill.
 
 Inputs for this run:
-- run id: <run-id>   scenario: <scenario-id>   cut point: <cut-point>   iteration: <iteration-num>
+- run id: <run-id>   scenario: <scenario-id>   cut point: <cut-point>   iteration: <iteration-num>   branch: <branch>
 - transcript: `<work-folder>/transcripts/<run-id>.md`
 - the target skill's own work folder under `<work-folder>/workspace/` (e.g. `workspace/.<target-skill-name>.local/`) — its progress ledger, plan, and notes
 - the spec: `<work-folder>/test-spec.md` — Part 2 for this run's scenario record (its `Exercises checks` list), Part 3 for the checks themselves
@@ -154,7 +154,7 @@ Step 3. Grade the gated checks this scenario exercises — the ids its Part 2 re
 Step 4. For each NON-GATING note: write a one-paragraph judgment-based observation.
 
 Step 5. For each gated-check FAILURE, write a pinpoint:
-- Defect id: `<check-id>:<scenario-id>:<cut-point>:<affected-artifact>` — four structural fields, never your wording. The affected-artifact is where the defect shows up (`progress.md`, `plan.md`, `notes/`, `user-facing-text`, and the like).
+- Defect id: `<branch>:<check-id>:<scenario-id>:<cut-point>:<affected-artifact>` — five structural fields, never your wording. `<branch>` is the value given in the Inputs block (`fixture` or `held-out`). The affected-artifact is where the defect shows up (`progress.md`, `plan.md`, `notes/`, `user-facing-text`, and the like).
 - Failed check: <check-id>.
 - Offending instruction: the exact text quoted from `candidate/SKILL.md` (or the named reference file) that is at fault, with file and a short anchor snippet. If the candidate is silent on the situation, name the section where the missing instruction belongs.
 - Critique: plain language — what the instruction fails to say, says ambiguously, or says wrongly. Describe the gap; do NOT prescribe the edit.
@@ -168,7 +168,7 @@ Step 6. Assemble your verdict block — the run id, every graded gated check's `
 
 Step 7. Return your verdict block as text, then a short summary: the gated pass/fail counts and the defect ids of any `contract` failures. You write nothing to `iterations/` — the orchestrator appends your returned verdict block to `iterations/iter-<iteration-num>.md` itself.
 
-Constraints: you evaluate, you do not fix. Never edit `candidate/`, `workspace/`, or the live skill. Build a defect id from the four structural fields only — so the same defect lands on the same id every run.
+Constraints: you evaluate, you do not fix. Never edit `candidate/`, `workspace/`, or the live skill. Build a defect id from the five structural fields only — so the same defect lands on the same id every run.
 ```
 
 ## `fixer`
@@ -176,7 +176,7 @@ Constraints: you evaluate, you do not fix. Never edit `candidate/`, `workspace/`
 Replace `<work-folder>`, `<iteration-num>`, `<pinpoint-list>`, and `<size-gate>`.
 
 ```
-Apply the smallest fix for each pinpointed defect to a candidate skill. **Edit in place — but ONLY inside `<work-folder>/candidate/`. Never touch `~/.claude/skills/` or anything else.**
+Apply the smallest fix for each pinpointed defect to a candidate skill. **Edit in place — but ONLY inside `<work-folder>/candidate/`. Never touch `.claude/skills/` or anything else.**
 
 You are the fixer. You are independent of the judge that found these defects.
 
@@ -184,21 +184,25 @@ Inputs:
 - this iteration's `contract` pinpoints, deduplicated by defect id:
   <pinpoint-list>
 - the candidate: `<work-folder>/candidate/SKILL.md` and its references
-- the size gate: the candidate `SKILL.md` may not exceed <size-gate> lines.
+- the size gate: `candidate/SKILL.md` may not exceed `<size-gate>` lines; reference files each gate at `min(current_lines × 1.10, 500)` measured at Step 3.
 
-Step 1. Read `<work-folder>/candidate/SKILL.md`, and every reference file a pinpoint names.
+Step 1. Read `<work-folder>/candidate/SKILL.md`, every reference file a pinpoint names, and `<work-folder>/test-spec.md` Part 3 (the `how to verify` clauses are needed for the spec-drift check in Step 3).
 
 Step 2. For each pinpoint: locate the offending instruction by its anchor, and design the SMALLEST fix for the pinpointed gap, under the simplification mandate:
 - Smallest fix — address exactly the pinpointed gap and nothing else. No drive-by edits, no nearby cleanup.
 - Clarify or remove before adding — a defect almost always means an instruction is ambiguous, contradictory, or wrong; clarify it, or remove the one that contradicts it. Adding a new rule is the last resort, taken only when the candidate is genuinely silent on a situation it must cover.
 
-Step 3. Measure the candidate `SKILL.md`'s current line count with `wc -l`, then add the exact line delta of your Step 2 edits to `SKILL.md` — replacement-text lines minus replaced-text lines, summed over those edits. That sum is the post-edit line count; do not eyeball it. If it would exceed <size-gate> lines, do NOT apply — instead append the proposed fixes to `<work-folder>/report.md` as flagged items, and skip to Step 5.
+Step 3. Pre-apply checks — for each pinpoint, decide one of `will-apply`, `flagged — spec drift`, or `flagged — size gate`:
+- **Spec drift.** If the planned edit removes or renames a section heading, step name, identifier, or file path that any Part 3 `how to verify` clause references, mark this pinpoint `flagged — spec drift`. The frozen `test-spec.md` cannot be amended mid-run, so a drift-flagged fix surfaces to the user instead of applying.
+- **Size gate.** For each file that `will-apply` edits target, measure its current line count with `wc -l` and project the post-edit count: current lines + (replacement-text lines minus replaced-text lines), summed over that file's edits. For `candidate/SKILL.md`, the ceiling is `<size-gate>`. For any reference file, the ceiling is `min(current_lines × 1.10, 500)` — computed per file from its measured current size. If a projected count would exceed the ceiling for any file, mark every remaining `will-apply` pinpoint for that file `flagged — size gate`. Do not eyeball; sum the deltas per file.
 
-Step 4. Apply the edits in place to the files under `<work-folder>/candidate/` with the Edit tool.
+Step 4. Append a **planned-fixes block** to `<work-folder>/iterations/iter-<iteration-num>.md` BEFORE touching `candidate/`. The block lists, per defect id, the target file and either the planned-fix one-liner (`will-apply` pinpoints) or the flag reason (`flagged — spec drift` / `flagged — size gate`). Mark the block status `planned`. The block is the per-iteration audit trail of what was planned, what landed, and what was flagged — not a resume anchor. Crash recovery is the orchestrator's: SKILL.md's Phase 2 step 5 snapshots `candidate/` to `iterations/iter-<iteration-num>-pre-fixer/` BEFORE dispatching you, and on a mid-fixer crash it restores `candidate/` from the snapshot and re-dispatches you with the same pinpoints. You always run against a clean candidate; never assume a partial prior fixer pass.
 
-Step 5. Append a fix summary to `<work-folder>/iterations/iter-<iteration-num>.md`: per defect id, the file edited and a one-line description of the fix (or "flagged — size gate" if Step 3 stopped it).
+Step 5. Apply the `will-apply` edits in place to the files under `<work-folder>/candidate/` with the Edit tool. Skip this step if no pinpoint survived Step 3 as `will-apply`.
 
-Step 6. Return a short summary: the defect ids fixed, and any flagged for the size gate.
+Step 6. Update the planned-fixes block in `iter-<iteration-num>.md`: change status `planned` → `applied` (Step 5 ran) or `flagged-only` (Step 5 skipped). Once the block reads `applied`, the regression suite and stuck-detection treat those defects as fixed. Also append every flagged item to `<work-folder>/report.md` so the user sees flagged-but-unapplied work, tagged with `spec drift` or `size gate`.
+
+Step 7. Return a short summary: the defect ids applied, and any flagged with the reason.
 
 Constraints: edit only `<work-folder>/candidate/`. Never edit the live installed skill — promotion is the user's separate step. An unconstrained fixer reproduces the exact failure the skill exists to cure: every fix that adds machinery becomes the next iteration's bug. Fix small, fix subtractive.
 ```

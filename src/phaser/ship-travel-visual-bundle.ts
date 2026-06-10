@@ -37,17 +37,22 @@ export interface ShipTravelVisualBundle {
    *   - "started"   — arriving-phase fade tween active
    *   - "completed" — tween finished and trail.destroy() ran */
   trailFadeState: "pending" | "started" | "completed";
+  /** Sprite rotation captured when the ship's previous flight ended — the
+   *  departure turn lerps from it. Null (first flight, post-idle, or
+   *  mid-flight load) snaps straight to the curve heading. */
+  departureFromHeadingRadians: number | null;
 }
 
 /** During departure, lerps from the ship's previous heading to the curve heading so the sprite doesn't snap to a new direction at launch. */
-function getFlightRotation(flight: FlightData, flightRender: FlightCurveGeometry): number {
+function getFlightRotation(bundle: ShipTravelVisualBundle): number {
+  const { flight, flightRender } = bundle;
   const curveHeading = getFlightHeading(flight, flightRender);
 
-  if (flight.phase === "departing" && flight.previousHeadingRadians !== null) {
+  if (flight.phase === "departing" && bundle.departureFromHeadingRadians !== null) {
     const departDuration = shipTravel.accelerationDurationSeconds;
     const turnProgress = Math.min(1, flight.totalElapsedSeconds / departDuration);
     const eased = turnProgress * turnProgress * (3 - 2 * turnProgress);
-    return lerpAngle(flight.previousHeadingRadians, curveHeading, eased);
+    return lerpAngle(bundle.departureFromHeadingRadians, curveHeading, eased);
   }
 
   return curveHeading;
@@ -92,6 +97,9 @@ export interface ShipTravelVisualBundleInput {
   flightRender: FlightCurveGeometry;
   color: string;
   shipType: ShipTypeTemplate;
+  /** Heading the ship's previous flight ended on, render-tracked by the owning
+   *  ShipVisualBundle; null when there is no prior leg to turn from. */
+  departureFromHeadingRadians: number | null;
 }
 
 /** Build a fresh-flight bundle (departing from progress 0). Surface launches
@@ -105,11 +113,13 @@ export function createShipTravelVisualBundleForFreshFlight(
     startScale,
     lastTrailProgress: -1,
     ringPulseState: "pending",
+    departureFromHeadingRadians: input.departureFromHeadingRadians,
   });
 }
 
 /** Build a bundle for a flight loaded mid-progress. Sprite starts at normal
- *  scale; the ring pulse is marked fired so it doesn't retrigger. */
+ *  scale; the ring pulse is marked fired so it doesn't retrigger. Headings
+ *  aren't persisted, so the departure lerp is skipped — a one-time snap. */
 export function createShipTravelVisualBundleForFlightInProgress(
   input: ShipTravelVisualBundleInput,
 ): ShipTravelVisualBundle {
@@ -117,6 +127,7 @@ export function createShipTravelVisualBundleForFlightInProgress(
     startScale: SHIP_BASE_SCALE,
     lastTrailProgress: input.flight.progress,
     ringPulseState: "fired",
+    departureFromHeadingRadians: null,
   });
 }
 
@@ -124,6 +135,7 @@ interface ShipTravelVisualBundleInitialFields {
   startScale: number;
   lastTrailProgress: number;
   ringPulseState: "pending" | "fired";
+  departureFromHeadingRadians: number | null;
 }
 
 function createShipTravelVisualBundle(
@@ -162,6 +174,7 @@ function createShipTravelVisualBundle(
     lastTrailTime: -1,
     ringPulseState: initial.ringPulseState,
     trailFadeState: "pending",
+    departureFromHeadingRadians: initial.departureFromHeadingRadians,
   };
 }
 
@@ -180,7 +193,7 @@ export function updateShipTravelVisualBundle(
   tickLandingScale(bundle);
 
   const position = getPointOnCurve(flightRender, flight.progress);
-  const rotation = getFlightRotation(flight, flightRender);
+  const rotation = getFlightRotation(bundle);
   bundle.sprite.setPosition(position.x, position.y);
   bundle.sprite.setRotation(rotation);
   updateEngine(bundle, position.x, position.y, rotation);
@@ -224,6 +237,9 @@ function tickHyperjumpRingPulse(
     0,
   );
   bundle.ringPulse.setStrokeStyle(shipVisuals.ringPulseStrokeWidth, 0xffffff);
+  // Same FX layer as the engine glow — left at default depth 0 the pulse
+  // would render beneath the backgrounds.
+  bundle.ringPulse.setDepth(Layer.ShipEngine);
   scene.tweens.add({
     targets: bundle.ringPulse,
     radius: shipVisuals.ringPulseFinalRadius,

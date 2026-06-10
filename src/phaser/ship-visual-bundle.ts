@@ -33,7 +33,9 @@ import {
 import { getOrbitingShipPose, type OrbitState, type ShipOrbitSlotAllocator } from "./ship-orbit-pool";
 import { updateFlightLifecycle } from "./ship-flight-lifecycle";
 
-// Safe to share — only one ship selected at a time.
+// Safe to share across all ships — the proximity picker and the selection
+// ring read x/y straight off the returned object, so the next
+// getMapPosition() call may overwrite it freely.
 const shipMapPositionScratch = { x: 0, y: 0 };
 
 export interface ShipVisualBundle {
@@ -46,6 +48,10 @@ export interface ShipVisualBundle {
    *  bundle. Sim holds only the ship's home station — in-flight is derived
    *  from `tradeShip.flight !== null`. */
   orbit: OrbitState;
+  /** Heading the previous flight ended on, captured from the flight sprite at
+   *  teardown; seeds the next departure's turn lerp. Null = no prior leg
+   *  (fresh ship, idle, or restored save) — departures snap to course. */
+  lastFlightHeadingRadians: number | null;
 }
 
 export class ShipSelectionTarget implements SelectionTarget {
@@ -161,6 +167,7 @@ export function createShipVisualBundle(ship: Ship, context: ShipVisualBundleCont
     shipUi,
     travelBundle: null,
     orbit,
+    lastFlightHeadingRadians: null,
   };
   const selectionTarget = new ShipSelectionTarget(ship, bundle, tradeManager);
   bundle.selectionTarget = selectionTarget;

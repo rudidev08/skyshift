@@ -4,14 +4,14 @@ import {
   sectorScorerByNation,
   minDistanceToOwnStations,
   type SectorScorerContext,
-} from "../../data/nation-personality.ts";
+} from "../sim-nation-personality.ts";
 import { hubNation, bioNation, oreNation, skyNation, farNation } from "../../data/nations.ts";
 import type { NationTemplate } from "../../data/nation-types.ts";
 import type { Sector } from "../sim-map-types.ts";
 import type { StationZone } from "../sim-station-zone-types.ts";
 import type { Station } from "../sim-station-types.ts";
 
-// Pins data/nation-personality.ts. Each test sets up 2 existing stations of the
+// Pins src/sim-nation-personality.ts. Each test sets up 2 existing stations of the
 // nation plus 3 empty zones (one per sector) and asserts the SCORE ORDERING the
 // file's design-intent header promises — exact scores aren't asserted. The
 // nation-manager (src/sim-nation-manager.ts) sorts sectors by these scores and

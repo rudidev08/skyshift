@@ -2,8 +2,11 @@
 //
 // During a build attempt, src/sim-nation-manager.ts loops over every sector
 // and calls the nation's scorer once per sector. The highest-scoring sector
-// wins, and the first candidate zone inside that sector becomes the build
-// site — zones inside the same sector are treated as equivalent for scoring.
+// wins, and a random candidate zone inside it becomes the build site — zones
+// inside the same sector are treated as equivalent for scoring. The manager
+// also rolls PERSONALITY_PICK_CHANCE before scoring at all: the losing share
+// of builds takes a uniform-random legal zone, so placement stays personality-
+// driven rather than personality-perfect.
 //
 // Every scorer first checks sectorCanHostChosenType and returns -Infinity
 // when no zone in the sector allows the chosen station type, so those
@@ -19,13 +22,13 @@
 //   sky — prefers deep-space sectors, random tiebreak (explores deep space)
 //   far — farthest from existing own stations (scatters frontier outposts)
 
-import type { Sector } from "../src/sim-map-types";
-import type { BuildingNationId, NationTemplate } from "./nation-types";
-import type { StationTypeId } from "./station-types";
-import type { Station } from "../src/sim-station-types";
-import type { StationZone } from "../src/sim-station-zone-types";
-import type { SectorEnvironmentId } from "./map-sector-environments";
-import { allowedStationTypesForZone } from "../src/sim-map-sector-environments";
+import type { Sector } from "./sim-map-types";
+import type { BuildingNationId, NationTemplate } from "../data/nation-types";
+import type { StationTypeId } from "../data/station-types";
+import type { Station } from "./sim-station-types";
+import type { StationZone } from "./sim-station-zone-types";
+import type { SectorEnvironmentId } from "../data/map-sector-environments";
+import { allowedStationTypesForZone } from "./sim-map-sector-environments";
 
 /** Per-sector input passed to a scorer. The fields after `sector` stay
  *  constant across all sectors of one build attempt; `sector` and `tieBreak`
@@ -112,9 +115,10 @@ function scoreSectorForFar(context: SectorScorerContext): number {
   return nearestOwnStationFactor(context, "far");
 }
 
-/** Scorer for every building nation, keyed by Nation.id. Typed as a full
- *  Record so adding a new building nation without a scorer fails the build
- *  here rather than silently going unscored at runtime. */
+/** Scorer per building nation, keyed by Nation.id. Typed as a full Record so
+ *  dropping a scorer for an id in `BuildingNationId` fails the typecheck. The
+ *  type can't see a new `buildsStations` nation whose id isn't in that union —
+ *  the lookup in sim-nation-manager.ts throws on a missing scorer instead. */
 export const sectorScorerByNation: Record<BuildingNationId, SectorScorer> = {
   hub: scoreSectorForHub,
   bio: scoreSectorForBio,

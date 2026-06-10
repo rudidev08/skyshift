@@ -151,7 +151,6 @@ function createFlightForSlot(
     elapsed: 0,
     flightDuration,
     trailSegments: [],
-    lastTrailTime: -1,
     fading: false,
     fadeElapsed: 0,
     fadeAlpha: 1,
@@ -244,20 +243,26 @@ export function mountSectorAnimation(canvas: HTMLCanvasElement, scene: SectorSce
     }
   }
 
-  function appendInFlightTrailSample(flight: FlightAnimation): void {
+  function appendInFlightTrailSample(
+    flight: FlightAnimation,
+    canvasWidth: number,
+    canvasHeight: number,
+  ): void {
     if (flight.elapsed >= flight.flightDuration) return;
     const progress = flight.elapsed / flight.flightDuration;
     const { xRatio, yRatio } = sampleFlightPosition(flight, progress);
-    appendTrailSegmentIfDue(flight, xRatio, yRatio, progress);
+    appendTrailSegmentIfDue(flight, xRatio, yRatio, progress, canvasWidth, canvasHeight);
   }
 
   function advanceFlightLifecycles(deltaTime: number): void {
     for (const slot of flightSlots) advanceFlightSlot(slot, deltaTime);
   }
 
-  function sampleActiveFlightTrails(): void {
+  function sampleActiveFlightTrails(canvasWidth: number, canvasHeight: number): void {
     for (const slot of flightSlots) {
-      if (slot.flight && !slot.flight.fading) appendInFlightTrailSample(slot.flight);
+      if (slot.flight && !slot.flight.fading) {
+        appendInFlightTrailSample(slot.flight, canvasWidth, canvasHeight);
+      }
     }
   }
 
@@ -290,7 +295,7 @@ export function mountSectorAnimation(canvas: HTMLCanvasElement, scene: SectorSce
       const stationX = station.xRatio * canvasWidth;
       const stationY = station.yRatio * canvasHeight;
       const renderState = stationRenderStates.get(station.id)!;
-      drawStationOrbitBundle(context, station, stationX, stationY, timeSeconds, renderState);
+      drawStationOrbitBundle(context, stationX, stationY, timeSeconds, renderState);
       drawStationBodyBundle(context, station, stationX, stationY, renderState.icon);
     }
   }
@@ -307,7 +312,7 @@ export function mountSectorAnimation(canvas: HTMLCanvasElement, scene: SectorSce
 
     drawNebulaPass(width, height);
     advanceFlightLifecycles(deltaTime);
-    sampleActiveFlightTrails();
+    sampleActiveFlightTrails(width, height);
     drawTrailPass(width, height);
     drawShipPass(width, height);
     drawStationPass(width, height, timeSeconds);
@@ -378,7 +383,6 @@ function drawEngineGlow(
 
 function drawStationOrbitBundle(
   context: CanvasRenderingContext2D,
-  station: SectorStation,
   stationX: number,
   stationY: number,
   timeSeconds: number,

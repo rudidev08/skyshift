@@ -7,7 +7,7 @@ errors=""
 
 for file in $(find src/tests -name '*.test.ts' | sort); do
   printf "  %-50s" "$file"
-  output=$(npx tsx "$file" 2>&1)
+  output=$(dev/run-test-file.sh "$file" 2>&1)
   if [ $? -eq 0 ]; then
     echo "✓"
     ((passed++))

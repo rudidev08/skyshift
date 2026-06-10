@@ -424,8 +424,9 @@ export class Game extends Scene {
   }
 }
 
-/** Look up the running Game scene by its key. May be absent before
- *  Phaser finishes booting — callers must handle the missing-scene case. */
-export function getGameScene(game: Phaser.Game): Game {
+/** Look up the running Game scene by its key — null until Phaser finishes
+ *  booting (Phaser's own typing claims non-null, but getScene returns null
+ *  while the scene is still pending). */
+export function getGameScene(game: Phaser.Game): Game | null {
   return game.scene.getScene<Game>(GAME_SCENE_KEY);
 }

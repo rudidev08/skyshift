@@ -1,10 +1,15 @@
 import { test, assertEqual, assertTrue } from "./test-utils.ts";
-import { getAllInventorySlots, getInventorySlot } from "../sim-station.ts";
+import { createInventorySlot, getAllInventorySlots, getInventorySlot } from "../sim-station.ts";
 import { findRoundTradeTrip, effectiveFillPercent } from "../sim-trade-decision.ts";
 import { createSimulation } from "../sim-lifecycle.ts";
 import { createMapFromTemplate } from "../sim-map-create.ts";
 import { getShipTypeTemplate } from "../sim-ship-template.ts";
 import { createSettledSimulation } from "./sim-test-fixtures.ts";
+import { makeStationWithProduces } from "./factories.ts";
+import { TradeManager } from "../sim-trade-manager.ts";
+import { ice } from "../../data/wares.ts";
+import type { Ship } from "../sim-ships.ts";
+import type { Station } from "../sim-station-types.ts";
 import type { MapTemplate, MapPreset } from "../../data/map-types.ts";
 
 // `ignoreCargoCompatibility` makes every dockable station spawn its full
@@ -142,13 +147,15 @@ test("maps with no cargo-compatible producer-consumer wares keep overview route 
         lore: "No cargo-compatible trade is possible here.",
         gridX: 0,
         gridY: 0,
-        environment: "deep-space",
+        environment: "frontier",
       },
     ],
     nebulas: [],
+    // Zone coords must land inside the sector (map (0,0)-(1000,1000) here) —
+    // every template zone passes the runtime convention check, occupied or not.
     zones: [
-      { id: "EMPTY-1", x: -100, y: 0, size: "M" },
-      { id: "EMPTY-2", x: 100, y: 0, size: "M" },
+      { id: "EMPTY-1", x: 400, y: 500, size: "M" },
+      { id: "EMPTY-2", x: 600, y: 500, size: "M" },
     ],
     sectorSize: 1000,
   };
@@ -189,4 +196,62 @@ test("maps with no cargo-compatible producer-consumer wares keep overview route 
   );
 
   simulation.tradeManager.destroy();
+});
+
+test("findRoundTradeTrip excludes a counter station whose score exactly ties home's (strict > eligibility)", () => {
+  // Pin `if (score > homeScore)` in findEligibleCounterStations (strict, not >=).
+  // A `> → >=` mutation would make a counter station with fill EXACTLY equal to
+  // home's qualify as a sell destination, so a trip with no fill gradient (no
+  // progress) gets flown. Here the sole consumer ties home's fill exactly, so
+  // strict `>` leaves the eligible set empty → findRoundTradeTrip returns null;
+  // `>=` would admit the tie and return a 1-leg trip. Null-vs-trip is the
+  // observable, and it doesn't depend on the random tie-break.
+  const stationsById = new Map<string, Station>();
+  const shipsById = new Map<string, Ship>();
+  const manager = new TradeManager({
+    stationManager: { getStation: (id) => stationsById.get(id) },
+    shipManager: { getShip: (id) => shipsById.get(id) },
+  });
+
+  // Home produces ice with surplus; counter consumes ice with room. Both ice
+  // slots sit at identical current/max (fill 0.6) so home's sell score and the
+  // counter's buy score are exactly equal. seedhaul (capacity 4000) carries ice;
+  // the 4000-unit leg clears the 0.5 minimum-fill threshold with margin, so a
+  // `>=` mutant genuinely returns a trip rather than failing the fill gate.
+  const home = makeStationWithProduces(["ice"], {
+    inventory: [createInventorySlot(ice, 6000, 10000)],
+    placement: { id: "TIE-HOME" },
+  });
+  const counter = makeStationWithProduces([], {
+    inventory: [createInventorySlot(ice, 6000, 10000)],
+    placement: { id: "TIE-COUNTER" },
+  });
+  stationsById.set("TIE-HOME", home);
+  stationsById.set("TIE-COUNTER", counter);
+
+  const orbitingShip: Ship = {
+    id: "TIE-SHIP",
+    shipTypeId: "seedhaul",
+    shipName: "Tiebreaker",
+    station: home,
+  };
+  shipsById.set("TIE-SHIP", orbitingShip);
+  const tradeShip = manager.registerShip(orbitingShip, home);
+
+  manager.rebuildWareStationIndex([home, counter]);
+
+  // Confirm the scores actually tie — guards against fixture drift silently
+  // turning this into a strict-inequality case that would pass vacuously.
+  const homeSlot = getInventorySlot(home, "ice")!;
+  const counterSlot = getInventorySlot(counter, "ice")!;
+  assertEqual(
+    effectiveFillPercent(homeSlot),
+    effectiveFillPercent(counterSlot),
+    "home and counter ice fills tie exactly",
+  );
+
+  const trip = findRoundTradeTrip(tradeShip, manager);
+  assertEqual(trip, null, "no trip when the only counter station ties home's score");
+
+  manager.destroy();
 });

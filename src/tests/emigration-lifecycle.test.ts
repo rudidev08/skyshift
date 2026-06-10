@@ -9,6 +9,8 @@ import {
 import type { EmigrationEvent } from "../sim-emigration-types.ts";
 import type { StationEmigration } from "../sim-station-types.ts";
 import { emptyZoneCount } from "../sim-emigration-decision.ts";
+import { filterZonesForOccupants } from "../sim-map-create.ts";
+import { settledPreset } from "../../data/map-preset-settled.ts";
 import { createSettledSimulation } from "./sim-test-fixtures.ts";
 import { makeSyntheticDecommissionEvent, emitSyntheticDecommission } from "./factories.ts";
 
@@ -349,19 +351,31 @@ test("POST_JUMP_GAP throttles auto-trigger — no new event fires while gap is i
 test("after POST_JUMP_GAP elapses, a fresh generational ship arrives and a new event can trigger", () => {
   // Once clockSeconds ≥ nextGenerationalShipArrivalAtSeconds, spawnNextGenerationalShipIfDue
   // creates a new generational ship and clears nextGenerationalShipArrivalAtSeconds.
-  // Pin the gate by ticking through the gap.
+  // Pin the gate by ticking exactly to the scheduled arrival time.
   const simulation = createManualEmigrationSimulation();
   const firstEvent = simulation.emigrationManager.triggerEvent({ intensity: "low" });
   assertTrue(firstEvent !== null, "first event triggered");
   firstEvent!.shipsArrived = firstEvent!.totalExpectedShips;
-  simulation.slowSimulationTick(1); // jump fires
-  // Tick through the gap. slowSimulationTick accepts seconds and advances clockSeconds in one go.
-  simulation.slowSimulationTick(simulation.emigrationManager.getPostJumpGapSeconds());
-  // Then one more tick to pass the gap (clockSeconds >= nextGenerationalShipArrivalAtSeconds).
-  simulation.slowSimulationTick(1);
+  simulation.slowSimulationTick(1); // jump fires; nextGenerationalShipArrivalAtSeconds now scheduled.
+
+  // Advance the clock so it lands EXACTLY on the scheduled arrival second, not
+  // past it. Pin `clockSeconds < nextArrival` (spawn fires when the clock
+  // reaches the arrival). A `<=` mutation would defer the spawn one tick, so the
+  // ship would still be absent at this exact-boundary tick.
+  const scheduledArrival = assertNotNull(
+    simulation.emigrationManager.getNextGenerationalShipArrivalAt(),
+    "next-arrival scheduled after jump",
+  );
+  const clockBeforeArrivalTick = simulation.emigrationManager.getClockSeconds();
+  simulation.slowSimulationTick(scheduledArrival - clockBeforeArrivalTick);
+  assertEqual(
+    simulation.emigrationManager.getClockSeconds(),
+    scheduledArrival,
+    "clock advanced to exactly the scheduled arrival second",
+  );
   assertTrue(
     simulation.emigrationManager.getActiveGenerationalShip() !== null,
-    "fresh generational ship arrived after gap",
+    "fresh generational ship arrives the moment the clock reaches the scheduled arrival",
   );
   assertEqual(
     simulation.emigrationManager.getNextGenerationalShipArrivalAt(),
@@ -438,6 +452,59 @@ test("station demolition removes the station from StationManager and rebuilds th
       `ferry ship ${ship.id} still alive after emigration removal`,
     );
   }
+
+  simulation.destroy();
+});
+
+test("emigration demolition frees a preset-seeded station's site for a new build", () => {
+  // End-to-end equal-treatment guarantee: a site seeded by the map preset,
+  // emptied through the real emigration pipeline (launches complete → slow
+  // tick → removeStationForEmigration), must come back as buildable and accept
+  // a new placeBuild — exactly like a site claimed mid-session. Pre-fix,
+  // preset zones were stripped from the tracked list at map creation and
+  // their sites were retired forever.
+  const simulation = createManualEmigrationSimulation();
+  const event = simulation.emigrationManager.triggerEvent({ intensity: "high" });
+  assertTrue(event !== null, "event triggered");
+
+  const presetStationIds = new Set(settledPreset.presetStations.map((entry) => entry.stationId));
+  const target = assertNotUndefined(
+    event!.stationIds
+      .map((stationId) => simulation.stationManager.getStation(stationId))
+      .find((station) => station !== undefined && presetStationIds.has(station.id)),
+    "event picked at least one preset-seeded station",
+  );
+  const zoneId = assertNotUndefined(target.zoneId, "preset station carries its zone claim");
+
+  const emigrationState = target.emigrationEvent;
+  if (emigrationState === null) throw new Error("target emigration state should be set");
+  emigrationState.launched = emigrationState.totalEmigrants;
+  emigrationState.initialHomedShipIdSet.clear();
+  simulation.slowSimulationTick(1);
+  assertEqual(simulation.stationManager.getStation(target.id), undefined, "station demolished");
+
+  const freedZone = assertNotUndefined(
+    filterZonesForOccupants(simulation.map.stationZones, simulation.stationManager.getStations()).find(
+      (zone) => zone.id === zoneId,
+    ),
+    "freed preset site is offered as buildable again",
+  );
+
+  const { station: rebuilt } = simulation.stationManager.placeBuild({
+    zoneId: freedZone.id,
+    typeId: "habitat",
+    size: freedZone.size,
+    nationId: "bio",
+    x: freedZone.x,
+    y: freedZone.y,
+  });
+  assertEqual(rebuilt.zoneId, freedZone.id, "new station claims the freed site");
+  assertTrue(
+    !filterZonesForOccupants(simulation.map.stationZones, simulation.stationManager.getStations()).some(
+      (zone) => zone.id === freedZone.id,
+    ),
+    "rebuilt site counts as occupied again",
+  );
 
   simulation.destroy();
 });

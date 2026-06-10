@@ -192,6 +192,17 @@ test("createStation: defaults state to producing when placement omits it", () =>
   assertEqual(station.state, "producing", "default state");
 });
 
+test("createStation: name falls back to the station id when the placement omits a name", () => {
+  // Pin the `placement.name ?? placement.id` fallback in finalizeStation.
+  // BuildPlacement.name is optional, so placeBuild can pass an undefined name;
+  // the fallback gives such a station its id as the display name. Mutating the
+  // fallback to "" would leave nameless stations with an empty label, which
+  // stationCodeNameLabel and HUD copy render as a blank.
+  const placement = { ...makePlacedStationWithType("mine", "S"), name: undefined };
+  const station = createStation(placement);
+  assertEqual(station.name, placement.id, "name defaults to the station id");
+});
+
 test("createStation: reservations initialized to zero on all slots", () => {
   // Nonzero reservations at startup would let trade ships see phantom availability.
   const placedStation = makePlacedStationWithType("mine", "M");
@@ -254,6 +265,24 @@ test("releaseIncoming and releaseOutgoing do nothing when the slot is missing", 
   releaseIncoming(station, "tech", 10);
   releaseOutgoing(station, "tech", 10);
   // No assertion on the (absent) slot — the contract is "does not throw."
+});
+
+test("reserveIncoming and reserveOutgoing throw on a missing slot (release stays silent)", () => {
+  // Pin the reserve-side throw-on-missing guard, the asymmetric twin of the
+  // release tolerance above. Relaxing `if (!slot) throw` to `if (!slot) return`
+  // would silently drop a reservation against a ware the station never carries,
+  // so a mis-targeted trade reservation would vanish instead of surfacing loudly.
+  const station = createStation(makePlacedStationWithType("water-processing"));
+  assertThrows(
+    () => reserveIncoming(station, "tech", 10),
+    "reserveIncoming",
+    "reserveIncoming names itself when the slot is missing",
+  );
+  assertThrows(
+    () => reserveOutgoing(station, "tech", 10),
+    "reserveOutgoing",
+    "reserveOutgoing names itself when the slot is missing",
+  );
 });
 
 test("isStationProducing and isStationUnderConstruction match only their own state", () => {

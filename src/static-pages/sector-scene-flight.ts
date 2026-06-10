@@ -6,7 +6,7 @@ import type { SectorShipHull } from "./static-ship-preview";
 
 const CURVE_ANGLE_MIN_DEGREES = 18;
 const CURVE_ANGLE_MAX_DEGREES = 38;
-const TRAIL_SEGMENTS_PER_SECOND = 30;
+const TRAIL_MIN_SEGMENT_SPACING_PIXELS = 2.5;
 const TANGENT_SAMPLE_STEP = 0.005;
 
 /** A point in normalized [0,1] xRatio/yRatio space — the unit used throughout the sector scene. */
@@ -28,7 +28,6 @@ export interface FlightAnimation {
   elapsed: number;
   flightDuration: number;
   trailSegments: Array<{ x: number; y: number; progress: number }>;
-  lastTrailTime: number;
   fading: boolean;
   fadeElapsed: number;
   fadeAlpha: number;
@@ -113,14 +112,24 @@ export function computeFlightAngle(
   return Math.atan2((endY - startY) * canvasHeight, (endX - startX) * canvasWidth);
 }
 
-/** Append a trail-segment sample if enough sim time has elapsed since the last one. */
+/** Append a trail-segment sample once the ship has moved the minimum spacing from
+ *  the last one. Distance-based (not a time cadence) so segment count — and the
+ *  per-frame re-stroke cost in drawFlightTrail — tracks path length, not flight
+ *  duration: a slow ship no longer piles up thousands of sub-pixel segments. */
 export function appendTrailSegmentIfDue(
   flight: FlightAnimation,
   positionX: number,
   positionY: number,
   progress: number,
+  canvasWidth: number,
+  canvasHeight: number,
 ): void {
-  if (flight.elapsed - flight.lastTrailTime < 1 / TRAIL_SEGMENTS_PER_SECOND) return;
-  flight.lastTrailTime = flight.elapsed;
+  const lastSegment = flight.trailSegments[flight.trailSegments.length - 1];
+  if (lastSegment) {
+    const deltaX = (positionX - lastSegment.x) * canvasWidth;
+    const deltaY = (positionY - lastSegment.y) * canvasHeight;
+    const minSpacingSquared = TRAIL_MIN_SEGMENT_SPACING_PIXELS * TRAIL_MIN_SEGMENT_SPACING_PIXELS;
+    if (deltaX * deltaX + deltaY * deltaY < minSpacingSquared) return;
+  }
   flight.trailSegments.push({ x: positionX, y: positionY, progress });
 }

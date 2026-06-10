@@ -34,7 +34,7 @@ import { clearReservations } from "./sim-trade-reservation";
 import { stationCodeNameLabel } from "./sim-station-template";
 import { type Ship } from "./sim-ships";
 import { getShipTypeTemplate } from "./sim-ship-template";
-import { tickFlightData, createSurfaceEndpoint, createOrbitEndpoint, type FlightData } from "./sim-travel";
+import { tickFlightData, createSurfaceEndpoint, createOrbitEndpoint } from "./sim-travel";
 import type { ShipAction } from "./sim-travel-types";
 import {
   findRoundTradeTrip,
@@ -43,6 +43,7 @@ import {
   getTradedRoutes,
 } from "./sim-trade-decision";
 import { advanceQueue, appendActionsToShip, randomTradeDelaySeconds, startTrip } from "./sim-trade-queue";
+import { waitPlaceholder } from "./sim-ship-action-shared";
 import type { WareId } from "../data/ware-types";
 import type { TradeManagerSnapshot } from "./sim-save-types";
 import { createTradeRouteStatistics, type RouteStats } from "./sim-trade-route-statistics";
@@ -347,9 +348,6 @@ class ActiveTradeShips {
   findByShipId(orbitingShipId: string): TradeShip | undefined {
     return this.byOrbitingShipId.get(orbitingShipId);
   }
-  hasShipId(orbitingShipId: string): boolean {
-    return this.byOrbitingShipId.has(orbitingShipId);
-  }
   getByHomeStationId(homeStationId: string): ReadonlySet<TradeShip> {
     return this.byHomeStationId.get(homeStationId) ?? EMPTY_TRADE_SHIP_SET;
   }
@@ -500,13 +498,14 @@ function registerShipAsTradeShip(
   const tradeShip: TradeShip = {
     orbitingShipId: orbitingShip.id,
     homeStationId: homeStation.id,
-    actionQueue: [createInitialDeployFlyAction(homeStation)],
+    // Placeholder consumed by advanceQueue's leading shift when the stagger
+    // timer fires, so the deploy fly survives to execute — never executed itself.
+    actionQueue: [waitPlaceholder("—"), createInitialDeployFlyAction(homeStation)],
     flight: null,
     targetStationId: null,
     tradeDirection: null,
     cargoAmountByWareId: new Map(),
     reservations: [],
-    lastFlightHeadingRadians: null,
     idleSinceTradeTimeSeconds: 0,
   };
   manager.activeTradeShips.add(tradeShip);
@@ -567,21 +566,6 @@ function processDueTradeTimers(manager: TradeManager): void {
   });
 }
 
-/** Straight-line origin→destination heading seeds the next departure's smooth
- *  turn lerp. Skipped when either endpoint is gone (emigration ferry from a
- *  demolished home): a decommissioning ship never departs again, and the
- *  field stays at its previous value for any other ship that survives. */
-function recordDepartureHeadingForNextLeg(ship: TradeShip, flight: FlightData, manager: TradeManager): void {
-  const originStation = manager.stationResolver(flight.origin.stationId);
-  const destinationStation = manager.stationResolver(flight.destination.stationId);
-  if (originStation && destinationStation) {
-    ship.lastFlightHeadingRadians = Math.atan2(
-      destinationStation.y - originStation.y,
-      destinationStation.x - originStation.x,
-    );
-  }
-}
-
 /** Advance active flights and handle completions. Reuses the manager's
  *  scratch buffer so the per-tick allocation stays at zero. */
 function completeFinishedTradeFlights(manager: TradeManager, deltaSeconds: number): void {
@@ -590,7 +574,6 @@ function completeFinishedTradeFlights(manager: TradeManager, deltaSeconds: numbe
     const flight = ship.flight!;
     const done = tickFlightData(flight, deltaSeconds);
     if (done) {
-      recordDepartureHeadingForNextLeg(ship, flight, manager);
       ship.flight = null;
       completedFlights.push(ship);
     }

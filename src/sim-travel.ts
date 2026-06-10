@@ -26,8 +26,6 @@ export interface FlightData {
   arriveDistanceFraction: number;
   /** Inter-station flight (trail + ring pulse) vs local maneuver. */
   travelMode: TravelMode;
-  /** Previous heading for smooth turning; null = no turn needed. */
-  previousHeadingRadians: number | null;
 }
 
 /** Build a logical surface endpoint at the given station — the station
@@ -127,7 +125,6 @@ export interface CreateFlightDataInput {
   destinationStation: Station;
   ship: ShipTypeTemplate;
   travelMode: TravelMode;
-  previousHeadingRadians?: number | null;
 }
 
 /** Build flight data for a single-leg flight. Station refs let sim compute
@@ -163,7 +160,6 @@ export function createFlightData(input: CreateFlightDataInput): FlightData {
     flightDistanceFraction: phaseBounds.flightDistanceFraction,
     arriveDistanceFraction: phaseBounds.arriveDistanceFraction,
     travelMode: input.travelMode,
-    previousHeadingRadians: input.previousHeadingRadians ?? null,
   };
 }
 

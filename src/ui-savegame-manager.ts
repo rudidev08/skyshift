@@ -153,7 +153,8 @@ export function saveAutoSlot(game: SavegameHost): void {
 
 /** Read + validate a slot. Does NOT apply — caller triggers remount.
  *  Slots are shared (one universe); snapshot.presetId records the seeding
- *  preset but nothing consumes it for routing. */
+ *  preset, which mapFromSnapshot resolves at load to strip preset-seeded
+ *  zones and restore the warmup clock. */
 export function readSlot(kind: SlotKind, index: number): ValidationResult {
   const raw = readSlotBlob(kind, index);
   if (!raw) return { ok: false, reason: "empty", message: saveError.SLOT_EMPTY };
@@ -170,8 +171,21 @@ export function exportToFile(game: SavegameHost): void {
   downloadJsonFile(snapshot, `skyshift-${snapshot.presetId}-${timestamp}.json`);
 }
 
-/** Read + validate a file. Does NOT apply; caller triggers remount on ok. */
+/** Read + validate a file. Does NOT apply; caller triggers remount on ok.
+ *  A failed read (file removed/unreadable after the picker resolved) returns
+ *  the same corrupt result the JSON-parse path produces, so callers surface it
+ *  through one error channel instead of facing an unhandled rejection. */
 export async function readSnapshotFile(file: File): Promise<ValidationResult> {
-  const json = await file.text();
+  let json: string;
+  try {
+    json = await file.text();
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "corrupt",
+      message: saveError.CORRUPT_PARSE,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
   return validateSnapshot(json);
 }

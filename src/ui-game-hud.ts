@@ -7,8 +7,8 @@ import { getSectorHudIcon } from "./render-hud-icon";
 import { shouldUpdateUI } from "./render-dirty-state";
 import { sectorEnvironmentById, type SectorEnvironmentId } from "../data/map-sector-environments";
 import { getStationTypeTemplate } from "./sim-station-template";
-import { EMPTY_SELECTION_LABEL } from "./phaser/selection-input";
-import type { SelectionLabel, SelectionTarget } from "./phaser/selection-input";
+import { EMPTY_SELECTION_LABEL } from "./render-selection-label";
+import type { SelectionLabel, SelectionTarget } from "./render-selection-label";
 
 export interface GameHudSector {
   name: string;
@@ -109,7 +109,7 @@ function shouldRepaintHudThisFrame(host: GameHudHost, sector: GameHudSector | un
   host.lastSelectionTarget = host.selection.selectedTarget;
   if (selectionChanged) {
     // Clear immediately so the drawer shows blank instead of the previous entity's log.
-    host.logContentElement.innerHTML = "";
+    setHtmlIfChanged(host.logContentElement, "");
   }
   const logPanelOpen = host.logBoxElement.style.display !== "none";
   const logPanelJustOpened = logPanelOpen && !host.lastLogPanelOpen;

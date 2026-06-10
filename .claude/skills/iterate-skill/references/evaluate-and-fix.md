@@ -1,109 +1,115 @@
 # iterate-skill — evaluate and fix
 
-This reference covers the **evaluate → classify → fix** half of one loop iteration. `references/spec.md` is the setup (the frozen spec); `references/convergence.md` is the other half (defect identity, the regression suite, when to stop).
+This reference covers the **grade → classify → fix** half of the loop. `references/spec.md` is the setup (the frozen spec); `references/convergence.md` covers defect identity, termination, and stuck detection.
 
-One safety property governs everything here: **the agent that judges a run is never the agent that fixes the skill.** Independent eyes — a fixer cannot grade its own work, and the judge cannot quietly excuse a defect it would otherwise have to fix. The orchestrator itself neither judges nor fixes; it dispatches the judge and the fixer, routes their output, and checkpoints to disk.
-
-An **iteration** is one fix cycle: a batch of scenario runs, each judged, then a single fixer pass over the contract defects those runs surfaced — followed by a re-run against the now-fixed candidate. `references/convergence.md` defines which runs an iteration covers.
+Under the budget-capped shape, the orchestrator grades inline and fixes inline — no separate judge or fixer subagent. The independence-by-different-agent property is traded for the budget cap: a buggy orchestrator can only burn its 70-clear ceiling before stopping. The mitigations below replace independence with deterministic mechanics.
 
 ## What a run is judged on
 
-Three kinds of defect, from the design:
+Three kinds of defect:
 
 - **Orchestration integrity** — no stall, no lost or duplicated state, ledgers consistent, resume-after-`/clear` correct, phase hand-offs intact, a defined terminal state reached. Objective.
 - **Objective contract conformance** — the run produced what `candidate/SKILL.md` verifiably requires: required fields present, no leaked rule codes, the right pass over the right files. Objective.
-- **Judgmental conformance and taste** — anything that needs a judgment call to assess.
+- **Judgmental conformance and taste** — anything needing a judgment call.
 
-The first two are **gated checks**; the third is **non-gating notes**. `references/spec.md` Part 3 defines the buckets and the classification rule; the frozen `test-spec.md` carries the actual per-target check list. The judge evaluates against that list.
+The first two are **gated checks**; the third is **non-gating notes**. `references/spec.md` Part 3 defines the buckets and the classification rule; the frozen `test-spec.md` carries the actual per-target list.
 
-## The judge
+## Inline grading — mechanical observables only
 
-The judge is an **independent subagent**, dispatched once per run — never the agent that fixes. Its prompt template is in `references/agent-prompts.md`.
+The orchestrator grades inline against `test-spec.md` Part 3, immediately after each scenario run (Investigate stage) and after each retry (Iterate stage).
 
-**Inputs:**
+Grading the same gated check across scenarios reuses one extraction predicate per check, not a fresh per-scenario re-derivation — the `references/spec.md` Part 3 § Verify-clause robustness "shared extraction criterion" applies to the grading side too: define each check's parse/match once and reuse it, so a corrected check (a demotion, a tightened regex) is fixed in one place, not re-applied per scenario.
 
-- the run's transcript (`transcripts/<run-id>.md`, where `<run-id>` is defined in `SKILL.md`'s ledger format; the orchestrator writes the file itself per `references/spec.md`'s "Running a scenario" section);
-- the target skill's own progress files, left in `workspace/` by the run (`workspace/.<target-skill-name>.local/progress.md`, `plan.md`, `notes/`, and the like);
-- `test-spec.md` Part 3 — the checks to run;
-- `candidate/SKILL.md` and its references — to locate the instruction behind any failure.
+**Mitigation against orchestrator-as-grader bias:** gated checks must be deterministic assertions over named artifacts. Each check's `how to verify` clause reduces to:
 
-**Primary evidence is the target skill's own progress files.** A multi-phase, crash-resilient skill writes rich ledgers — per-outcome lines, plan generations, per-file notes — and most gated checks ask exactly what those ledgers record. The transcript is **secondary**: it covers only what no progress file holds — user-facing wording (the "no rule codes" check), the prompts the run asked, the terminal message. If a target skill's progress files turn out too thin for a check to be settled from them, that is itself a finding — the skill should be recording that state — surfaced, not worked around.
+- "Line X of file Y matches pattern P," or
+- "Subagent return contains / lacks Z," or
+- "File counts at runtime path Q satisfies inequality R," or
+- An equivalent objective predicate.
 
-**What the judge produces, per run:**
+**Carve-out: orchestrator tool-call ordering is not gated.** In the inline-run model the orchestrator both drives the candidate and grades the run; there is no durable transcript of which tools fired in what order, and post-`/clear` the conversation log is gone. A check that asks "did the candidate execute tool X after tool Y" is orchestrator self-attestation, not a deterministic assertion over a named artifact. Such checks belong in non-gating. If the candidate's contract genuinely requires a specific call ordering to be verifiable, the candidate itself must write a durable artifact — a progress-file line, a sidecar log entry — that a gated check reads.
 
-- every **gated check the scenario exercises** → a binary pass/fail verdict;
-- every **non-gating note** → a written observation (an assessment, not pass/fail);
-- every gated-check **failure** → a *pinpoint* and a *classification* (below).
+Anything requiring judgment (does the prose read well? is the proposal appropriately grounded?) is **non-gating** by definition. If a "must" from `SKILL.md` can't be reduced to a deterministic assertion, it's a non-gating note. Borderline cases go to non-gating.
 
-The judge returns its verdict block as text and a short summary, and writes nothing to disk; the orchestrator appends the verdict block to `iterations/iter-NN.md`. The judge never edits the candidate.
+This is the same rule from `references/spec.md` Part 3, sharpened. The orchestrator follows it both at extraction time (Plan stage) and at grading time (Investigate/Iterate).
 
-### The pinpoint
+**Primary evidence is the target's own progress files.** A multi-phase, crash-resilient candidate writes rich ledgers — per-outcome lines, plan generations, per-file notes — and most gated checks ask exactly what those ledgers record. Run output (terminal messages, user-facing wording) is secondary, used only for what no progress file holds. If a target's progress files turn out too thin for a check to be settled from them, that is itself a finding — the target should be recording that state — surfaced, not worked around.
 
-For each failed gated check, the judge writes a pinpoint — the precise hand-off to the fixer:
+**Re-confirm every FAIL before recording it.** A single grading command can lie — garbled or phantom output from a flaky tool channel, or a loose pattern matching the orchestrator's own prose instead of a real artifact line — and because a recorded `contract` defect drives a candidate edit, a false FAIL on a clean candidate manufactures a spurious fix. So no FAIL becomes a defect on one command's say-so: confirm it with a second, precise, disk-authoritative check before classifying — an anchored pattern (a reserved-token prefix like `^- pass-2-baseline:`, never a loose substring) and/or an independent filesystem read (`diff -rq`, `shasum`, a re-grep on the named artifact). A FAIL that flips to PASS on a clean re-check was a phantom. The re-confirm burden falls on FAILs because a phantom PASS only defers a real defect to the next signal, while a phantom FAIL fabricates one.
 
-- **Defect id** — the stable structural id; full format (the five fields, including the `branch` axis that keeps held-out re-discoveries from colliding with fixture ledger entries) is defined in `references/convergence.md`. The id dedups a defect that surfaces in several runs and keys the regression suite.
-- **Failed check** — the check id from `test-spec.md`.
-- **Offending instruction** — the exact text quoted from `candidate/SKILL.md` (or the named reference file) that is at fault, with its file and a short anchor snippet. If the failure is a *gap* — the candidate says nothing about the situation — the pinpoint names the section where the missing instruction belongs.
-- **Critique** — plain language: what the instruction fails to say, says ambiguously, or says wrongly, such that the run went wrong. The critique describes the *gap*; it does not prescribe the edit — the fixer decides the fix.
-- **Evidence** — the specific progress-file line or transcript excerpt that shows the check failed.
-- **Classification** — `contract` or `environment` (below).
+## What grading produces, per scenario
 
-### Classification — folded into the judge
+- Every **gated check the scenario exercises** → a binary `pass` or `fail`.
+- Every **non-gating note** → a written observation appended to `report.md` under a `### Run <run-id>` header.
+- Every gated-check **failure** → a pinpoint, appended as a row to `defects.md`:
+  - **Defect id** — the structural id (format in `references/convergence.md`).
+  - **Failed check** — the check id from `test-spec.md`.
+  - **Offending instruction** — exact text from `candidate/SKILL.md` (or named reference file), with file path and a short anchor snippet. If the failure is a gap (candidate silent), name the section where the missing instruction belongs.
+  - **Critique** — plain language: what the instruction fails to say, says ambiguously, or says wrongly. Describes the gap; does not prescribe the edit.
+  - **Evidence** — the specific progress-file line or run output that shows the failure.
+  - **Classification** — `contract` or `environment` (below).
 
-A failed check is not always the skill's fault. Before anything reaches the fixer, each failure is classified. This is **folded into the judge**, not a separate agent: the judge already holds all the evidence — the transcript and the progress files — and a second agent re-reading the same evidence to attribute blame would be machinery for no gain.
+## Classification — contract vs environment
 
-- **`contract`** — the target skill's fault. The run followed `candidate/SKILL.md` and the bad outcome still resulted, or the candidate is silent or ambiguous on the situation. Contract failures get the fixer.
-- **`environment`** — not the skill's fault. Sub-reasons: `flaky-subagent` (a subagent the run dispatched crashed or returned malformed output for reasons unrelated to its prompt), `rate-limit` (an API quota was hit), `fixture-error` (the fixture itself was malformed — a validation command that can't run, a rule file the spec should have included), `refusal` (the model refused part of the task), `harness` (a Claude Code tool error unrelated to the skill).
+A failed check is not always the candidate's fault.
 
-**The judge errs toward `environment` when attribution is unclear.** Mislabeling an environment failure as `contract` feeds a non-bug to the fixer, which then adds machinery — the exact disease iterate-skill exists to cure. Mislabeling a contract failure as `environment` only *delays* catching it: a real contract defect is roughly deterministic and resurfaces on the retry and across other runs. So the unsure case goes to `environment`, never to an unsure `contract`.
+- **`contract`** — the candidate's fault. The run followed `candidate/SKILL.md` and the bad outcome still resulted, OR the candidate is silent or ambiguous on the situation. Contract failures get a fix attempt.
+- **`environment`** — not the candidate's fault. Sub-reasons:
+  - `flaky-subagent` — a subagent the run dispatched crashed or returned malformed output for reasons unrelated to its prompt;
+  - `rate-limit` — an API quota was hit;
+  - `fixture-error` — the fixture itself was malformed (a validation command that can't run, a missing rule file);
+  - `spec-error` — the frozen test spec or a verify clause is too narrow, contradictory, or depends on a candidate-output assumption the contract doesn't guarantee (per `references/spec.md` Part 3 § Verify-clause robustness). Distinct from `fixture-error` (about the fixture artifact). Both are structural.
+  - `refusal` — the model refused part of the task;
+  - `harness` — a Claude Code tool error unrelated to the candidate.
 
-## Routing — who fixes what
+**Err toward `environment` when attribution is unclear.** Mislabeling environment-as-contract feeds a non-bug to the fixer, which then adds machinery — the exact failure mode iterate-skill exists to cure. Mislabeling contract-as-environment only delays catching it (the defect resurfaces on retry).
 
-The orchestrator routes each judge output:
+Transient sub-reasons (`flaky-subagent`, `rate-limit`, `harness`) trigger a retry of that scenario, max twice. A third `environment` failure on the same scenario+check is surfaced to the user as persistent — it may be a real contract defect the orchestrator is mis-attributing, or a genuine environment issue only the user can clear. Structural sub-reasons (`fixture-error`, `spec-error`, `refusal`) surface immediately — a `fixture-error` or `spec-error` means the frozen spec is wrong, so the orchestrator pauses and surfaces it rather than silently patching (which would un-freeze the spec mid-run). The user resolves by resetting with a corrected spec, recording an explicit waiver in `report.md`, or accepting the error.
 
-- **Gated failure, `contract`** → the **fixer** auto-applies a fix to the candidate. This is the design's deliberate choice: automatic fixing only on the reliable, objective signal.
-- **Gated failure, `environment`** → never written into the SKILL.md. Transient sub-reasons (`flaky-subagent`, `rate-limit`, `harness`) → retry the run, at most twice. A third `environment` failure on the same scenario-and-check is **surfaced to the user** as persistent — it may be a real defect the judge keeps mis-attributing, or a genuine environment problem only the user can clear. Structural sub-reasons (`fixture-error`, `refusal`) → surface immediately. A `fixture-error` means the *frozen spec* is wrong; since the spec is frozen, the orchestrator pauses and surfaces it — the user decides whether to reset with a corrected spec. It is never silently patched, because that would un-freeze the spec mid-run.
-- **Non-gating note** → the judge's observation goes into `report.md` for the user. **Never auto-fixed** — judgment defects are the user's call, not the fixer's.
+Environment failures never become `contract` defects; they never reach the fixer.
 
-## After each judged run
+## Inline fixing — the quote-the-pinpoint rule
 
-When the judge returns, the orchestrator updates these on-disk artifacts before the chunk ends. This is the **one canonical list** — a `next-prompt.txt` resume checklist copies it, never re-derives it from the references:
+The orchestrator applies fixes inline during the Iterate stage. **One attempt** = read defect row + apply edit + reset workspace + run retry scenario + grade.
 
-- **`iterations/iter-NN.md`** — append the judge's returned verdict block (the judge writes nothing itself; the orchestrator owns this file).
-- **`progress.md` run log** — append the run line: run id, scenario, gated pass/fail counts, any `contract` defect ids, environment-failure count.
-- **`progress.md` defect ledger** — add or update an entry for every `contract` defect the run surfaced.
-- **`regression-suite.md`** — add a replayable case for each *new* gated failure (`references/convergence.md`).
-- **`report.md`** — append the run's non-gating observations and any surfaced environment failure under a `### Run <run-id>` header. The header keys the per-run section so a resume that needs to re-execute this list can detect "already written for `<run-id>`" by checking whether that header line is already present.
+**Mitigation against orchestrator-as-fixer bias:** before applying any edit, the orchestrator quotes the defect's row from `defects.md` **verbatim** (id, failed check, offending instruction, critique, evidence). The fix may address only what the quoted row names — no drive-by edits, no nearby cleanup, no "while I'm here" changes informed by the orchestrator's runtime experience of the scenario.
 
-The fixer appends its own fix summary to `iterations/iter-NN.md` once per iteration — that write is the fixer's, not part of this per-run list.
+This is the isolation a separate-agent fixer got for free (it only saw the defect row, not the runtime). Quoting verbatim is the inline equivalent.
 
-## The fixer
+## The simplification mandate
 
-The fixer is a **separate agent** — never the judge. Its prompt template is in `references/agent-prompts.md`. It is dispatched **once per iteration that has at least one `contract` pinpoint**, handed those pinpoints deduplicated by defect id (the same defect surfacing in five runs is one pinpoint, one fix — not five). An iteration with zero `contract` defects skips the fixer dispatch entirely; the Phase 2 loop in `SKILL.md` records that case as `fixer-pass iter-<NN>: no-defects` instead — the M-window does not reset, and the clean runs continue to count toward convergence (`references/convergence.md`).
+The inline fixer works under a hard mandate:
 
-The fixer writes a **planned-fixes block** to `iterations/iter-NN.md` BEFORE applying any edit, then applies, then updates the block's status to `applied` (or `flagged-only` if every pinpoint was flagged by the spec-drift or size-gate check). The block is the per-iteration audit trail: what was planned, what landed, what was flagged. Recovery from a mid-fixer crash is the orchestrator's job — SKILL.md's Phase 2 step 5 snapshots `candidate/` to `iterations/iter-NN-pre-fixer/` BEFORE dispatching the fixer, and on resume after a crash it restores `candidate/` from the snapshot and re-dispatches the fixer from the original pinpoints. The fixer therefore always runs against a clean candidate and never has to reason about partial prior edits. Full step list in `references/agent-prompts.md`. The fixer applies to `candidate/SKILL.md`, or to whichever candidate reference file a pinpoint's affected artifact names.
-
-### The simplification mandate
-
-The fixer works under a hard mandate, because an unconstrained fixer reproduces the exact failure mode the skill is meant to cure — each fix bolting on machinery that becomes the next iteration's bug.
-
-- **Smallest fix.** Address exactly the pinpointed gap and nothing else. No drive-by edits, no nearby cleanup, no "while I'm here."
+- **Smallest fix.** Address exactly the pinpointed gap and nothing else.
 - **Clarify or remove before adding.** A defect almost always means an instruction is ambiguous, contradictory, or wrong — so the fix is almost always to *clarify* the offending instruction or *remove* the one that contradicts it. *Adding* a new rule is the last resort, taken only when the candidate is genuinely silent on a situation it must cover.
-- **The size gate.** `progress.md` records the candidate `SKILL.md`'s line count at run start. The gate is computed once at that point as `min(start_lines × 1.10, 500)` — 10% growth from the starting size, capped at the skill-family ceiling of 500 lines, whichever is smaller. The orchestrator fills the fixer prompt's `<size-gate>` placeholder with that single number. The gate applies to every file a planned edit touches: for `candidate/SKILL.md` the ceiling is `<size-gate>`; for a reference file the fixer measures its current line count with `wc -l` and applies `min(current_lines × 1.10, 500)` as a per-file ceiling. If a planned edit set would push any touched file past its ceiling (the fixer projects the post-edit count per file by summing the line deltas for that file), the fixer does **not** apply them — it marks every remaining pinpoint `flagged — size gate`, the planned-fixes block in `iterations/iter-NN.md` records the flags, and `report.md` collects them for the user to decide. Unbounded growth is itself the disease; the gate makes the skill stop and ask rather than bloat silently.
+- **Refuse spec-drift edits.** If a planned edit would remove or rename a section heading, step name, identifier, or file path that any Part 3 `how to verify` clause references, the orchestrator does NOT apply it. Mark the defect `spec-drift-flagged` in `defects.md`, append to `report.md`. The user resolves by resetting with a corrected spec, accepting the drift, or fixing it manually.
 
-The fixer never touches the live installed skill — only `candidate/`. Promotion to `.claude/skills/` is the user's separate, final step.
+An unconstrained fixer reproduces the exact failure iterate-skill exists to cure: every fix that adds machinery becomes the next iteration's bug. Fix small, fix subtractive when possible.
 
-## The final taste pass
+## After each grade — what gets written
 
-The gated loop deliberately cannot catch taste — convoluted prose, an instruction that is technically followed but reads badly, a fix that smells like added machinery. That is covered **once, at the very end** — in Phase 3, after the loop reports convergence and the held-out pass has run — by an independent multi-reviewer pass over the converged candidate.
+**Per scenario run (Investigate stage):**
 
-The orchestrator runs an independent multi-reviewer pass on the converged `candidate/SKILL.md` and its diff from the original: `/triple-check` if available (the user's 3-way consensus review — two Claude agents plus codex), otherwise two or more independent reviewer subagents. Its findings — questionable instructions, machinery that crept in, prose that drifted — are appended to `report.md`.
+- Append a Log line to `progress.md`: `run <run-id>: <scenario-id> — <P>/<T> gated pass; contract <defect-id,…|none>; env <count>`.
+- For each new contract defect: append a row to `defects.md` with id, scenario, check, observation, classification.
+- For each non-gating observation: append under `### Run <run-id>` in `report.md` (if the header isn't already there from a prior resume).
 
-The taste pass is **non-gating**: it never blocks promotion and never auto-fixes. It is independent — fresh reviewers, not the judge and not the fixer. It is advisory output for the user's final review.
+**Per fix attempt (Iterate stage):**
+
+- Before edit: `cp -R candidate fix-attempts/defect-NN-attempt-MM/`.
+- After edit: append a Log line: `attempt: defect-NN-attempt-MM applied — <one-line summary of edit>`.
+- After retry+grade: append a Log line `attempt: defect-NN-attempt-MM graded — <persists|fixed|stuck|stuck (oscillation)>` (mirrors the Investigate `run <run-id>: <P>/<T> gated pass` line; SKILL.md's mid-attempt-resume detection in Iterate step 1 keys off the presence of this grade line — every retry outcome appends it, an oscillation outcome included, so the `cleared-at` marker never dangles). Then update the defect's row in `defects.md` in place. An oscillation outcome appends this Log grade line even though its rule says not to append a new `defects.md` *row* — the Log line and the row are separate. Terminal statuses: `fixed` / `stuck` / `stuck (oscillation)` / `spec-drift-flagged`. The only transient intermediate is `persists` (defect survived attempt 1, attempt 2 pending). A defect transitions on its own grade — a cleared defect becomes `fixed` — except when its retry surfaces an oscillation (a new defect matching a `fixed` row), which supersedes the clear to `stuck (oscillation)` (per SKILL.md Iterate step 4), and any new defect the retry surfaced is appended as its own capped row (per SKILL.md Iterate step 4), so an oscillation lookup against a cleared defect's id matches its `fixed` row. If the Iteration budget binds (40 clears used) before all defects reach a terminal status, remaining open defects are recorded in `report.md` under the report-only category `unresolved-budget-out` — NOT a `defects.md` row status.
+- For a new defect surfaced by a fix: append a new row at the end of `defects.md` (processed in queue order, per SKILL.md Iterate step 4).
+
+**Stage counters tick in `/clear`-rhythm step 1 (per `/clear`), not per scenario or per attempt** — see SKILL.md `/clear`-and-resume rhythm. Do not increment counters in the per-scenario or per-attempt writes above.
+
+## Snapshot retained, not verified
+
+Pre-fix snapshots live in `fix-attempts/defect-NN-attempt-MM/` and are cheap audit trails — the final `report.md` includes the diff from each attempt for the user's review. Snapshots are **not** verified by line-count or file-count cross-checks (the old M-window machinery's safety nets are gone); if a mid-fix crash leaves `candidate/` in an inconsistent state, the user redoes the attempt from the snapshot manually.
 
 ## Where evaluation output lives
 
-- `iterations/iter-NN.md` — one file per iteration: the judge's per-run verdict blocks, then the fixer's fix summary. Built up as the iteration runs, so it survives a `/clear`.
-- `report.md` — the running user-facing report: non-gating observations, surfaced environment failures, size-gate-flagged fixes, and finally the taste-pass findings.
-
-`references/convergence.md` covers how defect ids are formed, how the regression suite replays past defects, and how the loop decides it has converged or must stop.
+- `defects.md` — one row per defect, status updated in place across the run.
+- `report.md` — running user-facing report: non-gating observations, surfaced environment failures, spec-drift flags, the final per-defect summary at end of run.
+- `progress.md` Log — chronological per-run + per-attempt entries.
+- `fix-attempts/defect-NN-attempt-MM/` — full `candidate/` snapshots, one per fix attempt.

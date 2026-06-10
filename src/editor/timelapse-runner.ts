@@ -50,7 +50,11 @@ export interface TimelapseRunCallbacks {
 }
 
 export interface TimelapseRunHandle {
-  /** Cancels the run, stops further callbacks, and destroys the underlying simulation. Safe to call more than once. */
+  /** Stops ticking and further callbacks but keeps the simulation — and so
+   *  `stationHistory` — alive, landing Pause in the same inspectable state a
+   *  completed run reaches. Safe to call more than once. */
+  stop: () => void;
+  /** Stops the run and destroys the underlying simulation. Safe to call more than once. */
   cancel: () => void;
   /** Lifecycle events recorded by the simulation's station-manager observers
    *  while the run is in flight — tab passes this through to the timelapse
@@ -98,9 +102,9 @@ const CHUNK_INTERVAL_SECONDS = 100;
 const CHUNK_GAP_MS = 0;
 
 /** Returns a run handle the caller must `cancel()` on tab switch or restart to
- *  stop callbacks and free the simulation. The handle also exposes the
- *  observer-driven `stationHistory` so the tab can render it without rebuilding
- *  history from captured frames. */
+ *  stop callbacks and free the simulation (`stop()` halts ticking but keeps it
+ *  inspectable). The handle also exposes the observer-driven `stationHistory`
+ *  so the tab can render it without rebuilding history from captured frames. */
 export function startTimelapseRun(
   options: TimelapseRunOptions,
   callbacks: TimelapseRunCallbacks,
@@ -121,7 +125,8 @@ export function startTimelapseRun(
   const ticksPerFrame = Math.round(FRAME_INTERVAL_SECONDS / tickIntervalSeconds);
   const ticksPerChunk = Math.max(1, Math.round(CHUNK_INTERVAL_SECONDS / tickIntervalSeconds));
 
-  let cancelled = false;
+  let stopped = false;
+  let destroyed = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   let ticksElapsed = 0;
   let secondsSinceLastSlowSimulationTick = 0;
@@ -148,7 +153,7 @@ export function startTimelapseRun(
   }
 
   function runNextChunk() {
-    if (cancelled) return;
+    if (stopped) return;
     runTicksUntilTarget(Math.min(ticksElapsed + ticksPerChunk, totalTicks));
     callbacks.onProgress(ticksElapsed / totalTicks);
     callbacks.onLivePreview(captureTimelapseFrame(simulation, ticksElapsed * tickIntervalSeconds));
@@ -161,11 +166,18 @@ export function startTimelapseRun(
 
   timeoutHandle = setTimeout(runNextChunk, CHUNK_GAP_MS);
 
+  function stopTicking() {
+    if (stopped) return;
+    stopped = true;
+    if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+  }
+
   return {
+    stop: stopTicking,
     cancel: () => {
-      if (cancelled) return;
-      cancelled = true;
-      if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+      stopTicking();
+      if (destroyed) return;
+      destroyed = true;
       simulation.destroy();
     },
     stationHistory: simulation.stationHistory,

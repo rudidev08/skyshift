@@ -5,9 +5,10 @@ import {
 } from "../phaser/station-zone-render.ts";
 import { createGameViewModeController } from "../game-view-mode.ts";
 
-// canSelect() only reads the isZonesViewActive getter — the zone fields are
-// untouched on that path, so a bare stub bundle is enough here.
-const stubBundle = {} as StationZoneVisualBundle;
+// canSelect() reads the isZonesViewActive getter and the occupiedByStation
+// flag — the other bundle fields are untouched on that path, so an
+// unclaimed-only stub is enough here.
+const stubBundle = { occupiedByStation: false } as StationZoneVisualBundle;
 
 test("zone canSelect() tracks getViewMode() across mode switches with no explicit ref priming", () => {
   // Guard for item 9 — the target derives selectability from the view-mode

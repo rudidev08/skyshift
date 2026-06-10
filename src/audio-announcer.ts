@@ -12,7 +12,8 @@ let audioEnabled = false;
 const audioUrlByKey = new Map<string, string>();
 let audioUrlsRegistered = false;
 
-// browser is loaded lazily because audio playback isn't allowed without user interaction
+// Created lazily on first user interaction — browser autoplay policy blocks
+// an AudioContext created any earlier.
 let audioContext: AudioContext | null = null;
 const audioBufferByKey = new Map<string, AudioBuffer>();
 const activeSources: AudioBufferSourceNode[] = [];
@@ -137,7 +138,6 @@ async function playSequence(phrases: string[][]): Promise<void> {
   const phraseGap = 0.15;
 
   for (let phraseIndex = 0; phraseIndex < phrases.length; phraseIndex++) {
-    if (!isStillCurrentSequence(capturedSequenceId)) return;
     for (const key of phrases[phraseIndex]) {
       const buffer = audioBufferByKey.get(key);
       if (!buffer) continue;

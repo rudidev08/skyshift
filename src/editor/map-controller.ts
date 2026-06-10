@@ -1,6 +1,7 @@
 import * as Phaser from "phaser";
 import type { Game } from "../game";
 import type { Nebula } from "../../data/map-types";
+import type { PlacedStation } from "../../data/station-types";
 import { isClickNotDrag } from "../phaser/pointer-input";
 import { Layer } from "../../data/visuals-layers";
 import { getStationBodyRadius, getStationNameLabelOffsetY } from "../phaser/station-visual-bundle";
@@ -27,6 +28,7 @@ type DragTarget =
   | { kind: "zone"; zoneIndex: number };
 
 interface MapEditorControls {
+  editableStations: PlacedStation[];
   editableNebulas: Nebula[];
   statusText: HTMLElement;
   viewButton: HTMLButtonElement;
@@ -242,6 +244,17 @@ export class MapEditorController {
     stationData.x = nextX;
     stationData.y = nextY;
 
+    // Write through to the shared editable state so simulation runs and
+    // unsaved-edit checks see the move. Match by id, not index — the live
+    // editor sim can append placeBuild stations to `scene.stations`, so scene
+    // index and editable index diverge; those sim-built stations have no
+    // editable entry and stay scene-only.
+    const editableStation = this.controls.editableStations.find((station) => station.id === stationData.id);
+    if (editableStation) {
+      editableStation.x = nextX;
+      editableStation.y = nextY;
+    }
+
     bundle.baseImage.setPosition(nextX, nextY);
     bundle.overlayImage.setPosition(nextX, nextY);
     bundle.iconImage.setPosition(nextX, nextY);
@@ -249,6 +262,8 @@ export class MapEditorController {
     bundle.ringImage.setPosition(nextX, nextY);
   }
 
+  /** Scene-only: MapEditorState has no editable zone source, so zone moves
+   *  are lost on the next remount and never reach simulation runs. */
   private moveZone(zoneIndex: number, nextX: number, nextY: number) {
     const zoneVisualBundle = this.scene.stationZoneVisualBundles[zoneIndex];
     zoneVisualBundle.zone.x = nextX;

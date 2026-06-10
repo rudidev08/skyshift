@@ -46,7 +46,7 @@ function collectCluster(seed: Station, ungrouped: Set<Station>, maxDistance: num
 
 /** Average position of HUB's largest station cluster - its core. `producing` is
  *  non-empty whenever HUB is ranked, so the cluster is non-empty. */
-function hubClusterCentre(producing: Station[], sectorSize: number): { x: number; y: number } {
+function hubClusterCenter(producing: Station[], sectorSize: number): { x: number; y: number } {
   const cluster = largestProximityCluster(producing, HUB_CLUSTER_DISTANCE_MULTIPLIER * sectorSize);
   let sumX = 0;
   let sumY = 0;
@@ -82,7 +82,7 @@ function skySortKey(station: Station, map: GameMap): 0 | 1 {
 }
 
 /** Look up a sector by id, throwing if the map lacks it - the ore and bio
- *  centres depend on named sectors that every real map defines. */
+ *  centers depend on named sectors that every real map defines. */
 function requireSector(map: GameMap, sectorId: string): Sector {
   const sector = map.sectors.find((candidate) => candidate.id === sectorId);
   if (!sector) throw new Error(`emigration ranking: sector "${sectorId}" not found`);
@@ -91,7 +91,7 @@ function requireSector(map: GameMap, sectorId: string): Sector {
 
 function rankOreStations(eligible: Station[], _producing: Station[], map: GameMap): Station[] {
   // Hearth is ore's visual home - most asteroid fields render there. Ore builds
-  // across every mineral-rich sector, but its identity centres on Hearth; the
+  // across every mineral-rich sector, but its identity centers on Hearth; the
   // out-of-step measure is distance from Hearth, not the mineral-rich environment.
   const hearth = requireSector(map, "hearth");
   return sortByDistanceDescending(eligible, hearth.x, hearth.y);
@@ -100,7 +100,7 @@ function rankOreStations(eligible: Station[], _producing: Station[], map: GameMa
 function rankBioStations(eligible: Station[], _producing: Station[], map: GameMap): Station[] {
   // The Overgrowth/Green Silence midpoint is bio's visual home - the celestial
   // tree sits there. Bio builds across every bio-nebula sector, but its identity
-  // centres on that landmark, not the bio-nebula environment.
+  // centers on that landmark, not the bio-nebula environment.
   const overgrowth = requireSector(map, "overgrowth");
   const greenSilence = requireSector(map, "green-silence");
   return sortByDistanceDescending(
@@ -111,8 +111,8 @@ function rankBioStations(eligible: Station[], _producing: Station[], map: GameMa
 }
 
 function rankHubStations(eligible: Station[], producing: Station[], map: GameMap): Station[] {
-  const centre = hubClusterCentre(producing, map.sectorSize);
-  return sortByDistanceDescending(eligible, centre.x, centre.y);
+  const center = hubClusterCenter(producing, map.sectorSize);
+  return sortByDistanceDescending(eligible, center.x, center.y);
 }
 
 function rankFarStations(eligible: Station[], producing: Station[], _map: GameMap): Station[] {
@@ -140,14 +140,17 @@ const rankingByNation: Record<BuildingNationId, EmigrationRanking> = {
 };
 
 /** Rank a nation's eligible stations most-likely-to-emigrate first. `producing`
- *  is the nation's full producing roster - HUB's cluster centre and FAR's
+ *  is the nation's full producing roster - HUB's cluster center and FAR's
  *  nearest-sibling measure span it; `eligible` is the post-guard subset that is
- *  actually ranked and returned. */
+ *  actually ranked and returned. Throws for a nation without a ranking — every
+ *  emigration-participating nation must be registered in `rankingByNation`. */
 export function rankStationsForEmigration(
-  nationId: BuildingNationId,
+  nationId: string,
   eligible: Station[],
   producing: Station[],
   map: GameMap,
 ): Station[] {
-  return rankingByNation[nationId](eligible, producing, map);
+  const ranking = (rankingByNation as Record<string, EmigrationRanking | undefined>)[nationId];
+  if (!ranking) throw new Error(`No emigration ranking for nation ${nationId}`);
+  return ranking(eligible, producing, map);
 }

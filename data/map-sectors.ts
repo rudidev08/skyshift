@@ -255,7 +255,7 @@ export const sectors: SectorTemplate[] = [
     name: "Void of Safety",
     gridX: 1,
     gridY: 4,
-    environment: "frontier",
+    environment: "deep-space",
     lore: sectorLore.VOID_OF_SAFETY,
   },
   {

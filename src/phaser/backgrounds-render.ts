@@ -17,7 +17,6 @@ import nebulaVoid2Url from "../assets/backgrounds/nebula-void2.png";
 import nebulaPurple1Url from "../assets/backgrounds/nebula-purple1.png";
 import nebulaPurple2Url from "../assets/backgrounds/nebula-purple2.png";
 import nebulaDust1Url from "../assets/backgrounds/nebula-dust1.png";
-import nebulaDust2Url from "../assets/backgrounds/nebula-dust2.png";
 import nebulaOvergrowthUrl from "../assets/backgrounds/nebula-overgrowth.png";
 import darkNebulaSUrl from "../assets/backgrounds/dark-nebula-density-s.png";
 import darkNebulaMUrl from "../assets/backgrounds/dark-nebula-density-m.png";
@@ -38,7 +37,6 @@ const backgroundTextures: ReadonlyArray<readonly [string, string]> = [
   ["nebula-purple1", nebulaPurple1Url],
   ["nebula-purple2", nebulaPurple2Url],
   ["nebula-dust1", nebulaDust1Url],
-  ["nebula-dust2", nebulaDust2Url],
   ["nebula-overgrowth", nebulaOvergrowthUrl],
   ["dark-nebula-density-s", darkNebulaSUrl],
   ["dark-nebula-density-m", darkNebulaMUrl],
@@ -56,23 +54,28 @@ export interface BackgroundVisualBundle {
   nebulaImages: Phaser.GameObjects.Image[];
 }
 
+/** Center the star tile on the canvas, oversized so its edges stay outside the
+ *  viewport at the furthest zoom-out — without the oversize, zooming out
+ *  reveals the tile boundary. Runs at create and again on every canvas resize. */
+function coverCanvasWithStarLayer(scene: Scene, starLayer: Phaser.GameObjects.TileSprite): void {
+  const maxCover = 1 / starfieldOversizeZoomFloor;
+  starLayer.setPosition(scene.scale.width / 2, scene.scale.height / 2);
+  starLayer.setSize(scene.scale.width * maxCover, scene.scale.height * maxCover);
+}
+
 function createParallaxStarLayer(
   scene: Scene,
   textureKey: string,
   layer: (typeof Layer)[keyof typeof Layer],
 ): Phaser.GameObjects.TileSprite {
-  const width = scene.scale.width;
-  const height = scene.scale.height;
-  // Oversize the star tile so its edges stay outside the viewport at the
-  // furthest zoom-out. Without this, zooming out reveals the tile boundary.
-  const maxCover = 1 / starfieldOversizeZoomFloor;
   const tileScale = backgroundConfig.tileScale;
-
-  return scene.add
-    .tileSprite(width / 2, height / 2, width * maxCover, height * maxCover, textureKey)
+  const starLayer = scene.add
+    .tileSprite(0, 0, 1, 1, textureKey)
     .setScrollFactor(0)
     .setDepth(layer)
     .setTileScale(tileScale, tileScale);
+  coverCanvasWithStarLayer(scene, starLayer);
+  return starLayer;
 }
 
 function createStarfieldTileSprites(scene: Scene): {
@@ -81,6 +84,18 @@ function createStarfieldTileSprites(scene: Scene): {
 } {
   const starsFar = createParallaxStarLayer(scene, "stars-far", Layer.BackgroundStarsFar);
   const starsNear = createParallaxStarLayer(scene, "stars-near", Layer.BackgroundStarsNear);
+
+  // Scale.RESIZE mode grows the canvas with the window — re-cover it, or a
+  // window grown past its creation size shows the tile edges at far zoom-out.
+  const onResize = () => {
+    coverCanvasWithStarLayer(scene, starsFar);
+    coverCanvasWithStarLayer(scene, starsNear);
+  };
+  scene.scale.on("resize", onResize);
+  const detachResize = () => scene.scale.off("resize", onResize);
+  scene.events.once("shutdown", detachResize);
+  scene.events.once("destroy", detachResize);
+
   return { starsFar, starsNear };
 }
 

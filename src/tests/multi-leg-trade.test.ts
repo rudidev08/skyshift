@@ -1,4 +1,11 @@
-import { test, assertEqual, assertTrue, assertNotUndefined, assertActionType } from "./test-utils.ts";
+import {
+  test,
+  assertEqual,
+  assertTrue,
+  assertNotNull,
+  assertNotUndefined,
+  assertActionType,
+} from "./test-utils.ts";
 import { type Simulation } from "../sim-lifecycle.ts";
 import { createSettledSimulation } from "./sim-test-fixtures.ts";
 import { startTrip } from "../sim-trade-queue.ts";
@@ -332,10 +339,6 @@ test("save mid-flight: ship.flight survives roundtrip and the queue tail remains
   // we pin the mid-flight observable shape that a snapshot captures.
   const simulation = createSettledSimulation();
   const { ship, legs } = requireNaturalTrip(simulation);
-  if (legs.length === 0) {
-    simulation.tradeManager.destroy();
-    return;
-  }
 
   startTrip(ship, legs, simulation.tradeManager);
 
@@ -364,12 +367,9 @@ test("queue handles 1-leg trips: home dock → withdrawal → fly → target doc
   // pieces: one home withdrawal, one target deposit, no home deposit.
   const simulation = createSettledSimulation();
   const { ship, legs } = requireNaturalTrip(simulation);
-  if (legs.length !== 1) {
-    // Skip if the natural trip happens to be 2-leg (currently impossible with
-    // current data, but future-proof).
-    simulation.tradeManager.destroy();
-    return;
-  }
+  // Natural trips are 1-leg with the current data files (no 2-cycles — see the
+  // file header). Assert loudly so fixture drift can't skip the test silently.
+  assertEqual(legs.length, 1, "natural trip on the settled fixture is 1-leg");
 
   startTrip(ship, legs, simulation.tradeManager);
 
@@ -396,11 +396,7 @@ test("1-leg sell trip: no trailing home-dock wait when there are no home deposit
     simulation,
     (ship, legs) => legs.length === 1 && legs[0].fromStation.id === ship.homeStationId,
   );
-  if (!candidate) {
-    simulation.tradeManager.destroy();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = assertNotNull(candidate, "1-leg sell trip available on the settled fixture");
 
   startTrip(ship, legs, simulation.tradeManager);
 
@@ -430,11 +426,7 @@ test("1-leg buy trip: outbound fly leaves from orbit (no home cargo to load → 
     simulation,
     (ship, legs) => legs.length === 1 && legs[0].fromStation.id !== ship.homeStationId,
   );
-  if (!candidate) {
-    simulation.tradeManager.destroy();
-    return;
-  }
-  const { ship, legs } = candidate;
+  const { ship, legs } = assertNotNull(candidate, "1-leg buy trip available on the settled fixture");
 
   startTrip(ship, legs, simulation.tradeManager);
 
@@ -447,15 +439,13 @@ test("1-leg buy trip: outbound fly leaves from orbit (no home cargo to load → 
       break;
     }
   }
-  assertNotUndefined(firstInterStationFly, "buy trip has an outbound inter-station fly");
-  if (firstInterStationFly && firstInterStationFly.type === "fly") {
-    assertEqual(
-      firstInterStationFly.origin.surfaceOrOrbit,
-      "orbit",
-      "outbound fly leaves from orbit when no home cargo to load",
-    );
-    assertEqual(firstInterStationFly.origin.stationId, ship.homeStationId, "outbound fly leaves from home");
-  }
+  const outboundFly = assertNotNull(firstInterStationFly, "buy trip has an outbound inter-station fly");
+  assertEqual(
+    outboundFly.origin.surfaceOrOrbit,
+    "orbit",
+    "outbound fly leaves from orbit when no home cargo to load",
+  );
+  assertEqual(outboundFly.origin.stationId, ship.homeStationId, "outbound fly leaves from home");
 
   simulation.tradeManager.destroy();
 });

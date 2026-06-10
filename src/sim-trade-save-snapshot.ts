@@ -49,7 +49,6 @@ export function tradeShipToSnapshot(tradeShip: TradeShip): TradeShipSnapshot {
       amount: reservation.amount,
       cargoDirection: reservation.cargoDirection,
     })),
-    lastFlightHeadingRadians: tradeShip.lastFlightHeadingRadians,
     idleSinceTradeTimeSeconds: tradeShip.idleSinceTradeTimeSeconds,
   };
 }
@@ -71,7 +70,6 @@ export function tradeShipFromSnapshot(snapshot: TradeShipSnapshot, context: Snap
     targetStationId: snapshot.targetStationId,
     tradeDirection: snapshot.tradeDirection,
     reservations: reservationsFromSnapshot(snapshot.reservations, context),
-    lastFlightHeadingRadians: snapshot.lastFlightHeadingRadians,
     idleSinceTradeTimeSeconds: snapshot.idleSinceTradeTimeSeconds,
   };
 }

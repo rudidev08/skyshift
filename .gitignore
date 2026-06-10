@@ -7,5 +7,6 @@ build
 .opencode
 .codex
 **/worktrees/
+*.local
 *.local.*
 *.local/

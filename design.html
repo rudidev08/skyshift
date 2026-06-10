@@ -9,7 +9,21 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Skyshift" />
-    <title>Skyshift — UI Design</title>
+    <meta
+      name="description"
+      content="The Skyshift interface system: color tokens, typography, and reusable components shown in one reference."
+    />
+    <title>Skyshift: UI Design</title>
+    <!-- Open Graph — how the link unfurls when shared (iMessage, Slack, Discord, Facebook, etc.). -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Skyshift" />
+    <meta property="og:title" content="Skyshift: UI Design" />
+    <meta property="og:description" content="The Skyshift interface system: color tokens, typography, and reusable components shown in one reference." />
+    <meta property="og:url" content="https://skyshift.rudidev.com/design.html" />
+    <meta property="og:image" content="https://skyshift.rudidev.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Skyshift — five nations trade, build, and emigrate across a cluster of space stations" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -20,6 +34,7 @@
        so an inline block here would lose the cascade. -->
     <link rel="stylesheet" href="ui-design.css" />
     <script type="module">
+      import { inject } from "@vercel/analytics";
       import {
         Grid2x2,
         Volume2,
@@ -44,6 +59,11 @@
       import { bioNation, hubNation, oreNation, skyNation, farNation, wayNation } from "/data/nations.ts";
       import { getShipHudIcon, getStationHudIcon, getSectorHudIcon } from "/src/render-hud-icon.ts";
       import { morseBarGradient } from "/src/render-morse-bar.ts";
+      import { isDevModeEnabled } from "/src/util-devmode.ts";
+
+      if (!isDevModeEnabled()) {
+        inject({ scriptSrc: "/api/telemetry.js" });
+      }
 
       const icons = {
         Grid2x2,
@@ -506,8 +526,7 @@
 
         <h3 class="showcase-subhead">Section bands</h3>
         <div style="display: flex; flex-direction: column; gap: 6px; max-width: 320px">
-          <div class="section-band">» Section header</div>
-          <div class="section-band">// Mode</div>
+          <div class="section-band">// Section header</div>
           <div class="section-band">Producing</div>
         </div>
 
@@ -1130,9 +1149,9 @@
                   <div class="cargo-note">
                     <span class="cargo-note-label">Route</span>
                     <div class="cargo-note-value">
-                      <b><span style="color: #0069b3">HUB</span>&nbsp;Iron Gate</b>
+                      <b><span style="color: var(--nation-hub)">HUB</span>&nbsp;Iron Gate</b>
                       <span class="cargo-note-dim">to</span><br /><b
-                        ><span style="color: #0069b3">HUB</span>&nbsp;Far Theorem</b
+                        ><span style="color: var(--nation-hub)">HUB</span>&nbsp;Far Theorem</b
                       >
                     </div>
                   </div>
@@ -1199,9 +1218,9 @@
                   <div class="cargo-note">
                     <span class="cargo-note-label">Route</span>
                     <div class="cargo-note-value">
-                      <b><span style="color: #b36100">ORE</span>&nbsp;Ironvein</b>
+                      <b><span style="color: var(--nation-ore)">ORE</span>&nbsp;Ironvein</b>
                       <span class="cargo-note-dim">to</span><br /><b
-                        ><span style="color: #4caf50">BIO</span>&nbsp;Bloomreach</b
+                        ><span style="color: var(--nation-bio)">BIO</span>&nbsp;Bloomreach</b
                       >
                     </div>
                   </div>
@@ -1235,9 +1254,9 @@
                   <div class="cargo-note">
                     <span class="cargo-note-label">Route</span>
                     <div class="cargo-note-value">
-                      <b><span style="color: #00f9ff">SKY</span>&nbsp;Faint Echo</b>
+                      <b><span style="color: var(--nation-sky)">SKY</span>&nbsp;Faint Echo</b>
                       <span class="cargo-note-dim">to</span><br /><b
-                        ><span style="color: #00f9ff">SKY</span>&nbsp;Drifthollow</b
+                        ><span style="color: var(--nation-sky)">SKY</span>&nbsp;Drifthollow</b
                       >
                     </div>
                   </div>
@@ -1337,15 +1356,15 @@
                 </div>
                 <div class="nations-pane">
                   <div class="hud-segment hud-segment--row nation-tabs">
-                    <button class="hud-btn is-on" style="--nation-accent: #0069b3">HUB</button>
-                    <button class="hud-btn" style="--nation-accent: #4caf50">BIO</button>
-                    <button class="hud-btn" style="--nation-accent: #b36100">ORE</button>
-                    <button class="hud-btn" style="--nation-accent: #00f9ff">SKY</button>
-                    <button class="hud-btn" style="--nation-accent: #e8c840">FAR</button>
-                    <button class="hud-btn" style="--nation-accent: #808080">WAY</button>
+                    <button class="hud-btn is-on" style="--nation-accent: var(--nation-hub)">HUB</button>
+                    <button class="hud-btn" style="--nation-accent: var(--nation-bio)">BIO</button>
+                    <button class="hud-btn" style="--nation-accent: var(--nation-ore)">ORE</button>
+                    <button class="hud-btn" style="--nation-accent: var(--nation-sky)">SKY</button>
+                    <button class="hud-btn" style="--nation-accent: var(--nation-far)">FAR</button>
+                    <button class="hud-btn" style="--nation-accent: var(--nation-way)">WAY</button>
                   </div>
                   <div class="nations-pane-cards">
-                    <div class="nation-card" style="--nation-accent: #0069b3">
+                    <div class="nation-card" style="--nation-accent: var(--nation-hub)">
                       <div class="id-header">
                         <div class="id-title">
                           <div class="id-name">Hub-Cluster Alliance</div>
@@ -1383,7 +1402,7 @@
               <span class="num">08-B</span> &nbsp;NATION CARDS · IDLE STATES
             </div>
             <div style="width: 280px">
-              <div class="nation-card" style="--nation-accent: #0069b3">
+              <div class="nation-card" style="--nation-accent: var(--nation-hub)">
                 <div class="id-header">
                   <div class="id-title">
                     <div class="id-name">Hub-Cluster Alliance</div>
@@ -1404,7 +1423,7 @@
                 </div>
               </div>
 
-              <div class="nation-card" style="--nation-accent: #4caf50">
+              <div class="nation-card" style="--nation-accent: var(--nation-bio)">
                 <div class="id-header">
                   <div class="id-title">
                     <div class="id-name">Bio-Annex</div>
@@ -1425,7 +1444,7 @@
                 </div>
               </div>
 
-              <div class="nation-card" style="--nation-accent: #b36100">
+              <div class="nation-card" style="--nation-accent: var(--nation-ore)">
                 <div class="id-header">
                   <div class="id-title">
                     <div class="id-name">20th Mining Fleet</div>
@@ -1445,7 +1464,7 @@
                 </div>
               </div>
 
-              <div class="nation-card" style="--nation-accent: #00f9ff">
+              <div class="nation-card" style="--nation-accent: var(--nation-sky)">
                 <div class="id-header">
                   <div class="id-title">
                     <div class="id-name">Skyshift Cooperative</div>
@@ -1465,7 +1484,7 @@
                 </div>
               </div>
 
-              <div class="nation-card" style="--nation-accent: #e8c840">
+              <div class="nation-card" style="--nation-accent: var(--nation-far)">
                 <div class="id-header">
                   <div class="id-title">
                     <div class="id-name">Farshift Collective</div>
@@ -1488,7 +1507,7 @@
               <!-- WAY · generational-ship carrier; doesn't run a build cycle but
                rides along on the tab strip so the player can inspect it.
                Activity area cycles through three states — see 08-C for the variants. -->
-              <div class="nation-card" style="--nation-accent: #808080">
+              <div class="nation-card" style="--nation-accent: var(--nation-way)">
                 <div class="id-header">
                   <div class="id-title">
                     <div class="id-name">Wayfarer-Ark Transitus</div>
@@ -1519,7 +1538,7 @@
             </div>
             <div style="width: 280px">
               <!-- HUB · building at 45% — sector · station-type · progress -->
-              <div class="nation-card" style="--nation-accent: #0069b3">
+              <div class="nation-card" style="--nation-accent: var(--nation-hub)">
                 <div class="id-header">
                   <div class="id-title">
                     <div class="id-name">Hub-Cluster Alliance</div>
@@ -1548,7 +1567,7 @@
               </div>
 
               <!-- WAY · arriving — no generational ship in the world, cooldown progress -->
-              <div class="nation-card" style="--nation-accent: #808080">
+              <div class="nation-card" style="--nation-accent: var(--nation-way)">
                 <div class="id-header">
                   <div class="id-title">
                     <div class="id-name">Wayfarer-Ark Transitus</div>
@@ -1576,7 +1595,7 @@
               </div>
 
               <!-- WAY · shore leave — generational ship docked, no event in flight -->
-              <div class="nation-card" style="--nation-accent: #808080">
+              <div class="nation-card" style="--nation-accent: var(--nation-way)">
                 <div class="id-header">
                   <div class="id-title">
                     <div class="id-name">Wayfarer-Ark Transitus</div>
@@ -1606,7 +1625,7 @@
               </div>
 
               <!-- WAY · emigration in progress — event active, ships inbound -->
-              <div class="nation-card" style="--nation-accent: #808080">
+              <div class="nation-card" style="--nation-accent: var(--nation-way)">
                 <div class="id-header">
                   <div class="id-title">
                     <div class="id-name">Wayfarer-Ark Transitus</div>
@@ -1643,7 +1662,7 @@
             </div>
             <div style="width: 280px">
               <div class="stack-label">// SKY contracting BIO &middot; habitat</div>
-              <div class="nation-card" style="--nation-accent: #00f9ff">
+              <div class="nation-card" style="--nation-accent: var(--nation-sky)">
                 <div class="id-header">
                   <div class="id-title">
                     <div class="id-name">Skyshift Cooperative</div>
@@ -1902,7 +1921,7 @@
 
                   <!-- Mode selector (Auto / Manual) -->
                   <div class="ware-section">
-                    <div class="ware-section-label ware-section-label--settings">» Mode</div>
+                    <div class="ware-section-label ware-section-label--settings">// Mode</div>
                     <div class="hud-segment hud-segment--row">
                       <button class="hud-btn is-on">Auto</button>
                       <button class="hud-btn">Manual</button>
@@ -1914,7 +1933,7 @@
 
                   <!-- Stations to emigrate (25% / 50% / 75%) -->
                   <div class="ware-section">
-                    <div class="ware-section-label ware-section-label--settings">» Share</div>
+                    <div class="ware-section-label ware-section-label--settings">// Share</div>
                     <div class="hud-segment hud-segment--row">
                       <button class="hud-btn">25%</button>
                       <button class="hud-btn is-on">50%</button>
@@ -1947,7 +1966,7 @@
 
                   <!-- Mode selector (Auto / Manual) -->
                   <div class="ware-section">
-                    <div class="ware-section-label ware-section-label--settings">» Mode</div>
+                    <div class="ware-section-label ware-section-label--settings">// Mode</div>
                     <div class="hud-segment hud-segment--row">
                       <button class="hud-btn">Auto</button>
                       <button class="hud-btn is-on">Manual</button>
@@ -1959,7 +1978,7 @@
 
                   <!-- Stations to emigrate (25% / 50% / 75%) -->
                   <div class="ware-section">
-                    <div class="ware-section-label ware-section-label--settings">» Share</div>
+                    <div class="ware-section-label ware-section-label--settings">// Share</div>
                     <div class="hud-segment hud-segment--row">
                       <button class="hud-btn">25%</button>
                       <button class="hud-btn">50%</button>
@@ -1972,7 +1991,7 @@
 
                   <!-- Manual trigger · button ready to fire -->
                   <div class="ware-section">
-                    <div class="ware-section-label ware-section-label--settings">» Trigger</div>
+                    <div class="ware-section-label ware-section-label--settings">// Trigger</div>
                     <button class="hud-btn is-on hud-btn--wide">Start emigration</button>
                     <div class="description-text-dim">
                       Encourage station population to board generational ship and emigrate to another cluster.
@@ -2203,17 +2222,17 @@
                       ><span class="log-tail">, no destination needs it, 3 most eligible:</span>
                     </div>
                     <div class="log-sub">
-                      &nbsp;· <span style="color: #4caf50">BIO</span>
+                      &nbsp;· <span style="color: var(--nation-bio)">BIO</span>
                       <span class="log-ware">Bloomreach:</span>
                       <span class="log-num">60.6%</span> (38.4k +14.0k in)
                     </div>
                     <div class="log-sub">
-                      &nbsp;· <span style="color: #0069b3">HUB</span>
+                      &nbsp;· <span style="color: var(--nation-hub)">HUB</span>
                       <span class="log-ware">Far Theorem:</span>
                       <span class="log-num">60.4%</span> (34.8k)
                     </div>
                     <div class="log-sub">
-                      &nbsp;· <span style="color: #0069b3">HUB</span>
+                      &nbsp;· <span style="color: var(--nation-hub)">HUB</span>
                       <span class="log-ware">Last Resolve:</span>
                       <span class="log-num">49.3%</span> (28.4k)
                     </div>
@@ -2226,17 +2245,17 @@
                       ><span class="log-tail">, no producer has surplus, 3 most eligible:</span>
                     </div>
                     <div class="log-sub">
-                      &nbsp;· <span style="color: #b36100">ORE</span>
+                      &nbsp;· <span style="color: var(--nation-ore)">ORE</span>
                       <span class="log-ware">Dustrock:</span>
                       <span class="log-num">48.4%</span> (83.6k)
                     </div>
                     <div class="log-sub">
-                      &nbsp;· <span style="color: #b36100">ORE</span>
+                      &nbsp;· <span style="color: var(--nation-ore)">ORE</span>
                       <span class="log-ware">Ironvein:</span>
                       <span class="log-num">43.6%</span> (50.3k -10.0k out)
                     </div>
                     <div class="log-sub">
-                      &nbsp;· <span style="color: #b36100">ORE</span>
+                      &nbsp;· <span style="color: var(--nation-ore)">ORE</span>
                       <span class="log-ware">Deepvein:</span>
                       <span class="log-num">41.6%</span> (71.9k)
                     </div>
@@ -2271,15 +2290,15 @@
             <div class="landing-caption">
               <div>// FIVE NATIONS <b>TRADE · BUILD · EMIGRATE</b></div>
               <div class="codes">
-                <span style="color: #4caf50">BIO</span>
+                <span style="color: var(--nation-bio)">BIO</span>
                 <span class="sep">·</span>
-                <span style="color: #0069b3">HUB</span>
+                <span style="color: var(--nation-hub)">HUB</span>
                 <span class="sep">·</span>
-                <span style="color: #b36100">ORE</span>
+                <span style="color: var(--nation-ore)">ORE</span>
                 <span class="sep">·</span>
-                <span style="color: #00f9ff">SKY</span>
+                <span style="color: var(--nation-sky)">SKY</span>
                 <span class="sep">·</span>
-                <span style="color: #e8c840">FAR</span>
+                <span style="color: var(--nation-far)">FAR</span>
               </div>
             </div>
           </div>
@@ -2343,13 +2362,13 @@
             </div>
             <div class="settings-modal id-card">
               <div class="settings-head">
-                <span>Settings</span>
+                <span>Settings <span class="settings-build-date">build 2024-05-02</span></span>
                 <button class="settings-close hud-btn hud-btn-icon" aria-label="Close">
                   <span data-icon="X"></span>
                 </button>
               </div>
               <div class="settings-section">
-                <h3>» View</h3>
+                <h3>// View</h3>
                 <div class="settings-row">
                   <span class="settings-row-label">Show sector grid</span>
                   <div class="hud-segment">
@@ -2360,7 +2379,7 @@
                 </div>
               </div>
               <div class="settings-section">
-                <h3>» Audio</h3>
+                <h3>// Audio</h3>
                 <div class="settings-row">
                   <span class="settings-row-label">Announce station and ship names</span>
                   <button class="hud-btn is-on" aria-pressed="true">
@@ -2369,7 +2388,7 @@
                 </div>
               </div>
               <div class="settings-section">
-                <h3>» Browser Savegame</h3>
+                <h3>// Browser Savegame</h3>
                 <div class="slot-list">
                   <button type="button" class="slot-row">
                     <span class="slot-num slot-num--manual">M1</span>
@@ -2407,7 +2426,7 @@
                 </div>
               </div>
               <div class="settings-section">
-                <h3>» File Savegame</h3>
+                <h3>// File Savegame</h3>
                 <div class="settings-actions">
                   <button class="hud-btn">Download</button>
                   <button class="hud-btn">Restore</button>

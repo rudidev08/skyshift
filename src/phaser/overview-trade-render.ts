@@ -17,7 +17,6 @@ const ARROW_HALF_WIDTH_PIXELS =
 
 /** "none" suppresses the green overlay and green station rings; baseline lines still render. */
 export type WareSelection = WareId | "none";
-export const NONE = "none";
 
 export interface StationPosition {
   id: string;
@@ -446,7 +445,7 @@ export function createTradeRouteRender(scene: Scene): TradeRouteRender {
   ): void {
     clear();
 
-    const highlightWare = selectedWare === NONE ? null : selectedWare;
+    const highlightWare = selectedWare === "none" ? null : selectedWare;
     const { greenStations, greenRouteKeys } = computeGreenSelectionSets(routes, highlightWare);
 
     // Dim the gray baseline only while a ware is selected, so the green accent

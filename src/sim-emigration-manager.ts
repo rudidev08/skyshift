@@ -183,7 +183,12 @@ export class EmigrationManager {
     if (this.activeEvent !== null) return;
     if (this.nextGenerationalShipArrivalAtSeconds !== null) return;
     if (emptyZoneCount(this.map, this.stationManager) > this.autoTriggerThreshold) return;
-    this.triggerEvent({ intensity: this.intensity });
+    if (this.triggerEvent({ intensity: this.intensity }) === null) {
+      // The only toast reader is the manual-trigger click handler — drop a
+      // failed auto attempt's message so it can't surface stale on a later
+      // manual trigger.
+      this.pendingToast = null;
+    }
   }
 
   /** Fire an emigration event; returns null if nothing eligible. */
@@ -487,8 +492,9 @@ export class EmigrationManager {
     // At this point StationManager.seed has NOT yet happened (Game.create
     // seeds it after restoreSavedGame returns), so syncStationCaches cannot resolve
     // stations through this.stationManager. progressFraction / arrivalFraction
-    // stay at their snapshotted values until the first slow simulation tick re-runs
-    // syncStationCaches with seeded managers.
+    // restore as 0 (snapshots exclude them — see emigrationFromSnapshot /
+    // generationalShipBuildFromSnapshot in sim-station.ts) until the first slow
+    // simulation tick re-runs syncStationCaches with seeded managers.
   }
 
   /** Tear down the manager — clear in-memory state and unwire the

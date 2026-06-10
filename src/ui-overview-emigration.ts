@@ -78,21 +78,21 @@ function fillEmigrationSidebar(sidebar: HTMLElement): void {
     <div class="ware-sidebar-head">Emigration</div>
     <div class="ware-sidebar-blurb">Stations send their crew to the generational ship, which emigrates beyond the charts — freeing sectors for new settlement.</div>
     <div class="ware-section">
-      <div class="ware-section-label ware-section-label--settings">» Mode</div>
+      <div class="ware-section-label ware-section-label--settings">// Mode</div>
       <div class="hud-segment hud-segment--row">
         ${segmentButtonsHtml("set-mode", MODE_OPTIONS)}
       </div>
       <div class="description-text-dim" data-role="mode-description"></div>
     </div>
     <div class="ware-section">
-      <div class="ware-section-label ware-section-label--settings">» Share</div>
+      <div class="ware-section-label ware-section-label--settings">// Share</div>
       <div class="hud-segment hud-segment--row">
         ${segmentButtonsHtml("set-intensity", INTENSITY_OPTIONS)}
       </div>
       <div class="description-text-dim">Percentage of stations that will start emigrating out of the cluster.</div>
     </div>
     <div class="ware-section" data-role="trigger-section" hidden>
-      <div class="ware-section-label ware-section-label--settings">» Trigger</div>
+      <div class="ware-section-label ware-section-label--settings">// Trigger</div>
       <button data-action="trigger" class="hud-btn hud-btn--wide">Start emigration</button>
       <div class="description-text-dim" data-role="eligibility"></div>
     </div>

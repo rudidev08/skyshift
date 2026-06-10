@@ -159,6 +159,12 @@ function indexInventoryByWareId(inventory: InventorySlot[]): Map<WareId, Invento
   return inventoryByWareId;
 }
 
+/** A sink ware: consumed through a recipe but with no output buffer of its own
+ *  (production output 0, with inputs). createStation builds no output slot for it. */
+function isSinkWithInputs(ware: WareTemplate): boolean {
+  return ware.productionOutput === 0 && ware.productionInputs.length > 0;
+}
+
 /** Append the production-output slot for `ware` unless it's a sink-with-inputs
  *  (output 0 with input recipe — inputs-only, no output buffer). */
 function pushOutputSlotIfProducing(
@@ -167,9 +173,7 @@ function pushOutputSlotIfProducing(
   sizeMultiplier: number,
   starterFillRatio: number,
 ): void {
-  const inputs = ware.productionInputs;
-  const isSinkWithInputs = ware.productionOutput === 0 && inputs.length > 0;
-  if (isSinkWithInputs) return;
+  if (isSinkWithInputs(ware)) return;
   const max = Math.floor(getWareOutputStorage(ware) * sizeMultiplier);
   inventory.push(createInventorySlot(ware, Math.floor(max * starterFillRatio), max));
 }
@@ -203,6 +207,20 @@ export function createStation(placement: PlacedStation, starterFillRatio: number
   inventory.sort((leftSlot, rightSlot) => sortWares(leftSlot.ware, rightSlot.ware));
 
   return finalizeStation(placement, stationType, inventory);
+}
+
+/** The exact set of ware ids `createStation` builds inventory slots for: each
+ *  produced ware (minus a sink-with-inputs' own output) plus every recipe input
+ *  ware. The save validator checks restored slots against this set, so sharing
+ *  the one derivation keeps the two from drifting. */
+export function stationTypeInventoryWareIds(stationType: StationTypeTemplate): Set<WareId> {
+  const wareIds = new Set<WareId>();
+  for (const wareId of stationType.produces) {
+    const ware = getWareTemplate(wareId);
+    if (!isSinkWithInputs(ware)) wareIds.add(ware.id);
+    for (const input of ware.productionInputs) wareIds.add(input.wareId);
+  }
+  return wareIds;
 }
 
 function stationBuildToSnapshot(build: StationBuild): StationBuildSnapshot {

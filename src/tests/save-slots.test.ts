@@ -7,6 +7,7 @@ import {
   listSlots,
   readSlotSummary,
   findLatestSave,
+  findCorruptSlot,
 } from "../storage-save-slots.ts";
 import { createMapBackedStorage } from "./local-storage-test-fixtures.ts";
 
@@ -233,4 +234,42 @@ test("findLatestSave skips empty slots when picking the latest", () => {
   if (!latest) throw new Error("expected the populated A2 slot");
   assertEqual(latest.kind, "auto", "auto kind preserved");
   assertEqual(latest.index, 2, "A2 picked even though earlier slots are empty");
+});
+
+test("findCorruptSlot reports an occupied slot whose JSON can't be parsed", () => {
+  // A blob findLatestSave can't rank (unparseable → savedAtMilliseconds null)
+  // must still be discoverable, so /universe can surface its load error instead
+  // of treating the save as absent and silently bouncing to the landing.
+  store.clear();
+  store.set(saveSlotKey("auto", 2), "not json {{{");
+  const corrupt = findCorruptSlot();
+  if (!corrupt) throw new Error("expected the corrupt A2 slot to be reported");
+  assertEqual(corrupt.kind, "auto", "corrupt slot kind");
+  assertEqual(corrupt.index, 2, "corrupt slot index");
+});
+
+test("findCorruptSlot reports a parseable slot with wrong-typed breadcrumb fields", () => {
+  // parseSlotSummaryFields rejects the whole summary on a wrong-typed field,
+  // which also hides the slot from findLatestSave — same silent-bounce hole as
+  // unparseable JSON, so it must be reported the same way.
+  store.clear();
+  store.set(saveSlotKey("manual", 3), JSON.stringify({ savedAtMilliseconds: "yesterday" }));
+  const corrupt = findCorruptSlot();
+  if (!corrupt) throw new Error("expected the wrong-typed M3 slot to be reported");
+  assertEqual(corrupt.kind, "manual", "corrupt slot kind");
+  assertEqual(corrupt.index, 3, "corrupt slot index");
+});
+
+test("findCorruptSlot returns null when every slot is empty", () => {
+  store.clear();
+  assertEqual(findCorruptSlot(), null, "no content anywhere → null");
+});
+
+test("findCorruptSlot ignores slots with readable summaries", () => {
+  // Healthy saves are findLatestSave's business; reporting one here would make
+  // /universe's `findLatestSave() ?? findCorruptSlot()` fallback unreachable
+  // nonsense — only breadcrumb-unreadable content qualifies as corrupt.
+  store.clear();
+  seedSlot("manual", 1, 1000);
+  assertEqual(findCorruptSlot(), null, "valid save is not corrupt");
 });

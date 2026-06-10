@@ -6,7 +6,8 @@ import type { Game } from "./game";
 import type { GameSnapshot } from "./sim-save-types";
 import { Simulation, createShipsForStations } from "./sim-lifecycle";
 import { restoreSavedGame } from "./ui-savegame-manager";
-import { assignStationNames } from "./sim-name-pool";
+import { assignStationNames, type NamePool } from "./sim-name-pool";
+import type { Ship } from "./sim-ships";
 import {
   createShipVisualBundle,
   destroyShipVisualBundle,
@@ -15,7 +16,7 @@ import {
 import { createStationVisualBundle, type StationVisualBundle } from "./phaser/station-visual-bundle";
 import { createStation } from "./sim-station";
 import type { Station } from "./sim-station-types";
-import { createStationZoneVisualBundles } from "./phaser/station-zone-render";
+import { createStationZoneVisualBundles, setStationZoneOccupied } from "./phaser/station-zone-render";
 import { createAmbientTraffic } from "./phaser/ambient-traffic-render";
 import { createPausedIndicator } from "./ui-game-paused-indicator";
 import { createElapsedTimeLabel } from "./render-elapsed-time-label";
@@ -78,10 +79,34 @@ function setupEntityRenderObservers(game: Game, simulation: Simulation): void {
   });
   simulation.stationManager.onAdd((newStation) => {
     ensureStationRender(game, newStation);
+    setZoneOccupancyForStation(game, newStation, true);
   });
   simulation.stationManager.onRemove((removed) => {
     destroyStationRender(game, removed);
+    setZoneOccupancyForStation(game, removed, false);
   });
+}
+
+/** Sync a zone's visuals with a station claiming or leaving it — stations
+ *  claim zones mid-session (placeBuild) and emigration frees them, and the
+ *  dashed "Unclaimed" icon must not stay painted (or selectable) under a live
+ *  station. Boot seeding and snapshot restore bypass the onAdd observer, so
+ *  both run an explicit pass over their stations. */
+function setZoneOccupancyForStation(game: Game, station: Station, occupiedByStation: boolean): void {
+  if (!station.zoneId) return;
+  const index = game.stationZoneVisualBundles.findIndex(
+    (visualBundle) => visualBundle.zone.id === station.zoneId,
+  );
+  if (index === -1) return;
+  setStationZoneOccupied(
+    game.stationZoneVisualBundles[index],
+    occupiedByStation,
+    game.viewMode.getViewMode() === "zones",
+  );
+  // A selected zone would otherwise keep showing its stale "Unclaimed" dossier.
+  if (occupiedByStation && game.selection.selectedTarget === game.stationZoneSelectionTargets[index]) {
+    game.selection.deselect();
+  }
 }
 
 function createShipVisualBundleContext(game: Game, simulation: Simulation): ShipVisualBundleContext {
@@ -106,16 +131,31 @@ export function createGameSimulationForSnapshot(game: Game, snapshot: GameSnapsh
   // Snapshot already applied; clear the reference so the snapshot can be freed.
   game.initialSnapshot = undefined;
   game.secondsSinceLastAutoSave = 0;
-  // Restored stations already have names — register them so new dynamic spawns don't reuse the same names.
+  // Restored stations and ships already have names — register them so new dynamic spawns don't reuse the same names.
   assignStationNames(simulation.namePool, game.stations);
+  registerRestoredShipNames(simulation.namePool, game.ships);
   simulation.seedRosterForSavedGame(game.stations, game.ships);
-  for (const station of game.stations) ensureStationRender(game, station);
+  for (const station of game.stations) {
+    ensureStationRender(game, station);
+    // Seeding skips the onAdd observer, so claim restored stations' zones here.
+    setZoneOccupancyForStation(game, station, true);
+  }
   const shipContext = createShipVisualBundleContext(game, simulation);
   for (const ship of game.ships) {
     createShipVisualBundle(ship, shipContext);
   }
   game.ambientTraffic = createAmbientTraffic(game, game.stations, game.map.sectorSize);
   return simulation;
+}
+
+/** Reserve + claim each restored ship's name against its nation's pool —
+ *  the ship-side mirror of assignStationNames' predefined-name pass. Restored
+ *  ships always carry names, so nothing is drawn here. */
+export function registerRestoredShipNames(namePool: NamePool, ships: readonly Ship[]): void {
+  for (const ship of ships) {
+    namePool.reservePoolName(ship.station.nation.shipNames, ship.shipName);
+    namePool.claimName(ship.shipName, ship.station.nation);
+  }
 }
 
 /** Seed a fresh universe from the map template. Warmup ticks and initial
@@ -132,6 +172,8 @@ export function createGameSimulationForFreshUniverse(game: Game): Simulation {
   const stationBundleByStation = new Map<Station, StationVisualBundle>();
   for (const station of stations) {
     stationBundleByStation.set(station, createStationVisualBundle(game, station, game.selection));
+    // Seeding skips the onAdd observer, so claim preset stations' zones here.
+    setZoneOccupancyForStation(game, station, true);
   }
   game.stations = stations;
   game.stationBundleByStation = stationBundleByStation;

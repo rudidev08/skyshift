@@ -11,6 +11,10 @@ import { test, assertEqual, assertTrue } from "./test-utils.ts";
 import { makeSector } from "./factories.ts";
 import { createMapBackedStorage } from "./local-storage-test-fixtures.ts";
 
+/** Chainable graphics stub mirroring Phaser's own `visible`/`alpha` field names,
+ *  so tests assert through `sectorGrid.grid.visible` without casts. Serves both
+ *  the hand-built grid records (createFakeSectorGrid) and the scene factory
+ *  (createFakeScene) — setDepth exists only for the scene-created path. */
 class FakeGraphics {
   visible = false;
   alpha = 1;
@@ -31,6 +35,10 @@ class FakeGraphics {
     return this;
   }
 
+  setDepth(): this {
+    return this;
+  }
+
   lineStyle(): this {
     return this;
   }
@@ -48,6 +56,8 @@ class FakeGraphics {
   }
 }
 
+/** Text counterpart of FakeGraphics — setOrigin/setDepth/setLineSpacing exist
+ *  only for the scene-created path. */
 class FakeText {
   visible = false;
   alpha = 1;
@@ -59,6 +69,18 @@ class FakeText {
 
   setAlpha(value: number): this {
     this.alpha = value;
+    return this;
+  }
+
+  setOrigin(): this {
+    return this;
+  }
+
+  setDepth(): this {
+    return this;
+  }
+
+  setLineSpacing(): this {
     return this;
   }
 }
@@ -109,96 +131,9 @@ const sectors: Sector[] = [
   }),
 ];
 
-/** Test-only fields the stubs expose so tests can assert visibility/alpha flips
- *  without coupling to Phaser's internal state. */
-type TrackedGraphics = Phaser.GameObjects.Graphics & { _visible: boolean; _alpha: number };
-type TrackedText = Phaser.GameObjects.Text & { _visible: boolean; _alpha: number };
-
-type GraphicsStub = {
-  _visible: boolean;
-  _alpha: number;
-  setDepth(): GraphicsStub;
-  setVisible(value: boolean): GraphicsStub;
-  setAlpha(value: number): GraphicsStub;
-  clear(): GraphicsStub;
-  lineStyle(): GraphicsStub;
-  moveTo(): GraphicsStub;
-  lineTo(): GraphicsStub;
-  strokePath(): GraphicsStub;
-};
-
-type TextStub = {
-  _visible: boolean;
-  _alpha: number;
-  setOrigin(): TextStub;
-  setDepth(): TextStub;
-  setLineSpacing(): TextStub;
-  setVisible(value: boolean): TextStub;
-  setAlpha(value: number): TextStub;
-};
-
-function createFakeGraphics(): GraphicsStub {
-  const graphics: GraphicsStub = {
-    _visible: true,
-    _alpha: 1,
-    setDepth() {
-      return graphics;
-    },
-    setVisible(value: boolean) {
-      graphics._visible = value;
-      return graphics;
-    },
-    setAlpha(value: number) {
-      graphics._alpha = value;
-      return graphics;
-    },
-    clear() {
-      return graphics;
-    },
-    lineStyle() {
-      return graphics;
-    },
-    moveTo() {
-      return graphics;
-    },
-    lineTo() {
-      return graphics;
-    },
-    strokePath() {
-      return graphics;
-    },
-  };
-  return graphics;
-}
-
-function createFakeText(): TextStub {
-  const text: TextStub = {
-    _visible: true,
-    _alpha: 1,
-    setOrigin() {
-      return text;
-    },
-    setDepth() {
-      return text;
-    },
-    setLineSpacing() {
-      return text;
-    },
-    setVisible(value: boolean) {
-      text._visible = value;
-      return text;
-    },
-    setAlpha(value: number) {
-      text._alpha = value;
-      return text;
-    },
-  };
-  return text;
-}
-
 function createFakeScene(): Phaser.Scene {
   return {
-    add: { graphics: createFakeGraphics, text: createFakeText },
+    add: { graphics: () => new FakeGraphics(), text: () => new FakeText() },
   } as unknown as Phaser.Scene;
 }
 
@@ -338,17 +273,17 @@ test("createSectorGrid setMode 'on' shows the grid + labels at full alpha", () =
     );
 
     // Pre-condition: off mode left grid hidden.
-    assertTrue(!(sectorGrid.grid as unknown as TrackedGraphics)._visible, "off mode hides the grid");
+    assertTrue(!sectorGrid.grid.visible, "off mode hides the grid");
 
     // Pin the on-mode visibility flip. Mutating `if (mode === "on")` to
     // `if (mode === "off")` would route on-mode through the off-mode hide path
     // and leave grid + labels hidden.
     sectorGrid.setMode("on");
-    assertTrue((sectorGrid.grid as unknown as TrackedGraphics)._visible, "on mode reveals the grid");
-    assertEqual((sectorGrid.grid as unknown as TrackedGraphics)._alpha, 1, "on mode pins grid alpha to 1");
+    assertTrue(sectorGrid.grid.visible, "on mode reveals the grid");
+    assertEqual(sectorGrid.grid.alpha, 1, "on mode pins grid alpha to 1");
     for (const label of sectorGrid.sectorLabels) {
-      assertTrue((label as unknown as TrackedText)._visible, "on mode reveals each sector label");
-      assertEqual((label as unknown as TrackedText)._alpha, 1, "on mode pins each label alpha to 1");
+      assertTrue(label.visible, "on mode reveals each sector label");
+      assertEqual(label.alpha, 1, "on mode pins each label alpha to 1");
     }
   });
 });

@@ -260,22 +260,22 @@ function applyDecommissionAction(
   manager.notifyDecommission(event);
 }
 
-/** Append actions and make sure the ship starts executing immediately.
+/** Append actions and make sure the ship starts executing them.
  *
- *  Idle ships need a zero-duration placeholder so advanceQueue's leading-shift
- *  doesn't consume the first appended action — the same one createQueueFromTrip
- *  uses for fresh trips. Ships in flight or mid-action already have a pending
- *  wake-up; idle ships get their timer canceled and rescheduled at 0. */
+ *  Idle ships need a zero-duration wait placeholder so advanceQueue's
+ *  leading-shift doesn't consume the first appended action (createQueueFromTrip
+ *  leads fresh trips with a local-hop fly for the same reason), and their
+ *  pending random-delay timer is replaced with an immediate wake-up. Ships in
+ *  flight or mid-action keep their natural wake-up and run the appended tail
+ *  when their queue reaches it. */
 export function appendActionsToShip(ship: TradeShip, actions: ShipAction[], manager: TradeManager): void {
   if (actions.length === 0) return;
   const isIdle = ship.actionQueue.length === 0 && !manager.activeTradeShips.isInFlight(ship);
-  if (isIdle) {
-    ship.actionQueue.push({ type: "wait", durationSeconds: 0, label: "—" });
+  if (!isIdle) {
+    ship.actionQueue.push(...actions);
+    return;
   }
-  ship.actionQueue.push(...actions);
-  if (manager.activeTradeShips.isInFlight(ship)) return;
-  // Cancel any pending random-delay timer so the appended tail starts on the
-  // next tickTrade call.
+  ship.actionQueue.push({ type: "wait", durationSeconds: 0, label: "—" }, ...actions);
   manager.activeTradeShips.cancelTimersFor(ship);
   manager.activeTradeShips.scheduleTimer(ship, manager.tradeTimeSeconds);
 }
@@ -296,7 +296,6 @@ function startFlight(
     destinationStation: action.destinationStation,
     ship: shipTemplate,
     travelMode: action.travelMode,
-    previousHeadingRadians: ship.lastFlightHeadingRadians,
   });
 }
 
@@ -308,7 +307,6 @@ function resetTradeState(ship: TradeShip, manager: TradeManager): void {
   ship.targetStationId = null;
   ship.tradeDirection = null;
   ship.cargoAmountByWareId.clear();
-  ship.lastFlightHeadingRadians = null;
   ship.idleSinceTradeTimeSeconds = manager.tradeTimeSeconds;
 }
 

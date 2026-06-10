@@ -41,7 +41,11 @@ function placeBuildAtFirstFreeZone(
   simulation: Simulation,
   overrides?: Partial<BuildPlacement>,
 ): { station: Station; ships: Ship[] } {
-  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
+  const freeZones = filterZonesForOccupants(
+    simulation.map.stationZones,
+    simulation.stationManager.getStations(),
+  );
+  const zone = assertNotUndefined(freeZones[0], "free zone");
   return placeBuildAtZone(simulation, zone, overrides);
 }
 
@@ -189,19 +193,14 @@ test("placeBuild: filterZonesForOccupants now hides the build zone", () => {
   // zoneId on the placement would leave the zone showing as buildable while
   // a station sits there.
   const simulation = createSettledSimulation();
-  const zone = assertNotUndefined(simulation.map.stationZones[0], "free zone");
-  // Confirm the zone is in the unoccupied list before placeBuild.
-  assertTrue(
-    simulation.map.stationZones.some((candidate) => candidate.id === zone.id),
-    "zone is in stationZones (unoccupied) before placeBuild",
-  );
-  // Snapshot which zones are unoccupied right before placeBuild — sim init
-  // already placed initial-station builds in some other zones, so the diff
-  // should be exactly the one zone we're about to occupy.
+  // Snapshot which zones are unoccupied right before placeBuild — preset
+  // seeding and sim init already claimed other zones, so the diff should be
+  // exactly the one free zone we're about to occupy.
   const filteredBefore = filterZonesForOccupants(
     simulation.map.stationZones,
     simulation.stationManager.getStations(),
   );
+  const zone = assertNotUndefined(filteredBefore[0], "free zone");
   const beforeFilteredCount = filteredBefore.length;
 
   const { station } = placeBuildAtZone(simulation, zone);

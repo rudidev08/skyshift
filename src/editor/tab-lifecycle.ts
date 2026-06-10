@@ -66,6 +66,7 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
   let mapEditorPhase: MapEditorPhase = "hidden";
   let tabGeneration = 0;
   let mapEditorController: MapEditorController | null = null;
+  let mapEditorMountPromise: Promise<void> | null = null;
 
   function destroyMapEditor() {
     mapEditorController?.destroy();
@@ -125,6 +126,7 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
         selectButton: controls.mapModeSelectButton,
         moveButton: controls.mapModeMoveButton,
         statusText: controls.mapEditorStatusText,
+        editableStations: mapState.editableStations,
         editableNebulas: mapState.editableNebulas,
       });
       if (generation !== tabGeneration || activeTab !== "map") {
@@ -133,11 +135,44 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
         mapEditorPhase = "hidden";
         return;
       }
+      // A preset switch or draft load mid-mount marks the editor stale; the
+      // scene we just built is from the pre-change data, so keep the marker
+      // and let the next map visit remount instead of waking it. (Widened:
+      // TS narrows to "mounting" and can't see the cross-await mutation.)
+      if ((mapEditorPhase as MapEditorPhase) === "stale") return;
       mapEditorPhase = "mounted";
     } catch (error) {
       console.error("Map editor failed to mount:", error);
       mapEditorPhase = "hidden";
     }
+  }
+
+  /** Starts a mount and tracks its promise so re-entries can chain work after
+   *  it settles instead of racing it. */
+  function startMapEditorMount() {
+    const mountPromise = mountMapEditor(tabGeneration).finally(() => {
+      if (mapEditorMountPromise === mountPromise) mapEditorMountPromise = null;
+    });
+    mapEditorMountPromise = mountPromise;
+  }
+
+  /** Stale with no mount in flight tears down and remounts now. Stale while a
+   *  mount IS in flight (a preset switch or draft load raced it, then the user
+   *  tabbed back) must not destroy yet — the shared runtime belongs to the
+   *  in-flight mount, and destroying here would tear down the scene that mount
+   *  is about to finish. Chain the remount to run once it settles. */
+  function remountStaleMapEditor() {
+    if (mapEditorMountPromise) {
+      void mapEditorMountPromise.then(() => {
+        if (activeTab !== "map") return;
+        if (mapEditorPhase !== "stale" && mapEditorPhase !== "hidden") return;
+        destroyMapEditor();
+        startMapEditorMount();
+      });
+      return;
+    }
+    destroyMapEditor();
+    startMapEditorMount();
   }
 
   function refreshVisibleMapEditorLayout() {
@@ -170,18 +205,23 @@ export function createEditorTabLifecycle(dependencies: EditorTabLifecycleDepende
 
   /** Owns the map-editor mount/wake dispatch. Hidden mounts fresh; stale
    *  tears the prior mount down first so the remount picks up changed data;
-   *  mounting in flight relies on its own generation cancellation; mounted
-   *  wakes the existing scene and re-fits the layout. */
+   *  mounting in flight chains this entry's mount behind the one being
+   *  cancelled; mounted wakes the existing scene and re-fits the layout. */
   function enterMapTab() {
     switch (mapEditorPhase) {
       case "hidden":
-        void mountMapEditor(tabGeneration);
+        startMapEditorMount();
         return;
       case "stale":
-        destroyMapEditor();
-        void mountMapEditor(tabGeneration);
+        remountStaleMapEditor();
         return;
       case "mounting":
+        // The in-flight mount belongs to an earlier entry, so its generation
+        // check will cancel it to "hidden" — chain a fresh mount for this one.
+        void mapEditorMountPromise?.then(() => {
+          if (activeTab !== "map" || mapEditorPhase !== "hidden") return;
+          startMapEditorMount();
+        });
         return;
       case "mounted":
         wakeGameRuntime();

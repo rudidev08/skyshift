@@ -1,4 +1,4 @@
-## Compact skill rewriter sample
+## Compress skill sample
 
 ### Target style
 

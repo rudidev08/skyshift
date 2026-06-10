@@ -69,7 +69,6 @@ function makeRouteStatsObserverFixture(idPrefix: string): RouteStatsObserverFixt
     flight: null,
     targetStationId: producer.id,
     tradeDirection: "buy",
-    lastFlightHeadingRadians: null,
     idleSinceTradeTimeSeconds: 0,
     homeStationId: homeStation.id,
     orbitingShipId: orbitingShip.id,

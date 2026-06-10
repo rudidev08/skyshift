@@ -11,6 +11,7 @@ import {
 } from "./sim-save-slots";
 import type { SaveSource } from "./sim-save-types";
 import * as saveError from "../data/strings-save";
+import { readLocalStorage, tryWriteLocalStorage } from "./storage-local";
 
 export interface SlotSummary {
   kind: SlotKind;
@@ -73,7 +74,7 @@ export function readSlotSummary(kind: SlotKind, index: number): SlotSummary {
 }
 
 function readSlotSummaryFields(storageKey: string): SlotSummaryFields | null {
-  const raw = localStorage.getItem(storageKey);
+  const raw = readLocalStorage(storageKey);
   if (!raw) return null;
   try {
     return parseSlotSummaryFields(JSON.parse(raw));
@@ -89,9 +90,11 @@ export function listSlots(): SlotSummary[] {
   return summaries;
 }
 
+export type SavedSlotSummary = SlotSummary & { savedAtMilliseconds: number };
+
 /** Most recently written slot across manual + auto, or null if no saves exist.
  *  Drives the landing page's "Continue saved" CTA. */
-export function findLatestSave(): SlotSummary | null {
+export function findLatestSave(): SavedSlotSummary | null {
   const savedSlots = listSlots().filter(isSavedSlot);
   if (savedSlots.length === 0) return null;
   return savedSlots.reduce((latest, slot) =>
@@ -99,12 +102,24 @@ export function findLatestSave(): SlotSummary | null {
   );
 }
 
-function isSavedSlot(slot: SlotSummary): slot is SlotSummary & { savedAtMilliseconds: number } {
+function isSavedSlot(slot: SlotSummary): slot is SavedSlotSummary {
   return slot.savedAtMilliseconds !== null;
 }
 
+/** First occupied slot whose summary fields can't be read (unparseable JSON or
+ *  wrong-typed breadcrumbs). Such a slot is invisible to findLatestSave's
+ *  ranking, so `/universe` falls back to this to surface the save's load error
+ *  instead of treating it as absent and silently bouncing to the landing. */
+export function findCorruptSlot(): SlotSummary | null {
+  return listSlots().find(isCorruptSlot) ?? null;
+}
+
+function isCorruptSlot(slot: SlotSummary): boolean {
+  return slot.savedAtMilliseconds === null && !!readSlotBlob(slot.kind, slot.index);
+}
+
 export function getNextAutoIndex(): number {
-  const raw = localStorage.getItem(autoSaveNextIndexKey());
+  const raw = readLocalStorage(autoSaveNextIndexKey());
   const parsed = raw ? parseInt(raw, 10) : 1;
   if (parsed >= 1 && parsed <= AUTO_SLOT_COUNT) return parsed;
   return 1;
@@ -114,7 +129,7 @@ export function getNextAutoIndex(): number {
  *  this layer stays snapshot-shape-agnostic so the static landing page can
  *  use it without pulling in the validator. */
 export function readSlotBlob(kind: SlotKind, index: number): string | null {
-  return localStorage.getItem(saveSlotKey(kind, index));
+  return readLocalStorage(saveSlotKey(kind, index));
 }
 
 /** Write a serialized snapshot to a slot, mapping a storage-full failure to
@@ -132,7 +147,9 @@ export function writeSlotJson(kind: SlotKind, index: number, json: string): void
 
 /** Advance the auto-save rotation cursor past `writtenIndex` (wraps at AUTO_SLOT_COUNT). */
 export function advanceAutoIndex(writtenIndex: number): void {
-  localStorage.setItem(autoSaveNextIndexKey(), String((writtenIndex % AUTO_SLOT_COUNT) + 1));
+  tryWriteLocalStorage(() => {
+    localStorage.setItem(autoSaveNextIndexKey(), String((writtenIndex % AUTO_SLOT_COUNT) + 1));
+  });
 }
 
 /** Wipe every manual + auto save slot and the auto-rotation cursor. Used by
@@ -140,11 +157,13 @@ export function advanceAutoIndex(writtenIndex: number): void {
  *  get back to a working landing without DevTools. Leaves other localStorage
  *  keys (settings, viewMode, etc.) alone. */
 export function clearAllSaves(): void {
-  for (let i = 1; i <= MANUAL_SLOT_COUNT; i++) {
-    localStorage.removeItem(saveSlotKey("manual", i));
-  }
-  for (let i = 1; i <= AUTO_SLOT_COUNT; i++) {
-    localStorage.removeItem(saveSlotKey("auto", i));
-  }
-  localStorage.removeItem(autoSaveNextIndexKey());
+  tryWriteLocalStorage(() => {
+    for (let i = 1; i <= MANUAL_SLOT_COUNT; i++) {
+      localStorage.removeItem(saveSlotKey("manual", i));
+    }
+    for (let i = 1; i <= AUTO_SLOT_COUNT; i++) {
+      localStorage.removeItem(saveSlotKey("auto", i));
+    }
+    localStorage.removeItem(autoSaveNextIndexKey());
+  });
 }

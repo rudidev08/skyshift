@@ -1,7 +1,6 @@
 import { test, assertEqual, assertTrue } from "./test-utils.ts";
 import { makeStation } from "./factories.ts";
 import { formatStationTypeAndSizeLabel } from "../phaser/station-visual-bundle.ts";
-import { shortNameBySize } from "../../data/stations.ts";
 
 test("station type/size label is derived from station state alone, not a stored field", () => {
   // Guard for item 13 — the label is a pure function of the station's current
@@ -27,7 +26,7 @@ test("station type/size label is derived from station state alone, not a stored 
   station.state = "producing";
   assertEqual(
     formatStationTypeAndSizeLabel(station),
-    `${shortNameBySize[station.size]} ${station.nation.codeName} ${station.stationType.name}`,
+    `${station.size} ${station.nation.codeName} ${station.stationType.name}`,
     "producing label is short-code + nation + station-type",
   );
 });

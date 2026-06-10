@@ -22,7 +22,9 @@ export class ShipManager {
     this.namePool = namePool;
   }
 
-  /** Seed with the initial fleet at scene boot — does not fire add observers, since seeding pre-dates any subscribers. */
+  /** Seed with the initial fleet at scene boot — deliberately does not fire add
+   *  observers: the boot paths create visuals and trade registrations for the
+   *  seeded roster themselves (game-setup.ts / sim-lifecycle.ts). */
   seed(ships: Ship[]): void {
     this.ships = ships;
     this.byId.clear();

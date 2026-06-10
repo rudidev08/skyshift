@@ -82,6 +82,10 @@ export function setupZoomControls(scene: Scene, config: ZoomControlsConfig): Zoo
     updateDisplay,
     setMinPhaserZoom(nextMinPhaserZoom: number) {
       minPhaserZoom = nextMinPhaserZoom;
+      // View-mode changes swap the zoom floor (overview ↔ normal), which
+      // changes the display-level mapping — repaint so the HUD doesn't show
+      // a stale level until the next zoom input.
+      updateDisplay();
     },
     destroy() {
       zoomOutButton.removeEventListener("click", stepZoomOut);
@@ -92,8 +96,9 @@ export function setupZoomControls(scene: Scene, config: ZoomControlsConfig): Zoo
 }
 
 function paintZoomButtonIcons(zoomOut: HTMLElement, zoomIn: HTMLElement): void {
-  // Skip re-painting when icons are already there — the timelapse tab remounts
-  // its scene on every Run, hitting the same DOM buttons each time.
+  // Skip re-painting when icons are already there — Game-scene remounts (the
+  // editor's map tab after edits, loading a save from settings) reuse the
+  // same DOM buttons.
   if (!zoomOut.firstChild) zoomOut.innerHTML = CircleMinus;
   if (!zoomIn.firstChild) zoomIn.innerHTML = CirclePlus;
 }

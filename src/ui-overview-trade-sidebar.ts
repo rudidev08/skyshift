@@ -9,7 +9,7 @@ import type { WareId } from "../data/ware-types";
 import { createWareSidebar } from "./ui-overview-sidebar-shell";
 import { getWareTemplate } from "./sim-ware-template";
 import { shieldDomSurfaceFromPhaserInput } from "./ui-dom-input-shield";
-import { NONE, type WareSelection } from "./phaser/overview-trade-render";
+import type { WareSelection } from "./phaser/overview-trade-render";
 import { setTextIfChanged } from "./ui-dom-cache";
 import { formatTradeMagnitude } from "./util-quantity-format";
 
@@ -20,13 +20,13 @@ function formatTradeTotal(tradeTotal: number): string {
   return formatTradeMagnitude(tradeTotal);
 }
 
-/** Show the 2h shipment total next to a ware, hidden for the NONE option. */
+/** Show the 2h shipment total next to a ware, hidden for the "none" row. */
 function applyWareCount(
   countElement: HTMLElement,
   selection: WareSelection,
   totals: Map<WareId, number>,
 ): void {
-  if (selection === NONE) {
+  if (selection === "none") {
     setTextIfChanged(countElement, "");
     countElement.hidden = true;
     return;
@@ -73,7 +73,7 @@ export function createOverviewTradeSidebar(options: OverviewTradeSidebarOptions)
   const sortedWares = [...tradeableWares].sort((wareA, wareB) => wareA.name.localeCompare(wareB.name));
   const hasTradeableWares = sortedWares.length > 0;
 
-  let selectedWare: WareSelection = NONE;
+  let selectedWare: WareSelection = "none";
   let dropdownOpen = false;
   let wareTradeTotals: Map<WareId, number> = new Map();
 
@@ -82,7 +82,7 @@ export function createOverviewTradeSidebar(options: OverviewTradeSidebarOptions)
     const { rootElement, triggerLabel, triggerCount, wareRows } = wareDropdown;
     rootElement.classList.toggle("is-open", dropdownOpen);
     const triggerLabelText =
-      selectedWare === NONE ? NONE_LABEL : getWareTemplate(selectedWare).name;
+      selectedWare === "none" ? NONE_LABEL : getWareTemplate(selectedWare).name;
     setTextIfChanged(triggerLabel, triggerLabelText);
     applyWareCount(triggerCount, selectedWare, wareTradeTotals);
     for (const row of wareRows.values()) {
@@ -180,7 +180,7 @@ function appendWareDropdown(input: {
   const menu = document.createElement("div");
   menu.className = "ware-dropdown-menu";
   const wareRows = new Map<WareSelection, WareRow>();
-  appendWareRow({ menu, wareRows, selection: NONE, label: NONE_LABEL, onWareSelect });
+  appendWareRow({ menu, wareRows, selection: "none", label: NONE_LABEL, onWareSelect });
   for (const ware of sortedWares) {
     appendWareRow({ menu, wareRows, selection: ware.id, label: ware.name, onWareSelect });
   }

@@ -1,235 +1,231 @@
 ---
 name: iterate-skill
-description: "[rp] Empirically test-and-fix another skill — run it on sample inputs in your session, evaluate each run for defects (stalls, lost state, bad resume, contract violations), fix its SKILL.md, and loop until it converges. User-initiated only; do not trigger on mentions of iterate-skill."
-allowed-tools: Task, Read, Write, Edit, Bash(bash .claude/skills/iterate-skill/scripts/start-zellij-iterate.sh *), Bash(bash .claude/skills/iterate-skill/scripts/work-folder-name.sh *), Bash(mkdir:*), Bash(cp:*), Bash(rm:*), Bash(ls:*), Bash(git:*), Bash(diff:*), Bash(printf:*), Bash(cat:*), Bash(grep:*), Bash(wc:*)
+description: "[rp] Test-and-fix a target skill within hard budget caps (30 investigation clears + 40 iteration clears). User-initiated; never auto-trigger on mentions."
+allowed-tools: Agent, Read, Write, Edit, Bash(bash .claude/skills/iterate-skill/scripts/start-zellij-iterate.sh *), Bash(bash .claude/skills/iterate-skill/scripts/work-folder-name.sh *), Bash(mkdir:*), Bash(cp:*), Bash(rm:*), Bash(ls:*), Bash(git:*), Bash(diff:*), Bash(printf:*), Bash(cat:*), Bash(grep:*), Bash(wc:*), Bash(awk:*), Bash(python3:*), Bash(test:*), Bash(sed:*), Bash(find:*), Bash(mv:*), Bash(touch:*)
 ---
 
 # Iterate Skill
 
 ## Goal
 
-- Empirically test-and-fix a target skill's `SKILL.md`: run it on sample inputs, judge each run for defects, fix the offending instruction in `SKILL.md`, loop until clean.
+- Empirically test-and-fix a target skill's `SKILL.md` within hard budget caps: run scenarios, observe defects, apply fixes, retry. Stop on budget exhaustion or all defects resolved.
 
 ## Activation
 
-- User-initiated only: `/iterate-skill` or a direct request naming a target. A passing mention is not an invocation.
-- `$ARGUMENTS` names the target — a skill name or a path to a skill folder. It resolves the work-folder name (below).
-- If `$ARGUMENTS` is empty, list any existing `iterate-skill-*.local/` folders at the repo root and ask the user — resume which one, or start fresh on a new target. Never silently pick a folder, even when only one exists.
+- `/iterate-skill <target>` — `$ARGUMENTS` names the target skill folder or skill name.
+- Empty `$ARGUMENTS` → list `iterate-skill-*.local/` folders at repo root; ask resume which / start fresh on what.
 
 ## Run mode
 
-- Run the target in your normal interactive session — not a `claude -p` subprocess, not a subagent (the target dispatches its own subagents, which a subagent cannot do).
-- Run a scenario by **following the candidate `SKILL.md` copy as a file** — not by `/`-invoking the installed skill. Mechanism: `references/spec.md`.
+- Run in the orchestrator's interactive session — not a subprocess, not a subagent. Candidate may dispatch its own subagents — reproduce those subagent prompt templates verbatim, substituting only the candidate's documented placeholders (`references/spec.md` § Running a scenario).
+- Run scenarios by following candidate `SKILL.md` **as a file** (mechanism: `references/spec.md`); never `/`-invoke the live installed skill.
+- Candidate runs under iterate-skill's `allowed-tools`, not its own (file-based runs don't bind frontmatter); the candidate's own `bash <script>` calls are cleared by the auto-mode classifier at run time. Plan step 1 refuses only a candidate needing a capability iterate-skill genuinely can't perform or get cleared.
 - Never touch the live skill in `.claude/skills/` until promotion is approved.
-- Not unattended — you drive the loop across `/clear`s.
+- Start Claude inside zellij first so the auto-clear hook drives `/clear`-and-resume unattended: `bash .claude/skills/iterate-skill/scripts/start-zellij-iterate.sh` from the target repo. Per-repo default session; pass a session name for parallel runs. Outside zellij every `/clear` is manual.
 
-## Zellij driver (opt-in)
+## Budget caps
 
-- The user must start Claude inside zellij before invoking iterate-skill, usually from the target repo:
-  ```
-  bash .claude/skills/iterate-skill/scripts/start-zellij-iterate.sh
-  ```
-- Do not move an already-running non-zellij conversation into zellij. The opt-in is fixed at run start; mid-run a non-zellij run cannot become zellij-driven.
-- The `/clear`-and-resume rhythm below branches on whether the orchestrator's environment exposes a zellij pane id (`$ZELLIJ_PANE_ID`) — that is the only signal Claude has. A user running Claude inside their own zellij session also takes the zellij branch; the helper's keystroke targeting is correct either way.
+- **Investigation: max 30 clears.** Every `/clear` from this pool counts: Plan-stage canary clears (step 6), Investigate fresh scenarios, mid-scenario resume continuations, env retries.
+- **Iteration: max 40 clears overall.** Backstop; aborts with whatever defects remain.
+- **Per defect: max 2 attempts.** One attempt = apply fix + run retry + grade. Typically one `/clear` per attempt; a resume-shaped retry may span two.
+- **Fix-induced defects are just defects.** Append one surfaced by a fix attempt as another capped defect (own 2-attempt budget), processed after those already queued. No depth tracking, no cascade handling — the per-defect cap plus the 40-clear ceiling bound any chain.
+- Both counters tick once per `/clear` from their pool (`/clear`-rhythm step 1); `Investigation:` also absorbs Plan-stage canary clears from the same 30-clear pool. They count `/clears`, not scenarios or defects.
+- Total clear ceiling: **70** (30 + 40).
 
 ## Work folder
 
-- Path: resolve via `bash .claude/skills/iterate-skill/scripts/work-folder-name.sh <target>` — that returns the canonical folder name, deterministic against model drift. Do not compute the name by string interpolation. The literal pattern is `iterate-skill-<target>.local/` at the repo root with no dedup of an `iterate-skill-` prefix on the target — for target `iterate-skill-mock` the folder is `iterate-skill-iterate-skill-mock.local/`, not the deduplicated `iterate-skill-mock.local/` (which would visually collide with the target's own work folder inside `workspace/`). The `.local` suffix keeps it gitignored under the repo's `*.local/` pattern — check once on fresh-run setup; add the line only if absent. If the repo isn't a git repo, skip the check (no `.gitignore` to read or write).
+- Path: `iterate-skill-<target>.local/` at repo root. Resolve via `bash .claude/skills/iterate-skill/scripts/work-folder-name.sh <target>` (deterministic against model drift; do not interpolate).
 - Layout:
-  - `progress.md` — iterate-skill's ledger and resume anchor (format below).
-  - `test-spec.md` — frozen test spec: Inputs manifest, Scenarios, Checks (`references/spec.md`). Written only at the end of Phase 1; before that, the draft lives in `phase1/draft-test-spec.md`.
-  - `phase1/` — Phase 1 working outputs, written as each sub-step completes so resume can skip ahead. `phase1/inputs-manifest.md` (Part 1, orchestrator-written: candidate/fixture/held-out paths plus run environment per `references/spec.md`), `phase1/contract-extracted.md` (the `contract-extractor`'s returned Part 3), `phase1/scenarios.md` (the `scenario-mapper`'s returned Part 2), `phase1/draft-test-spec.md` (the assembled draft before user approval). All four exist by the time `test-spec.md` is frozen.
-  - `candidate/` — full copy of the target skill folder; the artifact under test and the file set the fixer edits.
-  - `fixture/` — faithful git repo the loop runs against; pristine after spec freeze.
-  - `held-out/` — smaller held-out repo; the loop never runs against it.
-  - `workspace/` — current run's working copy of a fixture. Reset before every fresh scenario run; **not** reset when resuming the second half of a mid-scenario `/clear` (the partial state is what the resume scenario tests).
-  - `regression-suite.md` — every defect found this run, each a replayable case (`references/convergence.md`).
-  - `transcripts/` — one transcript per run, `transcripts/<run-id>.md` where `<run-id>` is defined under the ledger format. The orchestrator writes the transcript itself, immediately after each scenario run finishes (mechanism in `references/spec.md`).
-  - `iterations/` — one record per iteration, `iterations/iter-<NN>.md`: judge verdicts, then the fixer-pass entry. `<NN>` is zero-padded 2 digits up to 99; beyond that, the natural width (`iter-100`, `iter-101`).
-  - `next-prompt.txt` — one-line resume prompt for the next `/clear`. Starts with the literal sentinel prefix `[iterate-skill-resume]` so a paste is unambiguous (defined in the `/clear`-and-resume rhythm section below).
-  - `report.md` — running user-facing report; final deliverable alongside the converged candidate.
+  - `progress.md` — ledger and resume anchor (format below).
+  - `test-spec.md` — frozen test plan: inputs, scenarios, gated checks. Written at end of Plan.
+  - `triple-check-brief.md` — check-indexed audit table the orchestrator writes at step 7 and hands to the `/triple-check` reviewers.
+  - `defects.md` — per-defect status rows; appended during Investigate, rewritten in place during Iterate.
+  - `candidate/` — copy of the target skill; the fixer edits this.
+  - `fixture/` — pristine git repo the scenarios run against. Only `fixture-assembler` writes here; any stray file rides along in `cp -R fixture workspace` and skews the scenario's `git status`. Every other run artifact lives at the work-folder root, never inside `fixture/`.
+  - `canary-output/` — Plan step-6 canary captures, organized `<artifact-family>/<state>/`. At work-folder root.
+  - `scenario-cuts/` — stateless targets only: the frozen `edge-partial-write-resume` cut content (`<scenario-id>.md`), pre-computed at Plan stage and copied into `workspace/` per attempt. At work-folder root.
+  - `run-output/` — per-scenario captures of a stateless candidate's final message (`<scenario-id>.txt`), for non-gating checks that read run output. At work-folder root, never inside `workspace/` (see the `fixture/` note).
+  - `workspace/` — current scenario's working copy of `fixture/`. Reset before each fresh scenario run; not reset on mid-scenario resume.
+  - `fix-attempts/` — per-attempt snapshots: `defect-NN-attempt-MM/` (full `candidate/` copy pre-edit).
+  - `report.md` — running final report.
+  - `next-prompt.txt` — one-line resume prompt for `/clear`.
 
-### Ledger format — `progress.md`
-
-Header block plus four append-only logs:
+## `progress.md` format
 
 ```
-# iterate-skill progress — <target-skill-name>
+# iterate-skill progress — <target>
 
-Target: <path to the live target skill>
-Environment: model <id>, CLI <version>, <relevant settings>
-Candidate size at start: <N> lines.  Size gate: <gate> lines.
-Knobs: M=<M>, N=<N>, iteration-cap=<cap>, runs-per-clear=<count | "tbd">, effort-on-clear=<max | preserve | "tbd">.
-Started: <date>.
+Target: <path to live target skill>
+Checkout-Root: <absolute physical repo-root path>
+Checkout-Ref: branch:<name> | detached:<sha>
+Environment: model <id>, CLI <version>
+Started: <date>
 
-Phase: <1-spec-generation | 2-loop | 3-termination>
-Phase-1 substate: wave1=<pending | done>; wave2=<pending | done>; draft=<pending | shown | approved>; spec=<pending | frozen>
-Phase-2 substate: pacing-asked=<no | yes>; current-iteration=<iter-NN>; current-run=<run-id | none>
-Phase-3 substate: outcome=<pending | converged | cap-hit | stuck>; held-out=<pending | passed | failed>; taste-pass=<pending | done>
+Stage: <plan | investigate | iterate | done>
+Investigation: <X>/30 clears used
+Iteration: <Y>/40 clears used; <A> fixed, <B> stuck, <O> stuck (oscillation), <D> spec-drift-flagged, <E> remaining (open defects not yet terminal)
+Current: <scenario-id | defect-NN | none>
 
-## Run log
-- run <run-id>: <scenario-id> — <P>/<T> gated pass; contract <defect-id,… | none>; env <count>
-- fixer-pass iter-<NN>: applied <count> | flagged <count> | no-defects
-
-## Defect ledger
-- <defect-id>: <open | fixed@iter-NN | flagged@iter-NN | stuck>; seen iter <N,…>
-
-## Iteration markers
-- iter-<NN>: <started | fixer-applied <count> | fixer-flagged <count> | no-defects | converged | cap-hit | stuck>
-
-## Surfaced
-- iter-<NN>: <environment failure | size-gate flag | stuck pause | target-mismatch | spec-drift> — <one line>
+## Log
+- <one line per event; per-defect status rows rewritten in place>
 ```
 
-**Format definitions:**
-
-- `<run-id>` = `i<NN>-<scenario-id>-<seq>`, where `<NN>` is the iteration number using the same padding rule as `iter-<NN>` (zero-padded to 2 digits up to `i99`, natural width for `i100` and above), `<scenario-id>` is the Part 2 scenario id, and `<seq>` is a per-iteration per-scenario counter starting at `1`. Example: `i03-resume-mid-apply-2` is the 2nd run of scenario `resume-mid-apply` in iteration 3 (correlates to `iter-03`).
-- `<NN>` = the iteration number, zero-padded to 2 digits up to `iter-99`; for `iter-100` and above, use the natural width (no truncation, no overflow).
-- `<P>` = gated checks this run passed (out of those the scenario exercises). `<T>` = gated checks the scenario exercises in total. Always counted against the same denominator: only the scenario's `Exercises checks` list from `test-spec.md` Part 2.
-- `<defect-id>` format is defined in `references/convergence.md` (now five fields including the branch axis).
-- `fixer-pass iter-<NN>: no-defects` records an iteration that produced zero `contract` defects (no fixer was dispatched; the M-window does NOT reset — see `references/convergence.md`).
-
-**Append-only with last-line-wins.** Every log is append-only — no line is ever rewritten in place. When an id (`<run-id>`, `<defect-id>`, `iter-<NN>`) transitions state, append a NEW line with the new state. Resume readers and stuck-detection take the **last** matching line per id as the current state.
-
-**The `Phase:` and sub-state lines are rewritten in place.** Those four lines are the resume anchor — there is one current `Phase:`/sub-state at any time, not a history. Sub-state transitions are pinned to the steps below (Phase 1 sub-steps, the Phase 1→2 transition, the Phase 2→3 transition); rewrite them as named atomic actions, not as a side-effect of doing the next thing.
-
-**Only the substate line matching the current `Phase:` is authoritative.** Prior phases' substate lines remain in the file (they're never deleted on transition) but become stale once `Phase:` advances. Resume readers must read `Phase:` first and consult only the matching `Phase-<n> substate` line — never trust `current-iteration` from `Phase-2 substate` when `Phase: 3-termination`.
-
-- Resume reads `Phase:` + sub-state for current position, then the four logs to reconstruct run history, open defects, and iteration count.
-- Nothing needed to resume lives only in context.
+- Header block + four state lines (`Stage`, `Investigation`, `Iteration`, `Current`) rewritten in place each chunk. Exception: the two `Checkout-*` lines record the **baseline** checkout — captured once at fresh start, carried forward unchanged, never rewritten (promotion compares the current checkout against this baseline; rewriting each chunk defeats that comparison).
+- Log section append-mostly; exception: per-defect status rows rewritten in place.
+- Resume reads `Stage` + state lines + Log to reconstruct position.
 
 ## Run start — fresh or resume
 
-Before any work, check for `iterate-skill-<target-skill-name>.local/`.
+If `iterate-skill-<target>.local/progress.md` exists and is readable:
 
-- **Empty or absent** → fresh run. Create the work-folder subtree (including `phase1/`), copy the target skill folder to `candidate/`, write the initial `progress.md` (header block; `Phase: 1-spec-generation`; all Phase-1 substate `pending`; `runs-per-clear=tbd` until Phase 2 asks the user), proceed to Phase 1.
-- **Non-empty, `progress.md` missing or unreadable** → stop and ask whether to reset; never guess at state.
-- **Non-empty, `progress.md` valid** → read it. **Reconcile the target.** Compare the `Target:` line against `$ARGUMENTS`: if they name different skills, stop and surface the mismatch to the user as `target-mismatch` — the user decides reset, rename the folder, or correct the invocation. **Only on a match** report the target, phase, sub-state, iteration count, open defects, and continue from the recorded position. If the invocation was a manual `/iterate-skill <target>` rather than a `next-prompt.txt` resume, ask **resume** or **reset** first. A message whose first non-blank line begins with the literal prefix `[iterate-skill-resume]` is a `next-prompt.txt` resume — skip the question. (A user-typed message that lacks the sentinel is treated as a manual invocation, even if its body paraphrases the resume template.)
-- On resume, everything needed is on disk: `candidate/`, `fixture/`, `held-out/`, `test-spec.md` (once Phase 1 froze it; otherwise the partial Phase 1 outputs under `phase1/`), `regression-suite.md`, `iterations/`, `transcripts/`, `progress.md`.
+- **Reconcile target.** Compare `Target:` to `$ARGUMENTS`. Differ → surface mismatch and stop; user decides reset / rename / correct invocation.
+- **Resume.** Invoking message starts with `[iterate-skill-resume]` → resume silently. Otherwise ask resume / reset.
 
-## Phases
+Folder absent or `progress.md` invalid:
 
-### Phase 1 — Spec generation
+- Invocation starts with `[iterate-skill-resume]` → **stop and surface, do not fresh-start** (the sentinel means a run was expected here; a missing/invalid `progress.md` likely means the resume fired in the wrong cwd/checkout, and fresh-starting would create a run in the wrong tree — the user reconciles).
+- Otherwise fresh start: create subtree, copy target to `candidate/`, write initial `progress.md` (`Stage: plan` plus baseline `Checkout-Root:`/`Checkout-Ref:` — root via `cd "$(git rev-parse --show-toplevel)" && pwd -P`, ref via `git symbolic-ref --quiet --short HEAD` else `detached:` + `git rev-parse HEAD`), proceed.
+- Existence check runs **before** subtree creation, so a prior run's folder is detected rather than masked by this run's own fresh files.
 
-Phase 1 progresses through four named sub-steps. After each, update the relevant `Phase-1 substate` marker in `progress.md` and write the named output to disk so resume can skip ahead. Full detail: `references/spec.md`.
+## Plan stage
 
-Before each sub-step, announce position to the user in one line so they can see where the run is:
+1. **Read candidate.** Read `candidate/SKILL.md` in full plus every file under `candidate/references/`. **Tool-permission check:** parse candidate's `allowed-tools`. A candidate running its own `bash <script>` is fine (cleared by the auto-mode classifier; its underlying ops e.g. `git` must be covered by iterate-skill's `allowed-tools` or classifier-cleared). Refuse only a candidate needing a capability iterate-skill genuinely cannot perform or get cleared (e.g. a tool iterate-skill lacks entirely); surface and let the user expand the allowlist or skip.
 
-- step 1 → "Phase 1, Wave 1 of 2 — dispatching contract-extractor and fixture-assembler in parallel."
-- step 2 → "Phase 1, Wave 2 of 2 — dispatching scenario-mapper."
-- step 3 → "Phase 1, sub-step 3 of 4 — draft test spec assembled; approval checkpoint below."
-- step 4 → "Phase 1 done — spec frozen, entering Phase 2."
+2. **Extract gated checks inline.** Walk every "must" / "always" / "never" / required field / ordering rule in the candidate. Classify per `references/spec.md` Part 3: gated (objectively verifiable by deterministic assertion) or non-gating (judgment call). Borderline → non-gating.
 
-1. **`wave1=done`.** Dispatch Wave 1 in parallel: `contract-extractor` and `fixture-assembler`. Both read only `candidate/`; their writes are bounded — `contract-extractor` returns text only, and `fixture-assembler` writes only `fixture/` and `held-out/`. Wait for both. Write the `contract-extractor`'s returned Part 3 to `phase1/contract-extracted.md`. Verify `fixture/` and `held-out/` exist on disk. Then set `wave1=done`.
-2. **`wave2=done`.** Dispatch Wave 2: `scenario-mapper` — reads `candidate/`, the now-built `fixture/` and `held-out/`, and the gated-check list from `phase1/contract-extracted.md`; every scenario names real fixture files and declares which gated checks it exercises. Write its returned Part 2 to `phase1/scenarios.md`. Then set `wave2=done`.
-3. **`draft=shown` → `draft=approved`.** First write Part 1 (the Inputs manifest naming `candidate/`, `fixture/`, `held-out/`, and run environment per `references/spec.md`) to `phase1/inputs-manifest.md`. Then assemble Parts 1, 2, 3 (`phase1/inputs-manifest.md`, `phase1/scenarios.md`, `phase1/contract-extracted.md`) into `phase1/draft-test-spec.md`. Show it to the user — the one approval checkpoint before the loop. Set `draft=shown`. Apply adjustments in one revision pass (re-dispatching the relevant Wave agent as `references/spec.md` describes for Parts 2 and 3; for Part 1, regenerate `phase1/inputs-manifest.md` directly). Each updated output replaces the earlier `phase1/*.md` file. On final user approval, set `draft=approved`.
-4. **`spec=frozen` → Phase 1→2 transition.** Copy `phase1/draft-test-spec.md` to `test-spec.md`. Set `spec=frozen`. As one atomic update — same `Write` of `progress.md` — rewrite `Phase: 2-loop` and set `Phase-2 substate: pacing-asked=no; current-iteration=iter-01; current-run=none`. The loop opens on `iter-01`, so step 1's `<run-id>` derivation (`i<NN>-…`) has a valid `<NN>` from the first run; step 6 only ever increments from there. This is the named Phase 1→2 boundary; no other step rewrites `Phase:` to 2.
+3. **Dispatch `fixture-assembler` subagent** (always — heavy file writes need context isolation). Wait for return; next step needs the built `fixture/`.
 
-On resume during Phase 1, read the substate markers and skip to the first sub-step whose marker is `pending`. Before re-doing that sub-step, wipe its expected outputs (Wave 1: `phase1/contract-extracted.md`, `fixture/`, `held-out/`; Wave 2: `phase1/scenarios.md`; draft: `phase1/inputs-manifest.md` and `phase1/draft-test-spec.md`; spec: `test-spec.md`) so the re-do starts on a clean slate rather than inheriting partial state from an interrupted prior attempt. Then run the sub-step — for Wave 1 and Wave 2, re-dispatch the relevant agent per `references/spec.md`'s "re-dispatch supplies the full original prompt" rule.
+4. **Map scenarios.** Size probe: `candidate/SKILL.md` >300 lines OR `candidate/references/` >5 files → dispatch `scenario-mapper` subagent (per `references/agent-prompts.md`), supplying the gated-checks list (step 2) and built `fixture/`. Otherwise inline scenario mapping following the same subagent template.
 
-### Phase 2 — Iteration loop
+5. **Draft test plan inline.** Combine extracted checks, fixture manifest, scenarios. Write to `test-spec.md` draft. Budget estimate:
+   - Investigation clears ≈ scenario count + 1 per cut-point scenario (resume continuations) + 1–2 per artifact family the gated checks parse (step 6 canary dispatch) + 1 per additional run-state any clause is exercised in beyond Phase 1 (per step 8: post-apply, post-regen, post-VALIDATION-FAILED each need their own captured artifact bundle if a gated clause reads there) + ~10% for env retries, capped at 30.
+   - Iteration clears ≈ 4 × estimated distinct-fix count, capped at 40. Defects plausibly sharing a root cause or scenario count as one fix — same-scenario defects grade together in one retry, so e.g. 7 root-cause-sharing defects may take ~6 clears, not ~28.
+   - Extra-state canaries push past the cap → surface the trade-off at the step 8 checkpoint: drop scenarios, demote gated clauses to non-gating, or expand the cap.
 
-If `Phase-2 substate: pacing-asked=no`, ask the user two settings — once per run, recorded in `progress.md`. Send both questions in one message labeled with their position so the user sees how many remain:
+6. **Capture real candidate output, then dry-run each verify clause both directions against it.** The orchestrator's deterministic-execution floor: confirms each clause *fires* correctly on real input (step 7's reading review proves each clause *means* the right thing). Keep one inline rule: **every gated check's failure must imply a contract violation** (a clause a contract-compliant candidate could fail is over-specified).
 
-- **Question 1 of 2 — Pacing.** State the model's context-window size and the frozen scenario count `S` from `test-spec.md`. Present 3–4 concrete preset options in plain text — each preset bundles a per-scenario run count `M` (how many times each scenario runs in the convergence window, per `references/convergence.md`) with a runs-per-`/clear` chunk size. For every preset, **compute and show the resulting `/clear` count per iteration** as `ceil(S * M / runs-per-clear)` so the user can pick by length. Suggested presets:
+   **(a) Source the positive from real candidate output, never imagination.** Use a prior real candidate run (the live skill's history, a previous iterate-skill run's artifacts) or a **canary run**: dispatch the candidate's smallest artifact-producing unit per artifact family the gated checks parse (Phase 1 alone for a staged-pipeline candidate like deep-simplify; one stateless production for a stateless candidate). Save to `canary-output/<artifact-family>/<state>/` at the work-folder root; the `<state>` segment keeps a family's captures at different run-states (post-Phase-1, post-apply) from clobbering each other (see step 8). Counts as 1–2 Plan-stage clears against the 30-cap (declare in step 5). Canary infeasible (purely interactive, no stateless production) → document the skip in `test-spec.md`'s budget section and rely on step 7 alone.
 
-  - **Fast** — `M=2`, `runs-per-clear=3`. Quick smoke test of iterate-skill itself; lower confidence on intermittent defects.
-  - **Default (recommended)** — `M=5`, `runs-per-clear=3`. Balanced detection of intermittent defects.
-  - **High fidelity** — `M=5`, `runs-per-clear=1`. One scenario per chunk keeps context coldest; cheap when zellij automates `/clear`.
-  - **Thorough** — `M=10`, `runs-per-clear=5`. Catches rarer intermittent defects.
+   **(b) Dry-run both directions.** Positive input must pass; a deliberately-broken input must fail. Same verdict on both — typically silent-pass — is the failure mode this catches (an extractor empty on every input, a `grep` that always matches, an exit-code check that ignores the value). Design the broken input by inverting what the check asserts: change one frontmatter byte (equality check), drop a contractual string (string-presence), add an extraneous file (file-count), write a report missing the required format (report-pattern). Wrong verdict either direction → fix the clause or demote to non-gating. **For a multi-form field (contract permits more than one legal rendering), dry-run the positive against EACH contract-enumerated rendering, not just the one the canary emitted.** Dry-run output isn't retained.
 
-  The user can pick a preset or specify custom `M` and `runs-per-clear`. `N=M` is the zero-tolerance default (per `references/convergence.md`); only lower `N` if the user explicitly asks.
-- **Question 2 of 2 — Effort behavior at each `/clear` (zellij auto-clear flow only).** Default `max`: queue `/effort max` after every `/clear` (the legacy hardcoded behavior; useful for users on effort max who want it re-asserted as a safety net). Alternative `preserve`: skip the `/effort` step at each `/clear` so the user's chosen effort persists across clears (the right choice for non-max-effort runs like sonnet medium that would otherwise get bumped to max at every clear). No effect outside zellij — pick `preserve` if unsure or not using zellij.
-- Record the picks on the `Knobs:` line: `M=<n>, N=<n>, runs-per-clear=<n>, effort-on-clear=<max | preserve>`. Then set `pacing-asked=yes`.
-- `zellij-clear-resume.sh` reads `effort-on-clear` from `progress.md` directly per `/clear` — the decision is deterministic against LLM drift, not re-evaluated by the orchestrator each chunk.
-- Resume reads `M`, `N`, `runs-per-clear`, `effort-on-clear`, and `pacing-asked` from `progress.md` — never re-ask.
+7. **Hand the draft to the review stage — it produces and vets the robustness analysis.** Invoke `/triple-check` on the draft `test-spec.md` (two Claude agents + codex). This stage owns the reading work step 6 skips: per gated check, reviewers decompose conjunctive clauses into sub-assertions, cite the contract anchor for each, construct a contract-compliant counterexample for each, name the run-state each value is valid in, and flag any clause breaking a Verify-clause robustness rule. Include the synthesis in the checkpoint. Adds no `/clears`; ~10–15 min typical, up to 30 when codex's xhigh hits its ceiling. Always run — no skip threshold; if it can't run, the spec is not frozen (surface and stop).
 
-**Resume scenarios always cut at one `/clear` regardless of pacing.** A resume scenario tests whether the target survives a `/clear` mid-run, so the cut is integral to the scenario — even when `runs-per-clear>1`, the chunk ends at the cut. The minimum cut count per resume scenario is one, never zero.
+   **Brief reviewers with a check-indexed audit table, not a free-form prompt** — write it to `triple-check-brief.md`, hand that file over. Orchestrator supplies the mechanical left columns; reviewers fill the analysis columns per sub-assertion. One row per gated check:
+   - check id / artifact parsed / extractor pattern (orchestrator-supplied)
+   - accepted positive shape + run-state captured at (orchestrator-supplied — from step 6's canary, a prior-run artifact with its state noted, or "none — canary infeasible, dry-run skipped" when step 6 documented the skip)
+   - scenario states exercised (orchestrator-supplied, per scenarios' `Exercises checks` lists — e.g. S1 post-Phase-1, S2 post-apply)
+   - **contract-quote anchor per sub-assertion** (reviewer-produced — decompose the clause first; one entry per sub-assertion citing the marker anchor AND the predicate anchor; a sub-assertion with no contract quote is over-specified and demotes independently)
+   - **contract-compliant counterexample per sub-assertion** (reviewer-produced — candidate output that obeys the contract and fails the predicate; if one exists, that sub-assertion is solution-path overfit) **— and for a multi-form field, supply one counterexample per contract-legal rendering the clause must accept.**
+   - **run-state validity per sub-assertion** (reviewer-produced — the state(s) the asserted value holds in; a value treated as forever-valid that the contract guarantees only at one state is temporal overfit)
+   - negative mutation that would fail the check
+   - disposition (reviewer-produced: gated or non-gating, per sub-assertion when conjunctive)
 
-Then the loop runs — one `/clear`-bounded chunk at a time. Each chunk advances the iteration recorded in `Phase-2 substate: current-iteration`:
+   The "scenario states exercised" vs "positive captured at" delta is the matrix gap reviewers must surface — a clause running in N states with a positive from one has N-1 unguarded states. Reference `references/spec.md` Part 3 § Verify-clause robustness in the prompt.
 
-1. **Decide fresh vs. continuation, then prepare `workspace/`.** Read `current-run` from Phase-2 substate.
-   - `current-run=none` → fresh chunk. Pick the next scheduled scenario, derive its `<run-id>` (to get `<seq>`, count distinct run-ids in the Run log matching `i<NN>-<scenario-id>-*` for the current iteration, then add 1), reset `workspace/` (`rm -rf workspace && cp -R fixture workspace`, or from `held-out/` for the held-out pass), and as one atomic `Write` of `progress.md` set `current-run=<run-id>` and append `run <run-id>: started` to the Run log.
-   - `current-run=<run-id>` → a scenario is mid-flight from a prior chunk. Inspect `transcripts/<run-id>.md`:
-     - Footer `Terminal: cleared-at-<cut>` → this chunk continues the scenario from the cut. **Do NOT reset `workspace/`** (resetting would destroy the partial state the resume scenario tests). Proceed to step 2 to resume the scenario.
-     - Footer `Terminal: reached` → the scenario completed. If `iterations/iter-<NN>.md` (current iteration) has no verdict block for this `<run-id>`, skip steps 2 and 3 and dispatch the judge (step 4). If a verdict block already exists, the judge already ran — source the run's P/T counts, contract defect-ids, env count, and non-gating observations from that on-disk verdict block (there is no live judge return on this path), then complete any remaining writes from `references/evaluate-and-fix.md`'s "after each judged run" checklist that have not landed: do not re-append the verdict block (its presence is the detection signal); add-or-update the defect ledger and `regression-suite.md` (both keyed by defect-id, so a second write is a no-op when the entry is already present); append a `report.md` section for this `<run-id>` only if its `### Run <run-id>` header isn't already present. Then, as one atomic `Write` of `progress.md`: if the Run log has no final line for `<run-id>` beyond `started`, append it using the sourced values; reset `current-run=none`.
-     - Transcript missing → the orchestrator was interrupted between marking `current-run` and writing the transcript. Reset `workspace/` and re-run from step 2 against the same `<run-id>`.
-2. **Run a scenario** by following `candidate/SKILL.md` as a file (mechanism: `references/spec.md`).
-3. **Capture the transcript.** When the scenario reaches its terminal state (or the helper queues a mid-run `/clear`), write `transcripts/<run-id>.md` as a single `Write` call. The orchestrator IS the transcript producer, so "capture" means writing a structured record of THIS session's actions while following the candidate: one line per orchestrator step (tool / outcome / target progress-file delta), each prompt the target asked and the scripted answer given, the target skill's progress-file paths under `workspace/.<target-skill-name>.local/` as they existed at scenario end, then a `Terminal: <reached | cleared-at-<cut-point>>` footer. The judge reads this file plus the on-disk progress files; nothing else exists.
-4. **Dispatch the `judge`** for that run; the judge evaluates and classifies. Append the per-run updates to `progress.md` and the other artifacts per the "after each judged run" checklist in `references/evaluate-and-fix.md`. Then, as one atomic `Write` of `progress.md`, append the final `run <run-id>: <P>/<T> gated pass; contract <defect-id,… | none>; env <count>` line to the Run log (last-line-wins overrides the earlier `started` entry) and reset `current-run=none` in Phase-2 substate.
-5. **End of iteration — dispatch the `fixer` or record `no-defects`.** When the iteration's runs are done (every scenario hit M runs since the last candidate-changing fixer pass per `references/convergence.md`), do exactly one of:
-   - **Contract defects > 0** → snapshot `candidate/` to `iterations/iter-<NN>-pre-fixer/` (`cp -R candidate iterations/iter-<NN>-pre-fixer`) and copy `iterations/iter-<NN>.md` to `iterations/iter-<NN>-pre-fixer.md`. Verify the snapshot before dispatching the fixer: `wc -l iterations/iter-<NN>-pre-fixer.md` must match `wc -l iterations/iter-<NN>.md`, and `find iterations/iter-<NN>-pre-fixer -type f | wc -l` must match `find candidate -type f | wc -l`. If either mismatches, the `cp -R` was interrupted — surface to the user and do not dispatch the fixer; the snapshot is the only path back if the fixer is then interrupted mid-edit. Once verified, append `fixer-pass iter-<NN>: dispatched` to the Run log. Dispatch the `fixer` over the iteration's deduplicated `contract` defects (per `references/evaluate-and-fix.md`). On the fixer's return, append `fixer-pass iter-<NN>: applied <count> | flagged <count>` to the Run log (last-line-wins overrides the `dispatched` entry) and `iter-<NN>: fixer-applied <count>` (or `fixer-flagged <count>` if every defect was size-gated) to the Iteration markers. On resume: if the latest `fixer-pass iter-<NN>` Run-log entry is `dispatched` with no following completion, the fixer was interrupted mid-edit. If `iterations/iter-<NN>-pre-fixer/` or `iterations/iter-<NN>-pre-fixer.md` is missing, surface to the user and stop. Otherwise restore `candidate/` from the snapshot (`rm -rf candidate && cp -R iterations/iter-<NN>-pre-fixer candidate`) and restore `iterations/iter-<NN>.md` from `iterations/iter-<NN>-pre-fixer.md` (`cp iterations/iter-<NN>-pre-fixer.md iterations/iter-<NN>.md`) to clear the orphaned planned-fixes block, then re-dispatch.
-   - **Contract defects = 0** → do NOT dispatch the fixer. Append `fixer-pass iter-<NN>: no-defects` to the Run log and `iter-<NN>: no-defects` to the Iteration markers. The M-window does NOT reset — the loop keeps accumulating clean runs against the same candidate, and convergence can land on a `no-defects` iteration without an additional fixer pass (see `references/convergence.md`).
-6. **Increment iteration, or transition to Phase 3.** Per `references/convergence.md`, decide one of: continue (update `current-iteration` to `iter-<NN+1>`); converged; cap-hit; stuck. On any termination, as one atomic `Write` of `progress.md`, rewrite `Phase: 3-termination` and set `Phase-3 substate: outcome=<converged | cap-hit | stuck>; held-out=pending; taste-pass=pending`. This is the named Phase 2→3 boundary; no other step rewrites `Phase:` to 3.
+8. **One user checkpoint, then revalidate.** Show test plan + budget estimate + the review synthesis with the orchestrator's proposed disposition per finding.
+   - A reviewer finding that a clause admits a contract-compliant counterexample or breaks a Verify-clause robustness rule is **revision-gating, not advisory**: the orchestrator may not freeze that clause as gated on its own "skip with reason" — revise it, demote it to non-gating, or the user explicitly overrides to keep it gated as-is. Apply revisions in one pass.
+   - **Revalidate every clause changed or added here:** re-run step 6's both-directions dry-run against real candidate output (the orchestrator's inline floor); AND re-submit to the review stage for a focused re-check of anchors / counterexamples / run-states whenever the clause's *assertion* changed (not just its disposition) OR it was **promoted from non-gating to gated** here. A promoted clause was never reviewed as gated at step 7 → full per-gated-check analysis (the reviewers' job, here as at step 7), not just a re-check.
+   - **Multi-run-state clauses:** every clause running in more than one run-state across its scenarios' `Exercises checks` lists is dry-run against canary output captured at each of those states. A check exercised by S1 post-Phase-1 AND S2 post-apply needs both a post-Phase-1 canary AND a post-apply canary — the post-apply canary either shows the clause's **comparison target** still resolves or shows it diverges (then split the clause per state, or assert a different comparison target captured at the right state, not the live workspace value).
+   - Any clause that still silent-passes, false-fails, admits a contract-compliant counterexample, or breaks a Verify-clause robustness rule (rules 1–4 or the headline rule) goes back to revision before freeze — at sub-assertion granularity. On final approval, freeze `test-spec.md`.
 
-- Judge, classifier, fixer: `references/evaluate-and-fix.md`.
-- Defect identity, regression suite, convergence, termination conditions: `references/convergence.md`.
+9. **Transition.** Set `Stage: investigate`.
 
-### Phase 3 — Termination and report
+## Investigate stage
 
-The Phase 2→3 transition step (above) recorded one of `outcome=converged | cap-hit | stuck`.
+For each scenario in `test-spec.md`:
 
-Announce the outcome and steps ahead, in one line up front, and at each transition inside Phase 3:
+1. **Prepare workspace.** Mid-scenario resume (Log has `run <run-id>: cleared-at-<cut-point>` with no subsequent `run <run-id>: … <P>/<T> gated pass` completion line for that exact `<run-id>`) → leave `workspace/` alone; the partial state IS what's being tested. Otherwise (fresh run) → `rm -rf workspace && cp -R fixture workspace`.
+2. **Run scenario.** Follow `candidate/SKILL.md` as a file (mechanism: `references/spec.md`). If the scenario's `Cut point` field is not `none`, drive the cut on the first run (append `run <run-id>: cleared-at-<cut-point>` to the Log and queue a `/clear` via the `/clear`-rhythm below; on the next chunk Investigate step 1's mid-scenario-resume branch picks up from the cut, `workspace/` left intact).
+3. **Grade inline.** Against the scenario's gated checks (per `references/evaluate-and-fix.md`). Classify each gated-check failure `contract` (candidate's fault — bad outcome despite following the candidate, or candidate silent/ambiguous) or `environment` (transient: flaky subagent / rate-limit / harness; structural: fixture-error / refusal). Err toward `environment` when unclear. Append `contract` defects to `defects.md`; retry `environment` failures per `references/evaluate-and-fix.md` (transient: retry up to twice; structural: pause and surface). Every retry is its own `/clear` and counts against the 30-clear cap. **Before recording any FAIL, re-confirm it on disk with a precise, anchored check (per `references/evaluate-and-fix.md` § Inline grading).**
 
-- on entry → "Phase 3 — outcome <converged | cap-hit | stuck>."
-- entering held-out (converged path only) → "Phase 3, step 1 of 2 — held-out pass."
-- entering taste pass (converged path only) → "Phase 3, step 2 of 2 — final taste pass."
-- before finalize → "Phase 3 done — `report.md` finalized, awaiting your promotion decision."
+Exit when all scenarios complete (including env retries and resume continuations) OR 30 clears used (latter means the plan estimate was wrong — surface in report). Set `Stage: iterate`.
 
-- **`outcome=converged`** → run the held-out set once. Set `held-out=passed` or `held-out=failed` per the outcome (`references/convergence.md`). Whichever, run the final taste pass on the converged candidate; set `taste-pass=done` (`references/evaluate-and-fix.md`). A held-out failure is the verdict — it does NOT reopen the loop, and the candidate is not promoted.
-- **`outcome=cap-hit` or `outcome=stuck`** → skip the held-out and taste passes; `held-out` and `taste-pass` stay `pending`. Report the open defects.
-- Finalize `report.md`.
+## Iterate stage
 
-### Install — user step, never automatic
+For each defect in `defects.md` order (defects surfaced by a fix are appended at the end, so the originals are worked first):
 
-- iterate-skill does not install. Present the converged `candidate/` (its diff from the original) and `report.md`.
-- On the user's **explicit** approval, **replace** the live skill — never overlay. `rm -rf .claude/skills/<target-skill-name>/ && cp -R candidate/ .claude/skills/<target-skill-name>/`. Overlaying would leave stale files the candidate dropped during iteration (e.g. a reference file the fixer removed), and the live skill would carry both the new SKILL.md and the orphan reference.
-- Editing `.claude/skills/` is the user's call alone — never promote without explicit sign-off.
+1. **Resume-or-snapshot.** Mid-attempt resume (Log has `attempt: defect-NN-attempt-MM cleared-at-<cut-point>` with no subsequent grade line for that exact `defect-NN-attempt-MM`) → prior chunk queued `/clear` mid-retry: skip the snapshot (already exists) AND step 2 (edit already applied); resume the scenario from the cut at step 3, preserving `workspace/`. Otherwise (fresh attempt) → snapshot `cp -R candidate fix-attempts/defect-NN-attempt-MM/`. MM=1 for first attempt, 2 for second.
+
+2. **Apply fix inline.** Quote the defect's `defects.md` row (id, gated check, observation) verbatim. **Spec-drift pre-check:** if the planned edit would remove or rename a section, step name, identifier, or file path that any `test-spec.md` Part 3 `how to verify` clause references, do NOT apply — mark this defect `spec-drift-flagged` in `defects.md` and move to the next defect (skip steps 3–4). Otherwise edit `candidate/SKILL.md` (or whichever file the defect anchors to). No drive-by edits (per `references/evaluate-and-fix.md`).
+
+3. **Retry.** Step 1 took the mid-attempt-resume branch (`workspace/` holds partial state, cut already happened in prior chunk) → resume the scenario from the cut point in this same chunk; do NOT reset `workspace/` and do NOT re-drive the cut (the prior chunk's queue drove it). Otherwise (fresh attempt) reset `workspace/` from `fixture/` and run the scenario fresh — if the scenario's `Cut point` field is not `none`, drive the cut on retry (append `attempt: defect-NN-attempt-MM cleared-at-<cut-point>` to the Log and queue a `/clear` via the `/clear`-rhythm below; on the next chunk Iterate step 1's mid-attempt-resume branch picks up from here). Grade inline against the same gated check.
+
+4. **Classify outcome.** Grade the current defect on its own 2-attempt budget, independent of any new defects the retry surfaced:
+
+   - **Cleared** (the current defect's failing sub-assertion passes on retry — the full id incl. its `(<sub-assertion>)` no longer fails) → mark `fixed`. A *different* sub-assertion of the same check failing on retry is a new defect (below), not a failure to clear this one.
+   - **Persists** (the same sub-assertion still fails — same `<check-id>[(<sub-assertion>)]:<scenario-id>:<cut-point>`): first attempt → loop to step 1 for attempt 2; second attempt → mark `stuck`.
+
+   Then handle every **new defect** the retry surfaced (a failure whose structural id differs from the current defect's) by id per the lookup rules below. A defect's own grade does not depend on what it surfaced, and a surfaced defect does not consume the current defect's budget — it just joins the queue.
+
+   **Lookup rules for each new defect's structural id:**
+
+   - **Matches a `fixed` row** → oscillation. Fixing this defect reintroduced one already marked `fixed`; the loop is about to enter an A↔B cycle it can't break mechanically. Mark BOTH the current defect and the matched row `stuck (oscillation)` (per `references/convergence.md`) and surface the pair — this supersedes the current defect's own grade above (a fix that regresses a `fixed` defect isn't an acceptable clear). Do NOT append a new row for this id.
+   - **Matches any other existing row** (`stuck` / `stuck (oscillation)` / `spec-drift-flagged` / currently-open) → don't duplicate; log as observed-again.
+   - **No match** → append as a new capped defect at the END of `defects.md`. Same 2-attempt budget as any defect, processed when the queue reaches it. The 40-clear cap is the backstop against a long fix-induced chain.
+
+Exit when every defect is terminal (`fixed` / `stuck` / `stuck (oscillation)` / `spec-drift-flagged`) OR 40 iteration clears used. Set `Stage: done`.
+
+## Done stage
+
+Write `report.md`:
+
+- **Per defect:** id, scenario, gated check, defects.md terminal status (`fixed` / `stuck` / `stuck (oscillation)` / `spec-drift-flagged`), attempts used (1 or 2, from the `defect-NN-attempt-MM` Log lines), and the diff of the applied fix(es) if any.
+- **If Iteration exited via budget exhaustion:** list defects left open at the cap under the report-only category `unresolved-budget-out`.
+- **Summary line:** total scenarios run, defects fixed, defects unresolved.
+
+## Promotion — user step
+
+iterate-skill does not install. Present the converged `candidate/` (its diff against the original) and `report.md`. On the user's explicit approval, **replace** the live skill — never overlay (overlaying leaves orphan files the candidate dropped during iteration).
+
+**Reconcile the checkout first — the one hard checkout gate.** The `rm -rf` below runs against the *current* tree, so a repo moved to a new path or a branch switched since fresh start would delete/replace the wrong skill. Immediately before deleting anything, re-derive the current checkout with the **same commands** the baseline used and compare:
+
+- root `cd "$(git rev-parse --show-toplevel)" && pwd -P` vs `Checkout-Root:`; ref `git symbolic-ref --quiet --short HEAD` (else `detached:` + `git rev-parse HEAD`) vs `Checkout-Ref:`.
+- Either differs → **stop and surface**; promote only after the user confirms the switch was intentional and that promoting into the current tree is what they want.
+- Baseline `Checkout-*` lines absent (a work folder predating these fields) → **stop and ask for a one-time confirmation** that the current checkout is the original; promote only on explicit confirmation, never by assuming.
+
+Then, on approval — promote from the repo root using **absolute paths**, never cwd-relative or an assumed path (two reasons):
+
+- Bash cwd may have drifted into `workspace/` during scenario runs (cwd persists across calls).
+- `<target>`'s live path is the `Target:` line from `progress.md` — not always under `.claude/skills/` (may live deeper, e.g. `test-targets/`).
+
+```
+ROOT="$(git rev-parse --show-toplevel)"            # repo root — the gate above already reconciled this against Checkout-Root:
+TARGET="$ROOT/<progress.md Target: path>"          # e.g. .claude/skills/iterate-skill/test-targets/mock-basic
+rm -rf "$TARGET" && cp -R "$ROOT/<work-folder>/candidate" "$TARGET"
+```
+
+- A relative `rm -rf` from a drifted cwd silently no-ops (`-f`); the `cp` then fails loudly — benign (nothing deleted) but skips promotion.
 
 ## `/clear`-and-resume rhythm
 
-A full target-skill run will not fit one context window — work in `/clear`-bounded chunks sized by the `runs-per-clear` knob set at Phase 2 start. At each checkpoint:
+At each chunk:
 
-1. Write all state to the work folder so the `/clear` is safe. Reconcile `progress.md` with the current run: if the environment or plan changed mid-run, rewrite the header line and any run-specific section that named the old state — no part of `progress.md` may contradict another.
-2. **Output a chunk summary and position to stdout** before writing `next-prompt.txt` — two terminal-visible lines giving the user a status read at each `/clear` boundary, composed from this chunk's run-log entries and the iteration counter:
-
+1. **Write all state to the work folder.** Rewrite `Stage` + state lines in place — including incrementing by 1 the counter for the pool this `/clear` draws from: `Iteration:` during Iterate, `Investigation:` during Investigate AND during Plan (a Plan-stage `/clear`, e.g. a step 6 canary dispatch, draws from the 30-clear investigation pool and ticks `Investigation:` even though `Stage` is still `plan`). Append Log; update defects.md status rows. **If the chunk interrupts a scenario mid-run** (resume-shaped scenario reached its cut point and the next chunk resumes from that cut, not restart), append the mid-cut marker to the Log BEFORE writing `next-prompt.txt`. Marker depends on stage: Investigate uses `run <run-id>: cleared-at-<cut-point>` (read by Investigate step 1); Iterate uses `attempt: defect-NN-attempt-MM cleared-at-<cut-point>` (read by Iterate step 1's mid-attempt-resume branch — MM required to disambiguate retry attempts).
+2. **Output a 2-line chunk summary to stdout:**
    ```
-   Chunk summary: <X> runs done (<run-id>, <run-id>, ...); <Y> new contract defects (<defect-id>, ...); <Z> env failures (<sub-reasons>); surfaces: <list or "none">.
-   Position: iter-<NN> of <cap> (cap from the Knobs line).
+   Chunk: <what happened — N scenarios run, M new defects, fix attempted on defect-K, ...>
+   Position: stage <name>, investigation <X>/30, iteration <Y>/40.
    ```
+3. **Write `next-prompt.txt`** as one line — `Read` it first if it exists from a prior chunk (else `Write` fails silently and the auto-clear hook never fires). Format: `[iterate-skill-resume] Resume iterate-skill for target <target>. Work folder iterate-skill-<target>.local/ — read progress.md and continue from the recorded position. # ts:<ISO-datetime>`
+4. **End turn** with: `Auto-clear queued; if no /clear within ~25s the hook is likely not installed — /clear manually and paste <work-folder>/next-prompt.txt.`
 
-   Without these the user has to grep `progress.md` to know what happened in the chunk and how far the run is from the iteration cap. Append any condition surfaced under `Mid-iteration surfacing` (`references/convergence.md`) — high env-failure rate, persistent env failures, size-gate flags — to the `surfaces:` list so the user reads it at the `/clear`, not buried in `progress.md`.
-3. Write the next resume prompt to `next-prompt.txt` as **one line** — it points only at on-disk state, never at context a `/clear` will empty. The line begins with the literal prefix `[iterate-skill-resume]` (the sentinel the run-start branch matches to recognize a `next-prompt.txt` resume). The zellij helper rejects embedded LF or CRLF — embedded newlines would submit mid-prompt as separate turns — so the prefix-plus-body must be one line.
-
-   The `PostToolUse` hook configured in `.claude/settings.local.json` fires automatically after this `Write` — `auto-clear-hook.sh` calls `zellij-clear-resume.sh`, which backgrounds `/clear` + paste keystrokes ~15 seconds later. The orchestrator does not call the helper itself; writing the file IS the trigger.
-
-   End the turn with a one-line note: "Auto-clear queued; if no `/clear` lands within ~25 seconds the hook is likely not installed on this machine — `/clear` manually and paste `<work-folder>/next-prompt.txt` from disk." Stop the turn.
-
-`next-prompt.txt` holds the literal sentinel prefix plus the resume request, naming the target and the position — for example (all on one line):
-
-```
-[iterate-skill-resume] Resume iterate-skill for target <target-skill-name>. Work folder iterate-skill-<target-skill-name>.local/ — read progress.md and continue from the recorded position.
-```
-
-- The sentinel prefix is what the run-start branch matches as "explicit choice to resume — skip the resume-vs-reset question". A user message that paraphrases the body without the prefix is treated as a manual invocation and gets the confirmation question.
+- `PostToolUse` hook fires `auto-clear-hook.sh` → `zellij-clear-resume.sh` after the `next-prompt.txt` write. Orchestrator never calls the helper directly; writing the file IS the trigger.
+- `$ZELLIJ_PANE_ID` not set → surface at run start so the user knows clears must be manual.
 
 ## Context discipline
 
-Hard requirement. Quality drops as a context window fills — `/clear` early, with healthy headroom; never run context near full. The mechanism is structural, not a context-meter reading:
-
-- **Chunk size — set at Phase 2 start, never assumed.** Default is one scenario run per `/clear` (≈200K of context, highest fidelity). With user opt-in, several runs can batch per chunk, trading some fidelity for fewer `/clear`s. The chunk also bounds at one judge-and-fix step. Honor the `runs-per-clear` knob in `progress.md`; never batch unilaterally — frequent `/clear`s are a legitimate choice.
-- **Checkpoint constantly** — append to `progress.md` and write per-run / per-iteration files as work happens, not at chunk end.
-- **`/clear` proactively** — trigger checkpoint-and-`/clear` before context is tight. Erring early is correct — `/clear` is cheap because all state is on disk.
+- **Target ≤200K per `/clear`.** Anchor on 200K even on 1M-context models.
+- **Read before Write/Edit on a fresh post-`/clear` session.** Any pre-existing work-folder file (`progress.md`, `next-prompt.txt`, `defects.md`, `report.md`, `fix-attempts/…`) needs a `Read` before its first mutation in the new session.
 
 ## User involvement
 
-- **In** — approve the generated `test-spec.md` at the one Phase 1 checkpoint.
-- **During** — drive the loop: at each `/clear`, let the zellij helper queue the resume prompt or paste it manually; answer the target skill's own prompts as the scenario record scripts them.
-- **Out** — review the converged candidate's diff and `report.md`, approve promotion to the live skill.
+- **In:** approve the generated `test-spec.md` + budget estimate at the Plan-stage checkpoint.
+- **During:** the loop runs without supervision; the zellij helper drives `/clear` boundaries.
+- **Out:** review the converged candidate's diff + `report.md`, approve promotion to the live skill.
 
 ## References
 
-- `references/spec.md` — spec generation, the faithful-git-repo fixture, the scenario catalog, the gated/non-gating check split, and how a scenario run follows the candidate as a file.
-- `references/evaluate-and-fix.md` — the judge, the failure classifier, the fixer and its simplification mandate, the final taste pass.
-- `references/convergence.md` — stable defect ids, the regression suite, defect-rate convergence, the held-out branch, the iteration cap, stuck detection.
-- `references/agent-prompts.md` — self-contained subagent prompt templates the orchestrator fills and dispatches.
+- `references/spec.md` — scenario format, faithful-git-repo fixture, scenario-as-file mechanism, gated-check format.
+- `references/evaluate-and-fix.md` — inline grading rules (mechanical observables only), inline fixer constraints (quote defect, no drive-by edits, smallest fix).
+- `references/convergence.md` — defect identity, termination, stuck detection (including oscillation rules).
+- `references/agent-prompts.md` — `fixture-assembler` prompt (always dispatched), `scenario-mapper` prompt (conditional on size probe).

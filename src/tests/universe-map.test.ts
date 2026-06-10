@@ -1,4 +1,4 @@
-import { test, assertEqual, assertTrue, assertThrows, withScriptedMathRandom } from "./test-utils.ts";
+import { test, assertEqual, assertThrows, withScriptedMathRandom } from "./test-utils.ts";
 import {
   randomizeInitialInventory,
   createMapFromTemplate,
@@ -6,6 +6,7 @@ import {
   mapFromSnapshot,
 } from "../sim-map-create.ts";
 import type { MapTemplate, MapPreset } from "../../data/map-types.ts";
+import { settledPreset } from "../../data/map-preset-settled.ts";
 import { makeSectorTemplate, makeStation } from "./factories.ts";
 import type { GameSnapshot, StationSnapshot } from "../sim-save-types.ts";
 import { SAVE_VERSION } from "../sim-save-types.ts";
@@ -14,7 +15,7 @@ import { food } from "../../data/wares.ts";
 
 function makeTwoZoneAlphaTemplate(): MapTemplate {
   return {
-    sectors: [makeSectorTemplate({ id: "alpha", name: "Alpha" })],
+    sectors: [makeSectorTemplate({ id: "alpha", name: "Alpha", environment: "bio-nebula" })],
     nebulas: [],
     zones: [
       { id: "alpha-1", x: 100, y: 100, size: "M" },
@@ -156,7 +157,24 @@ test("createMapFromTemplate throws when two preset stations share a stationId", 
   );
 });
 
-test("createMapFromTemplate splits zones between preset stations and empty stationZones", () => {
+test("createMapFromTemplate throws when a zone id names no sector", () => {
+  // A typo'd zone id must fail loudly — resolving to no environment would let
+  // a preset station hosted there dodge the sector-environment allowlist.
+  const template: MapTemplate = {
+    ...makeTwoZoneAlphaTemplate(),
+    zones: [
+      { id: "alpha-1", x: 100, y: 100, size: "M" },
+      { id: "ghost-7", x: 200, y: 200, size: "L" },
+    ],
+  };
+  assertThrows(() => createMapFromTemplate(template, makePreset()), "ghost-7", "typo'd zone id");
+});
+
+test("createMapFromTemplate keeps every template zone tracked — preset claims are dynamic occupancy", () => {
+  // All sites are equal once the map exists: a zone seeded with a preset
+  // station stays in stationZones (occupancy is derived from live stations'
+  // zoneId claims), so the site is buildable again after its station leaves —
+  // exactly like a zone claimed by placeBuild mid-session.
   const map = createMapFromTemplate(
     makeTwoZoneAlphaTemplate(),
     makePreset({
@@ -172,8 +190,10 @@ test("createMapFromTemplate splits zones between preset stations and empty stati
     }),
   );
   assertEqual(map.stations.length, 1, "one preset station");
-  assertEqual(map.stationZones.length, 1, "one zone left empty");
-  assertTrue(map.stationZones[0].id === "alpha-2", "remaining zone should be alpha-2");
+  assertEqual(map.stationZones.length, 2, "every template zone stays tracked");
+  const unoccupied = filterZonesForOccupants(map.stationZones, map.stations);
+  assertEqual(unoccupied.length, 1, "the preset claim hides exactly one zone");
+  assertEqual(unoccupied[0].id, "alpha-2", "alpha-1 is occupied, alpha-2 is free");
 });
 
 test("createMapFromTemplate copies zoneId onto preset stations (save round-trip)", () => {
@@ -194,15 +214,36 @@ test("createMapFromTemplate copies zoneId onto preset stations (save round-trip)
   assertEqual(map.stations[0].zoneId, "alpha-2", "station should carry zoneId alpha-2");
 });
 
-test("mapFromSnapshot seeds no preset stations and hides snapshot-occupied zones", () => {
+test("mapFromSnapshot seeds no preset stations and keeps every zone tracked", () => {
+  // Every template zone stays tracked on load too — occupancy is computed
+  // against the restored stations, so any zone claimed before the save
+  // (preset-seeded or runtime-built) returns to the buildable pool when its
+  // station later emigrates. The seeding preset still resolves, for the
+  // warmup clock.
   const map = mapFromSnapshot(
     makeTwoZoneAlphaTemplate(),
     makeSnapshot([makeStationSnapshot({ zoneId: "alpha-1" })]),
   );
-  assertEqual(map.presetId, "settled", "preset breadcrumb comes from the snapshot");
+  assertEqual(map.presetId, "settled", "preset id comes from the snapshot");
   assertEqual(map.stations.length, 0, "snapshot restore installs stations after map creation");
-  assertEqual(map.stationZones.length, 1, "one zone left empty");
-  assertEqual(map.stationZones[0].id, "alpha-2", "snapshot-occupied zone is hidden");
+  assertEqual(map.stationZones.length, 2, "saved stations' zone claims stay in the tracked list");
+  assertEqual(
+    map.simulationWarmupSeconds,
+    settledPreset.simulationWarmupSeconds,
+    "warmup offset comes from the seeding preset",
+  );
+});
+
+test("mapFromSnapshot throws when the snapshot references a preset not in the registry", () => {
+  assertThrows(
+    () =>
+      mapFromSnapshot(makeTwoZoneAlphaTemplate(), {
+        ...makeSnapshot([]),
+        presetId: "not-a-preset",
+      }),
+    "not-a-preset",
+    "unknown preset id",
+  );
 });
 
 test("filterZonesForOccupants hides zones occupied by zoneId-carrying stations", () => {

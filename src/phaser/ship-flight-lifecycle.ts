@@ -127,6 +127,7 @@ function startFlightVisuals(
     flightRender,
     color: station.nation.color,
     shipType,
+    departureFromHeadingRadians: bundle.lastFlightHeadingRadians,
   };
   // Skip ring pulse if joining a flight already in progress.
   const travelBundle =
@@ -144,6 +145,9 @@ function endFlightVisuals(bundle: ShipVisualBundle, timeSeconds: number) {
   if (existingTravelBundle.flight.destination.surfaceOrOrbit === "orbit") {
     seedOrbitFromFlightEnd(bundle, existingTravelBundle, timeSeconds);
   }
+  // The exact on-screen heading at flight end — the next leg's departure turn
+  // lerps from it so back-to-back legs don't snap.
+  bundle.lastFlightHeadingRadians = existingTravelBundle.sprite.rotation;
   destroyShipTravelVisualBundle(existingTravelBundle);
   bundle.travelBundle = null;
 }
@@ -180,7 +184,12 @@ export function updateFlightLifecycle(
 
   if (flightStarted) startFlightVisuals(scene, bundle, tradeShip, tradeManager, timeSeconds);
   if (!hasActiveFlight && existingTravelBundle) endFlightVisuals(bundle, timeSeconds);
-  if (isTradeShipIdle(tradeShip)) bundle.orbitSprite.setVisible(true);
+  if (isTradeShipIdle(tradeShip)) {
+    bundle.orbitSprite.setVisible(true);
+    // Idle ends the leg chain — the next trip snaps to its course instead of
+    // lerping from a heading the ship orbited away from.
+    bundle.lastFlightHeadingRadians = null;
+  }
   if (isTradeShipDeploying(tradeShip) && !tradeShip.flight) applyDeployingVisibility(bundle);
 }
 

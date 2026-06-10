@@ -266,11 +266,19 @@ export function createOverviewMode(options: OverviewModeOptions): OverviewMode {
     visible = nextVisible;
     if (nextVisible) uiRoot.removeAttribute("hidden");
     else uiRoot.setAttribute("hidden", "");
+    // Closing the overlay returns the map to "now" — otherwise the live
+    // station bundles would stay hidden behind a stale rewind scrub.
+    if (!nextVisible) rewindOverlay.hide();
     tradeRouteOverlay.setPanelOpen(nextVisible);
     tradeRouteOverlay.setTradeLinesActive(visible && activeTab === "wares");
   }
 
   function update(): void {
+    // game-loop calls update() on every slow sim tick even while the overlay
+    // is closed — skip the pane DOM refresh until it reopens (our view-mode
+    // handler runs before applyViewMode's update() call, so reopening
+    // refreshes immediately).
+    if (!visible) return;
     tradeRouteOverlay.refreshData();
     lazyPanes.refreshActive();
   }

@@ -4,7 +4,7 @@ import type { Station } from "../sim-station-types";
 import { closeViewAlpha } from "./camera-fade";
 import { getAllInventorySlots, type InventorySlot } from "../sim-station";
 import { sortWares } from "../sim-ware-template";
-import { bodyRadiusBySize, shortNameBySize } from "../../data/stations";
+import { bodyRadiusBySize } from "../../data/stations";
 import {
   ringTwinkles,
   segmentTwinkles,
@@ -230,7 +230,7 @@ export function formatStationTypeAndSizeLabel(station: Station): string {
   if (station.state === "building") {
     return `Building ${station.stationType.name} (${station.size})`;
   }
-  return `${shortNameBySize[station.size]} ${station.nation.codeName} ${station.stationType.name}`;
+  return `${station.size} ${station.nation.codeName} ${station.stationType.name}`;
 }
 
 /** Two-line station name + type/size label below the inventory ring. */

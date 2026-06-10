@@ -13,7 +13,6 @@ import type { TradeManager } from "../sim-trade-manager";
 import { createOverviewTradeSidebar, type OverviewTradeSidebar } from "../ui-overview-trade-sidebar";
 import {
   createTradeRouteRender,
-  NONE,
   type StationPosition,
   type TradeRouteData,
   type TradeRouteRender,
@@ -81,7 +80,7 @@ export function createTradeRouteOverlay(options: TradeRouteOverlayOptions): Trad
   // Preserves the order written in data/wares.
   const tradeableWares = computeTradeableWares(tradeManager);
 
-  let selectedWare: WareSelection = NONE;
+  let selectedWare: WareSelection = "none";
   // Gray baseline routes from windowed delivery data; green overlay reuses
   // the same set, filtered to the selected ware.
   let baselineRoutes: TradeRouteData[] = [];

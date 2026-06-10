@@ -41,8 +41,6 @@ export interface BuildPlacement {
   contractingNationId?: string;
   x: number;
   y: number;
-  /** Override the generated id — used by save restore to keep the saved id stable. */
-  stationId?: string;
   name?: string;
 }
 
@@ -218,7 +216,7 @@ export class StationManager {
     const waresRequired = computeBuildWares(placement.typeId, placement.size, contracted);
 
     const placedStation: PlacedStation = {
-      id: placement.stationId ?? this.generateStationIdForNation(nation),
+      id: this.generateStationIdForNation(nation),
       name: placement.name,
       x: placement.x,
       y: placement.y,
@@ -306,10 +304,6 @@ export class StationManager {
     station.sizeMultiplier = rebuilt.sizeMultiplier;
     station.state = "producing";
     station.build = undefined;
-  }
-
-  getBuildingStations(): Station[] {
-    return this.stations.filter((station) => station.state === "building");
   }
 
   reset(): void {

@@ -15,8 +15,9 @@ import type { Station } from "./sim-station-types";
 import type { GameMap } from "./sim-map-types";
 import type { StationManager } from "./sim-station-manager";
 import type { EmigrationIntensity } from "./sim-emigration-types";
-import type { BuildingNationId } from "../data/nation-types";
 import { allNations } from "../data/nations";
+import * as emigrationStrings from "../data/strings-emigration";
+import { filterZonesForOccupants } from "./sim-map-create";
 import { isStationProducing } from "./sim-station";
 import { rankStationsForEmigration } from "./sim-emigration-ranking";
 
@@ -40,25 +41,6 @@ const INTENSITY_FRACTIONS: Record<EmigrationIntensity, number> = {
 // each, versus 50% under a uniform draw.
 const PERSONALITY_PICK_CHANCE = 0.7;
 
-const DESTINATION_POOL = [
-  "The Long Drift",
-  "Outer Rim",
-  "The Pale Reach",
-  "Sector Wake",
-  "Beyond the Net",
-  "The Hollow Lanes",
-  "The Quiet Rim",
-  "Last Frequencies",
-  "The Unclaimed",
-  "Edge of Charts",
-  "Deep Wake",
-  "The Far Silence",
-  "Past the Dials",
-  "The Ninth Drift",
-  "Open Sky",
-  "Null Horizon",
-];
-
 /** Pick stations to emigrate, scaled by intensity. Per nation: filter eligible
  *  stations (G1 + G2 + producing), rank them most-likely-to-emigrate first
  *  (sim-emigration-ranking.ts), then fill the intensity-fraction quota with the
@@ -80,7 +62,7 @@ export function selectStationsForEmigration(
     const producing = stationManager
       .getStationsForNation(nation.id)
       .filter((station) => isStationProducing(station));
-    const pool = rankStationsForEmigration(nation.id as BuildingNationId, eligible, producing, map);
+    const pool = rankStationsForEmigration(nation.id, eligible, producing, map);
     const alreadyPickedIds = new Set(selected.map((station) => station.id));
     while (pickedFromThisNation < targetCount && pool.length > 0) {
       const index = rollEmigrationPickIndex(pool.length);
@@ -194,22 +176,23 @@ function countProducingStations(
   return count;
 }
 
-/** Zones with no live station. The manager auto-triggers an event when this
- *  drops to or below its `autoTriggerThreshold` to free up space. */
+/** Zones with no live station. Every template zone is tracked in
+ *  `map.stationZones`; occupancy is a live station's zoneId claim, so a site
+ *  freed by emigration counts as empty again no matter how it was first
+ *  claimed. The manager auto-triggers an event when this drops to or below
+ *  its `autoTriggerThreshold` to free up space. */
 export function emptyZoneCount(map: GameMap, stationManager: StationManager): number {
-  const occupied = new Set<string>();
-  for (const station of stationManager.getStations()) {
-    if (station.zoneId) occupied.add(station.zoneId);
-  }
-  return Math.max(0, map.stationZones.length - occupied.size);
+  return filterZonesForOccupants(map.stationZones, stationManager.getStations()).length;
 }
 
 /** Pick the next destination name, recycling the pool once exhausted. Mutates
  *  `usedDestinations` in place — caller owns the array (it's lifecycle state
  *  on the manager, included in the snapshot). */
 export function drawAndRecordDestination(usedDestinations: string[]): string {
-  if (usedDestinations.length === DESTINATION_POOL.length) usedDestinations.length = 0;
-  const remaining = DESTINATION_POOL.filter((destination) => !usedDestinations.includes(destination));
+  if (usedDestinations.length === emigrationStrings.DESTINATION_POOL.length) usedDestinations.length = 0;
+  const remaining = emigrationStrings.DESTINATION_POOL.filter(
+    (destination) => !usedDestinations.includes(destination),
+  );
   const pickedDestination = remaining[Math.floor(Math.random() * remaining.length)];
   usedDestinations.push(pickedDestination);
   return pickedDestination;

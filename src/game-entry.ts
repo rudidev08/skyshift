@@ -1,5 +1,4 @@
 import * as Phaser from "phaser";
-import { inject } from "@vercel/analytics";
 import type { GameViewMode, RequestedViewModeCell } from "./game-view-mode";
 import type { SectorGridMode } from "./sector-grid-mode";
 import { enableAudio, disableAudio } from "./audio-announcer";
@@ -7,10 +6,7 @@ import { loadPreference } from "./storage-preferences";
 import { uiPreferenceDefaults } from "../data/ui-preference-defaults";
 import { isDevModeEnabled } from "./util-devmode";
 import { setExtendedAllowedSpeeds } from "./phaser/time-controls";
-
-if (!isDevModeEnabled()) {
-  inject({ scriptSrc: "/api/telemetry.js" });
-}
+import { injectAnalyticsUnlessDev } from "./util-analytics";
 import { backgroundConfig } from "../data/visuals-map-background";
 import type { GameMap } from "./sim-map-types";
 import type { GameSnapshot } from "./sim-save-types";
@@ -29,7 +25,9 @@ import {
   setupGlobalKeyboardShortcuts,
   setupSettingsPanel,
 } from "./game-entry-hud";
-import { parseRoute, startFreshUniverse, restoreSavedGame, renderLoadError } from "./game-entry-routing";
+import { parseRoute, startFreshUniverse, resumeSavedUniverse, renderLoadError } from "./game-entry-routing";
+
+injectAnalyticsUnlessDev();
 
 function paintLoadingCardMorseStripe() {
   const loadingCard = document.querySelector<HTMLElement>("#loading-screen .id-card");
@@ -38,6 +36,41 @@ function paintLoadingCardMorseStripe() {
 
 // Painted at module load so the loading card isn't bare during the brief pre-script window.
 paintLoadingCardMorseStripe();
+
+// Set once we've shown the load-error panel so a later error (or the route
+// .catch() below firing on the same failure) doesn't wipe and re-render it.
+let loadErrorShown = false;
+
+function showLoadError(message: string, stack?: string): void {
+  if (loadErrorShown) return;
+  loadErrorShown = true;
+  renderLoadError(message, stack);
+}
+
+// Earliest-possible boot guard: a throw inside Phaser's deferred scene create()
+// (e.g. a bad save) escapes the awaited-boot .catch() and would otherwise leave
+// the "Entering universe" curtain frozen. Catch it at the window level instead,
+// but only before the first frame clears the curtain (game-ready) — past that,
+// the game is live and an unrelated runtime error shouldn't replace it with the
+// load-error panel.
+function hasReachedFirstFrame(): boolean {
+  return document.body.classList.contains("game-ready");
+}
+
+window.addEventListener("error", (event) => {
+  if (hasReachedFirstFrame()) return;
+  const message = event.error instanceof Error ? event.error.message : event.message;
+  const stack = event.error instanceof Error ? event.error.stack : undefined;
+  showLoadError(message, stack);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  if (hasReachedFirstFrame()) return;
+  const reason = event.reason;
+  const message = reason instanceof Error ? reason.message : String(reason);
+  const stack = reason instanceof Error ? reason.stack : undefined;
+  showLoadError(message, stack);
+});
 
 // URL scheme:
 //   /start/:preset  — fresh start; mount replaces history to /universe so
@@ -48,11 +81,13 @@ let activeGame: Phaser.Game | null = null;
 let destroyRuntime: (() => void) | null = null;
 
 export function destroyGameRuntime() {
-  // Run destroyRuntime first so destroy callbacks fire while the scene is still
-  // alive; destroy(true) below re-enters destroyRuntime via Phaser's destroy
-  // event, where the destroyed flag short-circuits the second call.
-  destroyRuntime?.();
+  // Capture the game before running destroyRuntime — that closure ends by
+  // nulling activeGame. It runs first so destroy callbacks fire while the
+  // scene is still alive; destroy(true) below re-enters destroyRuntime via
+  // Phaser's destroy event, where the destroyed flag short-circuits the
+  // second call.
   const previousGame = activeGame;
+  destroyRuntime?.();
   destroyRuntime = null;
   activeGame = null;
   previousGame?.destroy(true);
@@ -139,7 +174,9 @@ export async function mountGameRuntime(options: GameRuntimeOptions) {
           void mountGameRuntime({ ...options, initialSnapshot: snapshot }),
       });
 
-  installSnapshotDebugHook(getActiveScene);
+  if (isDevModeEnabled()) {
+    installSnapshotDebugHook(getActiveScene);
+  }
 
   if (keyboardShortcutsEnabled) {
     setupGlobalKeyboardShortcuts({
@@ -274,24 +311,23 @@ function registerRuntimeDestroy(game: Phaser.Game, destroyCallbacks: Array<() =>
   const hot = (import.meta as ImportMeta & { hot?: { dispose(callback: () => void): void } }).hot;
   if (!hot) return;
   hot.dispose(() => {
+    // Capture before destroy() — it nulls activeGame for this game.
+    const wasActiveGame = activeGame === game;
     destroy();
-    if (activeGame === game) {
-      activeGame = null;
-      game.destroy(true);
-    }
+    if (wasActiveGame) game.destroy(true);
   });
 }
 
 function startGameFromUrlRoute(): void {
   const route = parseRoute(window.location.pathname);
   if (!route) return;
-  const run = route.kind === "newGame" ? startFreshUniverse(route.presetId) : restoreSavedGame();
+  const run = route.kind === "newGame" ? startFreshUniverse(route.presetId) : resumeSavedUniverse();
   run.catch((error) => {
     console.error(error);
     // Surface the stack inside the "Show details" toggle rather than the headline.
     const message = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;
-    renderLoadError(message, stack);
+    showLoadError(message, stack);
   });
 }
 

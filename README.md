@@ -62,7 +62,8 @@ Located at [`.claude/skills/`](.claude/skills/). Since the LLM field is moving r
 - **review-structure:** naming, coding patterns and organization. Iterated on while working on this repo early on.
 - **review-tests:** makes small (wrong) changes to code, and sees how tests react.
 - **iterate-skill:** run skill on files few times, ironing out issues. Highly experimental.
-- **compact-skill-rewriter:** rewrite skill prose to terse bullets while preserving the important parts.
+- **compress-skill:** rewrite skill prose to terse bullets while preserving the important parts.
+- **generate-image:** procedurally generates and updates game textures like nebulas and backgrounds.
 
 ## Run it locally
 

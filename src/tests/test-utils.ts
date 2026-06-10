@@ -1,9 +1,19 @@
 let passed = 0;
 let failed = 0;
 
+/** Test bodies must be synchronous — the summary below fires on setImmediate,
+ *  so an async body would count as passed at its first `await` and its
+ *  remaining assertions would silently never run. A body that returns a
+ *  thenable is therefore counted as failed. */
 export function test(name: string, body: () => void) {
   try {
-    body();
+    const result = body() as unknown;
+    if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
+      // Detach the still-running body's eventual rejection so it can't crash
+      // the process on top of the failure reported here.
+      (result as PromiseLike<unknown>).then(undefined, () => {});
+      throw new Error("test bodies must be synchronous — assertions after an await would never run");
+    }
     passed++;
   } catch (error) {
     failed++;
@@ -78,9 +88,17 @@ export function assertThrows(action: () => void, expectedSubstring: string, labe
   throw new Error(`${label}: expected to throw`);
 }
 
-// Sets process.exitCode on failure so run-tests.sh sees a non-zero exit per test file.
-process.on("beforeExit", () => {
+// Print the per-file summary and exit (non-zero on any failure, which run-tests.sh reads).
+// Every test body above runs synchronously (test() fails bodies that return a thenable),
+// so by the time this fires all tests in the file have finished. Using setImmediate
+// instead of a "beforeExit" listener means the process still exits even if an imported
+// module left a timer or other open handle that kept the event loop from emptying on
+// its own. (A synchronous infinite loop is the one case this can't catch — it blocks
+// the event loop so this never fires; the per-file timeout in dev/run-test-file.sh is
+// what bounds that instead.)
+// The write callback flushes the summary before exiting so it isn't truncated.
+setImmediate(() => {
   const file = process.argv[1].split("/").pop();
-  console.log(`\n${file}: ${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exitCode = 1;
+  const code = failed > 0 ? 1 : 0;
+  process.stdout.write(`\n${file}: ${passed} passed, ${failed} failed\n`, () => process.exit(code));
 });

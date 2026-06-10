@@ -71,7 +71,7 @@ export class NamePool {
     let remaining = this.remainingNames.get(pool);
     if (!remaining || remaining.length === 0) {
       remaining = [...pool];
-      shuffleNamePoolCopy(remaining);
+      shuffleInPlace(remaining);
       this.remainingNames.set(pool, remaining);
     }
     return remaining;
@@ -103,8 +103,4 @@ export function assignStationNames<T extends { name?: string; nation: Nation }>(
       station.name = namePool.claimStationName(station.nation);
     }
   }
-}
-
-function shuffleNamePoolCopy(names: string[]) {
-  shuffleInPlace(names);
 }

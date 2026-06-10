@@ -8,12 +8,6 @@ export const sizeMultiplierBySize: Record<StationSize, number> = {
   L: 3,
 };
 
-export const shortNameBySize: Record<StationSize, string> = {
-  S: "S",
-  M: "M",
-  L: "L",
-};
-
 export const longNameBySize: Record<StationSize, string> = {
   S: "Small",
   M: "Medium",

@@ -1,8 +1,17 @@
 {
+  "trailingSlash": false,
   "rewrites": [
     { "source": "/api/telemetry.js", "destination": "https://va.vercel-scripts.com/v1/script.js" },
-    { "source": "/api/telemetry", "destination": "https://va.vercel-scripts.com/v1/event" },
-    { "source": "/start/(.*)", "destination": "/universe.html" },
+    { "source": "/start/:preset", "destination": "/universe.html" },
     { "source": "/universe", "destination": "/universe.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    }
   ]
 }

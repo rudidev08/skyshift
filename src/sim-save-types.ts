@@ -1,10 +1,12 @@
 import type { WareId } from "../data/ware-types";
+import type { ShipTypeId } from "../data/ship-types";
 import type { TravelEndpoint, TravelMode } from "./sim-travel-types";
 import type { FlightData } from "./sim-travel";
 import type { TradeReservation, TradeDirection } from "./sim-trade-types";
 import type { StationBuild, StationTypeId, StationSize, StationState } from "../data/station-types";
 import type { StationEmigration, StationGenerationalShipBuild } from "./sim-station-types";
 import type { StationLifecycleEvent } from "./sim-station-history";
+import type { EmigrationEvent, EmigrationIntensity, EmigrationTriggerMode } from "./sim-emigration-types";
 
 /** Save schema is permanently 1 during pre-release development — edit snapshot
  *  shapes in place rather than bumping this. `captureSnapshot`'s `version`
@@ -16,9 +18,12 @@ export const SAVE_VERSION = 1;
 /** How a save slot was written: an auto-save tick, a manual save, or an explicit export. */
 export type SaveSource = "auto" | "manual" | "export";
 
-// Snapshot shapes are `Pick<>` from runtime types so a new runtime-only field
-// can't accidentally land in saves via spread (e.g. `flight: { ...ts.flight }`
-// in sim-trade-manager.ts) — TS rejects the spread until the field is opted in here.
+// Snapshot shapes are `Pick<>` from runtime types so every persisted field is
+// an explicit opt-in. That alone doesn't stop leaks: excess-property checks
+// don't pierce spreads, so a new runtime-only field WOULD silently land in
+// saves via e.g. `flight: { ...tradeShip.flight }` in sim-trade-save-snapshot.ts.
+// The real guard is src/tests/savegame-snapshot-paths.test.ts, which diffs the
+// captured snapshot's field paths against a checked-in list.
 
 export type FlightSnapshot = Pick<
   FlightData,
@@ -33,7 +38,6 @@ export type FlightSnapshot = Pick<
   | "flightDistanceFraction"
   | "arriveDistanceFraction"
   | "travelMode"
-  | "previousHeadingRadians"
 >;
 
 export type TravelEndpointSnapshot = Pick<TravelEndpoint, "stationId" | "surfaceOrOrbit">;
@@ -45,8 +49,9 @@ export interface GameSnapshot {
   savedAtMilliseconds: number;
   simulationTick: number;
   source?: SaveSource;
-  /** Preset id the run started from ("settled" / "frontier"). Display breadcrumb
-   *  only — shown in the slot label and export filename; not used to route loads. */
+  /** Preset id the run started from ("settled" / "frontier"). Load resolves it
+   *  to the seeding preset to strip preset-seeded zones and restore the warmup
+   *  clock; also shown in the slot label and export filename. */
   presetId: string;
   stations: StationSnapshot[];
   ships: ShipSnapshot[];
@@ -117,7 +122,7 @@ export interface InventorySlotSnapshot {
 export interface ShipSnapshot {
   id: string;
   stationId: string;
-  shipTypeId: string;
+  shipTypeId: ShipTypeId;
   shipName: string;
 }
 
@@ -130,7 +135,6 @@ export interface TradeShipSnapshot {
   targetStationId: string | null;
   tradeDirection: TradeDirection | null;
   reservations: ReservationSnapshot[];
-  lastFlightHeadingRadians: number | null;
   idleSinceTradeTimeSeconds: number;
 }
 
@@ -149,25 +153,25 @@ export type ShipActionSnapshot =
   | { type: "cargo-deposit"; stationId: string; wareId: WareId; amount: number }
   | { type: "decommission"; stationId: string; label: string };
 
-export interface EmigrationEventSnapshot {
-  id: string;
-  nationIds: string[];
-  generationalShipId: string;
-  stationIds: string[];
-  /** Ships from this event already decommissioned at WAY. WAY jumps when this hits `totalExpectedShips`. */
-  shipsArrived: number;
-  /** Total ships expected at the generational ship. Locked at trigger; reduced by retireUnlaunched if a launch budget is abandoned. */
-  totalExpectedShips: number;
-  destinationName: string;
-}
+/** Excludes the runtime `stationIdSet` mirror — rebuilt from `stationIds` on deserialize. */
+export type EmigrationEventSnapshot = Pick<
+  EmigrationEvent,
+  | "id"
+  | "nationIds"
+  | "generationalShipId"
+  | "stationIds"
+  | "shipsArrived"
+  | "totalExpectedShips"
+  | "destinationName"
+>;
 
 export interface EmigrationManagerSnapshot {
   activeEvent: EmigrationEventSnapshot | null;
   /** Current generational-ship station id, or null if none is present. The
    *  generational ship's Station itself lives in the top-level `stations[]` array. */
   activeGenerationalShipId: string | null;
-  mode: "auto" | "manual";
-  intensity: "low" | "medium" | "high";
+  mode: EmigrationTriggerMode;
+  intensity: EmigrationIntensity;
   usedDestinations: string[];
   nextGenerationalShipArrivalAtSeconds: number | null; // null = one is already present
   /** Monotonic clock for event deadlines. Must round-trip or deadlines drift. */

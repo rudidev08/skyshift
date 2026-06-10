@@ -6,7 +6,7 @@ import { findSectorAtPosition } from "./sim-sector-lookup";
 import { generateUniqueId } from "./util-ids";
 
 /** Extracts the sector id from a zone id that follows the `<sector-id>-<n>` convention. */
-function sectorIdFromZoneId(zoneId: string): string {
+export function sectorIdFromZoneId(zoneId: string): string {
   return zoneId.replace(/-\d+$/, "");
 }
 

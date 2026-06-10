@@ -1,6 +1,31 @@
 import { test, assertEqual, assertTrue, assertThrows, assertNotUndefined } from "./test-utils.ts";
-import { captureSnapshot, restoreSavedGame } from "../ui-savegame-manager.ts";
+import { captureSnapshot, restoreSavedGame, type SavegameHost } from "../ui-savegame-manager.ts";
+import { registerRestoredShipNames } from "../game-setup.ts";
 import { setupFreshTestGame } from "./savegame-test-fixtures.ts";
+import { Simulation } from "../sim-lifecycle.ts";
+import { mapFromSnapshot } from "../sim-map-create.ts";
+import { emptyZoneCount } from "../sim-emigration-decision.ts";
+import { map as settledUniverse } from "../../data/map.ts";
+import type { GameSnapshot } from "../sim-save-types.ts";
+
+/** Mirror the real load path (game-entry-routing.ts + game-setup.ts): rebuild
+ *  the map shell from the snapshot, restore into a fresh Simulation (which,
+ *  unlike setupFreshTestGame, makes no fresh-boot name draws or roster seeds),
+ *  then reseed the rosters. Caller destroys the returned simulation. */
+function restoreIntoFreshSimulation(snapshot: GameSnapshot): SavegameHost & { simulation: Simulation } {
+  const map = mapFromSnapshot(settledUniverse, snapshot);
+  const simulation = new Simulation(map);
+  const host: SavegameHost & { simulation: Simulation } = {
+    map,
+    timeScale: 1,
+    stations: [],
+    ships: [],
+    simulation,
+  };
+  restoreSavedGame(host, snapshot);
+  simulation.seedRosterForSavedGame(host.stations, host.ships);
+  return host;
+}
 
 test("loading a save invokes the wired timeController.setSpeed with 1x", () => {
   // When a timeController is wired (the live game wires one during render
@@ -246,4 +271,69 @@ test("getCurrentBuildStationId is derived from the restored roster, not a persis
     buildingStation.id,
     "restored: getCurrentBuildStationId derives the in-flight build from the roster",
   );
+});
+
+test("mapFromSnapshot strips only preset-seeded zones, so zone accounting survives a save/load round-trip", () => {
+  // Regression: mapFromSnapshot used to strip EVERY saved station's zone from
+  // stationZones, where the fresh path strips only the preset-seeded ones.
+  // Each load permanently retired the zones under runtime-built stations —
+  // they couldn't be re-sited after emigration, zone-count thresholds shrank,
+  // and emptyZoneCount disagreed with the pre-save session. It also dropped
+  // simulationWarmupSeconds, shifting the elapsed-time clock by the warmup
+  // after every load.
+  const sourceGame = setupFreshTestGame();
+  const sourceTrackedZoneIds = new Set(sourceGame.map.stationZones.map((zone) => zone.id));
+  // Runtime-built stations (initial builds) claim tracked zones — the claims
+  // the broken strip wrongly retired.
+  assertTrue(
+    sourceGame.stations.some((station) => station.zoneId && sourceTrackedZoneIds.has(station.zoneId)),
+    "preconditions: at least one runtime-built station claims a tracked zone",
+  );
+  const sourceEmptyZoneCount = emptyZoneCount(sourceGame.map, sourceGame.simulation.stationManager);
+  const snapshot = captureSnapshot(sourceGame);
+
+  const loadedGame = restoreIntoFreshSimulation(snapshot);
+
+  assertEqual(
+    loadedGame.map.stationZones.length,
+    sourceGame.map.stationZones.length,
+    "tracked zone list survives the round-trip",
+  );
+  assertEqual(
+    emptyZoneCount(loadedGame.map, loadedGame.simulation.stationManager),
+    sourceEmptyZoneCount,
+    "empty-zone count survives the round-trip",
+  );
+  assertEqual(
+    loadedGame.map.simulationWarmupSeconds,
+    sourceGame.map.simulationWarmupSeconds,
+    "preset warmup offset survives the round-trip",
+  );
+  loadedGame.simulation.destroy();
+});
+
+test("registerRestoredShipNames keeps post-load dynamic spawns from reusing a restored ship's name", () => {
+  // Regression: the load path re-claimed restored STATION names into the name
+  // pool but not ship names, so a post-load fleet spawn (build flip, emigrant
+  // launch) could hand out the exact name a restored ship already wears.
+  const sourceGame = setupFreshTestGame();
+  const snapshot = captureSnapshot(sourceGame);
+  const loadedGame = restoreIntoFreshSimulation(snapshot);
+  registerRestoredShipNames(loadedGame.simulation.namePool, loadedGame.ships);
+
+  // Pick a restored ship wearing an unsuffixed pool name — without the
+  // re-claim, the pool is guaranteed to reissue it within pool-size draws.
+  const restoredShip = assertNotUndefined(
+    loadedGame.ships.find((ship) => ship.station.nation.shipNames.includes(ship.shipName)),
+    "preconditions: a restored ship wears a name from its nation's pool",
+  );
+  const nation = restoredShip.station.nation;
+  for (let draw = 0; draw < nation.shipNames.length; draw++) {
+    const drawnName = loadedGame.simulation.namePool.claimShipName(nation);
+    assertTrue(
+      drawnName !== restoredShip.shipName,
+      `draw ${draw} reissued restored ship name "${drawnName}"`,
+    );
+  }
+  loadedGame.simulation.destroy();
 });

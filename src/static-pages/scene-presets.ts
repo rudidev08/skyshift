@@ -1,22 +1,22 @@
 /* Station icons, ship hulls, and nation colors for mountSectorAnimation —
- * all derived from the game's data modules so static pages can't drift. */
-
-import { Apple, Compass, Container, Hammer, Stone, VectorSquare } from "lucide-static";
+ * all derived from the game's data modules and icon registry so static pages
+ * can't drift. */
 
 import { bioNation, farNation, hubNation, oreNation, skyNation, wayNation } from "../../data/nations";
 import type { ShipTypeTemplate } from "../../data/ship-types";
 import { jumpship, seedhaul, tanker, trader } from "../../data/ships";
 
 import { stripLucideSvgWrapper } from "../render-lucide-svg";
+import { iconSvgByStationType } from "../render-station-icon";
 
 import type { SectorShipHull } from "./static-ship-preview";
 
-export const ICON_ARCHIVES = stripLucideSvgWrapper(VectorSquare).trim();
-export const ICON_FARM = stripLucideSvgWrapper(Apple).trim();
-export const ICON_MINE = stripLucideSvgWrapper(Stone).trim();
-export const ICON_TECH = stripLucideSvgWrapper(Container).trim();
-export const ICON_FORGE = stripLucideSvgWrapper(Hammer).trim();
-export const ICON_GENERATIONAL_SHIP = stripLucideSvgWrapper(Compass).trim();
+export const ICON_ARCHIVES = stripLucideSvgWrapper(iconSvgByStationType["archives"]).trim();
+export const ICON_FARM = stripLucideSvgWrapper(iconSvgByStationType["farm"]).trim();
+export const ICON_MINE = stripLucideSvgWrapper(iconSvgByStationType["mine"]).trim();
+export const ICON_TECH = stripLucideSvgWrapper(iconSvgByStationType["tech-factory"]).trim();
+export const ICON_FORGE = stripLucideSvgWrapper(iconSvgByStationType["metal-forge"]).trim();
+export const ICON_GENERATIONAL_SHIP = stripLucideSvgWrapper(iconSvgByStationType["generational-ship"]).trim();
 
 export const NATION_COLORS = {
   hub: hubNation.color,

@@ -33,13 +33,13 @@ interface FlightEndpointInput {
 export function createFlightCurveGeometry(
   origin: FlightEndpointInput,
   destination: FlightEndpointInput,
-  ship: ShipTypeTemplate,
+  shipType: ShipTypeTemplate,
 ): FlightCurveGeometry {
   const originPos = origin.spritePositionOverride ?? resolveEndpointPosition(origin.endpoint, origin.station);
   const destinationPos =
     destination.spritePositionOverride ?? resolveEndpointPosition(destination.endpoint, destination.station);
 
-  const curveAngle = rollFlightCurveAngle(ship);
+  const curveAngle = rollFlightCurveAngle(shipType);
 
   return {
     startX: originPos.x,
@@ -50,9 +50,9 @@ export function createFlightCurveGeometry(
   };
 }
 
-function rollFlightCurveAngle(ship: ShipTypeTemplate): number {
-  const minDegrees = ship.flightPathCurveAngleMinDegrees;
-  const maxDegrees = ship.flightPathCurveAngleMaxDegrees;
+function rollFlightCurveAngle(shipType: ShipTypeTemplate): number {
+  const minDegrees = shipType.flightPathCurveAngleMinDegrees;
+  const maxDegrees = shipType.flightPathCurveAngleMaxDegrees;
   const magnitude = minDegrees + Math.random() * (maxDegrees - minDegrees);
   const sign = Math.random() < 0.5 ? 1 : -1;
   return magnitude * sign;

@@ -12,8 +12,14 @@ import {
 import { morseBarGradient } from "../render-morse-bar";
 import { findLatestSave } from "../storage-save-slots";
 import { formatLocalDateTime } from "../util-date-format";
+import { injectAnalyticsUnlessDev } from "../util-analytics";
 import { presets } from "../../data/map-presets";
 import type { MapPreset } from "../../data/map-types";
+import nebulaSkyshiftUrl from "../assets/backgrounds/nebula-skyshift.png";
+import nebulaVoid1Url from "../assets/backgrounds/nebula-void1.png";
+import nebulaVoid2Url from "../assets/backgrounds/nebula-void2.png";
+
+injectAnalyticsUnlessDev();
 
 const RECOMMENDED_PRESET_ID = "settled";
 
@@ -99,7 +105,7 @@ function mountStartActions(root: HTMLElement): void {
   // game-entry loads the most recent slot from localStorage.
   const latestSave = findLatestSave();
 
-  if (latestSave && latestSave.savedAtMilliseconds !== null) {
+  if (latestSave) {
     renderReturningVisit(root, sortedPresets, latestSave.savedAtMilliseconds);
   } else {
     renderFirstVisit(root, sortedPresets);
@@ -156,21 +162,21 @@ if (sectorCanvas instanceof HTMLCanvasElement) {
     ],
     nebulas: [
       {
-        src: "/index/nebula-skyshift.png",
+        src: nebulaSkyshiftUrl,
         xRatio: 0.22,
         yRatio: 0.5,
         sizeFraction: 0.7,
         alpha: 0.5,
       },
       {
-        src: "/index/nebula-void1.png",
+        src: nebulaVoid1Url,
         xRatio: 0.73,
         yRatio: 0.51,
         sizeFraction: 0.65,
         alpha: 1.0,
       },
       {
-        src: "/index/nebula-void2.png",
+        src: nebulaVoid2Url,
         xRatio: 0.55,
         yRatio: 0.69,
         sizeFraction: 0.55,

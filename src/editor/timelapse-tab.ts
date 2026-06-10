@@ -13,6 +13,7 @@
 
 import Phaser from "phaser";
 import { Download } from "lucide-static";
+import { presets } from "../../data/map-presets";
 import { formatElapsed } from "../render-elapsed-time-label";
 import { setTextIfChanged } from "../ui-dom-cache";
 import { downloadJsonFile, fileNameTimestamp } from "../ui-download-json";
@@ -26,11 +27,7 @@ import {
   type TimelapseRunHandle,
 } from "./timelapse-runner";
 import type { DiagnosticsFrame } from "./timelapse-diagnostics";
-import {
-  stepFrameIndex,
-  type TimelapseFrame,
-  type TimelapseRun,
-} from "../sim-timelapse-state";
+import { stepFrameIndex, type TimelapseFrame, type TimelapseRun } from "../sim-timelapse-state";
 import {
   createStationsTimelapseControl,
   type StationsTimelapseControl,
@@ -67,6 +64,7 @@ export interface TimelapseTab {
 
 export function createTimelapseTab(): TimelapseTab {
   const controls = readControls();
+  populatePresetOptions(controls.presetSelect);
   const run: TimelapseRun = {
     presetId: controls.presetSelect.value,
     durationSeconds: Number(controls.durationSelect.value),
@@ -234,9 +232,13 @@ export function createTimelapseTab(): TimelapseTab {
     };
   }
 
+  /** Stop early but keep the run inspectable: ticking stops while the handle
+   *  (and its stationHistory) stays alive, landing in the same scrubbable
+   *  complete state a natural run end reaches. The next restart/reset/tab
+   *  switch still destroys the simulation via cancelActiveRun. */
   function pauseRun() {
     if (run.status !== "running") return;
-    cancelActiveRun();
+    runHandle?.stop();
     finishRun();
   }
 
@@ -390,6 +392,18 @@ function setupToolbarListeners(controls: TimelapseTabControls, handlers: Toolbar
   controls.presetSelect.addEventListener("change", handlers.onAnySettingChanged);
   controls.durationSelect.addEventListener("change", handlers.onAnySettingChanged);
   controls.emigrationSelect.addEventListener("change", handlers.onAnySettingChanged);
+}
+
+/** Populated from the preset registry (same source as the map tab's preset
+ *  picker) so adding a preset doesn't require editing tools.html. */
+function populatePresetOptions(select: HTMLSelectElement): void {
+  select.innerHTML = "";
+  for (const preset of presets) {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.textContent = preset.name;
+    select.appendChild(option);
+  }
 }
 
 function readControls(): TimelapseTabControls {

@@ -28,6 +28,7 @@
   /* Accent */
   --active: #f5c26b; /* gold — active UI state (buttons, speed tick, zoom text) */
   --accent: #87d186; /* green — value / data / highlighted content */
+  --accent-cyan: #5ed4c7; /* teal — cyan accent tint (pill, guilloche cross-hatch) */
 
   /* Nation colors — mirror the values in data/nations.ts. Update both
      together when retuning a nation's palette. */
@@ -36,6 +37,7 @@
   --nation-ore: #b36100;
   --nation-sky: #00f9ff;
   --nation-far: #e8c840;
+  --nation-way: #808080;
 
   /* Fonts */
   --font-display: "Space Grotesk", system-ui, sans-serif;
@@ -99,7 +101,7 @@
 
   /* On-state fill for HUD pills (hud-btn.is-on, speed-pill.is-on) —
      gold-tinted gradient laid over the standard glass surface. */
-  --active-pill-fill: linear-gradient(180deg, rgba(245, 194, 107, 0.14), rgba(245, 194, 107, 0.04)), var(--glass-bg);
+  --active-pill-fill: linear-gradient(180deg, color-mix(in srgb, var(--active) 14%, transparent), color-mix(in srgb, var(--active) 4%, transparent)), var(--glass-bg);
 
   color-scheme: dark;
 }
@@ -503,7 +505,7 @@ button {
     color 0.2s;
 }
 .zoom-level:hover {
-  background: rgba(245, 194, 107, 0.08);
+  background: color-mix(in srgb, var(--active) 8%, transparent);
 }
 
 /* The zoom trio (out / level / in) sits flush inside the shared dial
@@ -673,15 +675,15 @@ button {
   isolation: isolate;
   background:
     /* Subtle all-over crosshatch — layered on the ink gradient */
-    repeating-linear-gradient(43deg, rgba(245, 194, 107, 0.025) 0 1px, transparent 1px 5px),
-    repeating-linear-gradient(-43deg, rgba(79, 179, 184, 0.02) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(43deg, color-mix(in srgb, var(--active) 2.5%, transparent) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-43deg, color-mix(in srgb, var(--accent-cyan) 2%, transparent) 0 1px, transparent 1px 7px),
     linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
   border: 1px solid var(--line-2);
   border-radius: 6px;
   padding: 14px 16px 16px;
   box-shadow:
     0 20px 60px rgba(0, 0, 0, 0.4),
-    inset 0 0 0 1px rgba(245, 194, 107, 0.05),
+    inset 0 0 0 1px color-mix(in srgb, var(--active) 5%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
   overflow: hidden;
 }
@@ -703,8 +705,8 @@ button {
   position: absolute;
   inset: 0;
   background:
-    repeating-linear-gradient(43deg, rgba(245, 194, 107, 0.11) 0 1px, transparent 1px 4px),
-    repeating-linear-gradient(-43deg, rgba(79, 179, 184, 0.08) 0 1px, transparent 1px 5px);
+    repeating-linear-gradient(43deg, color-mix(in srgb, var(--active) 11%, transparent) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-43deg, color-mix(in srgb, var(--accent-cyan) 8%, transparent) 0 1px, transparent 1px 5px);
   -webkit-mask-image: linear-gradient(180deg, transparent 42%, black 72%, black 100%);
   mask-image: linear-gradient(180deg, transparent 42%, black 72%, black 100%);
   pointer-events: none;
@@ -994,7 +996,7 @@ button {
   background: color-mix(in srgb, var(--active) 12%, transparent);
 }
 .pill-cyan {
-  background: color-mix(in srgb, #5ed4c7 12%, transparent);
+  background: color-mix(in srgb, var(--accent-cyan) 12%, transparent);
 }
 .cargo-grid .cargo-note {
   /* Subgrid so label + value align with the ware label/bar columns above. */
@@ -1086,8 +1088,8 @@ button {
       color-mix(in srgb, var(--nation-accent, transparent) 10%, transparent) 0%,
       transparent 55%
     ),
-    repeating-linear-gradient(43deg, rgba(245, 194, 107, 0.025) 0 1px, transparent 1px 5px),
-    repeating-linear-gradient(-43deg, rgba(79, 179, 184, 0.02) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(43deg, color-mix(in srgb, var(--active) 2.5%, transparent) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-43deg, color-mix(in srgb, var(--accent-cyan) 2%, transparent) 0 1px, transparent 1px 7px),
     linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
   border: 1px solid var(--line-2);
   border-radius: 6px;
@@ -1321,7 +1323,7 @@ body.view-overview #speed-hud {
   box-shadow:
     0 16px 40px rgba(0, 0, 0, 0.35),
     var(--glass-edge),
-    inset 0 0 0 1px rgba(245, 194, 107, 0.05);
+    inset 0 0 0 1px color-mix(in srgb, var(--active) 5%, transparent);
 }
 /* Drop the id-card guilloche mesh — glass surfaces read cleaner without it.
    The ::before (morse-code top bar) still paints because only ::after is hidden. */
@@ -1345,6 +1347,10 @@ body.view-overview #speed-hud {
   letter-spacing: -0.01em;
   line-height: 1.1;
   color: var(--paper);
+}
+.settings-build-date {
+  font-size: var(--text-sm);
+  color: var(--paper-dim);
 }
 .settings-close {
   flex-shrink: 0;
@@ -2329,7 +2335,7 @@ body.view-overview #speed-hud {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent 0%, rgba(245, 194, 107, 0.9) 50%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--active) 90%, transparent) 50%, transparent 100%);
   animation: loading-sweep 1.4s linear infinite;
 }
 @keyframes loading-sweep {
@@ -2354,9 +2360,9 @@ body.view-overview #speed-hud {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(245, 194, 107, 0.15) 30%,
+    color-mix(in srgb, var(--active) 15%, transparent) 30%,
     var(--active) 50%,
-    rgba(245, 194, 107, 0.15) 70%,
+    color-mix(in srgb, var(--active) 15%, transparent) 70%,
     transparent 100%
   );
 }
@@ -2444,19 +2450,19 @@ body.view-overview #speed-hud {
   opacity: 0.3;
 }
 .stations-timelapse-bar__seg--hub {
-  background: #0069b3;
+  background: var(--nation-hub);
 }
 .stations-timelapse-bar__seg--bio {
-  background: #4caf50;
+  background: var(--nation-bio);
 }
 .stations-timelapse-bar__seg--ore {
-  background: #b36100;
+  background: var(--nation-ore);
 }
 .stations-timelapse-bar__seg--sky {
-  background: #00f9ff;
+  background: var(--nation-sky);
 }
 .stations-timelapse-bar__seg--far {
-  background: #e8c840;
+  background: var(--nation-far);
 }
 
 .stations-timelapse-playhead {

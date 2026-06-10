@@ -5,6 +5,9 @@ import { htmlRoutePlugin } from "./dev/vite/html-route-plugin";
 
 const repositoryRoot = import.meta.dirname!;
 
+// Build date (YYYY-MM-DD) stamped into the UI; recomputed on each production build.
+const buildDate = new Date().toISOString().slice(0, 10);
+
 const htmlEntryPoints = {
   root: resolve(repositoryRoot, "index.html"),
   notFound: resolve(repositoryRoot, "404.html"),
@@ -25,8 +28,16 @@ const cleanUrlRoutes = [
 export default defineConfig({
   base: "/",
   appType: "mpa",
+  define: {
+    __BUILD_DATE__: JSON.stringify(buildDate),
+  },
   plugins: [htmlRoutePlugin(cleanUrlRoutes), economyApiPlugin()],
   build: {
+    // Browser-support floor for v1, pinned explicitly. These are the versions
+    // Vite's default "baseline-widely-available" target currently resolves to;
+    // pinning them keeps the floor a deliberate choice instead of quietly
+    // shifting when Vite bumps its baseline on a future upgrade.
+    target: ["chrome111", "edge111", "firefox114", "safari16.4", "ios16.4"],
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
       input: htmlEntryPoints,

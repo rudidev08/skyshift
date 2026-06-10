@@ -145,7 +145,7 @@ export function shipFromSnapshot(snapshot: ShipSnapshot, station: Station): Ship
   return {
     id: snapshot.id,
     station,
-    shipTypeId: snapshot.shipTypeId as ShipTypeId,
+    shipTypeId: snapshot.shipTypeId,
     shipName: snapshot.shipName,
   };
 }

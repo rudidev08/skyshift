@@ -1,3 +1,4 @@
+import { setTextIfChanged } from "./ui-dom-cache";
 import { padToTwoDigits } from "./util-pad";
 
 export interface ElapsedTimeLabel {
@@ -56,12 +57,8 @@ export function createElapsedTimeLabel(
   // Hide warmup pre-ticks from the player clock — callers pass
   // simulationWarmupSeconds so boot-time advancement doesn't show up as elapsed time.
   const offsetSeconds = options?.offsetSeconds ?? 0;
-  let lastText = "";
   const update = () => {
-    const nextText = formatElapsed(getSimTimeSeconds() - offsetSeconds);
-    if (nextText === lastText) return;
-    numberElement.textContent = nextText;
-    lastText = nextText;
+    setTextIfChanged(numberElement, formatElapsed(getSimTimeSeconds() - offsetSeconds));
   };
   update();
   const timer = window.setInterval(update, REFRESH_MILLISECONDS);

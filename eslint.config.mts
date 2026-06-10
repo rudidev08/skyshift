@@ -78,6 +78,11 @@ export default defineConfig(
     },
     rules: {
       ...sharedRepoRules,
+      // Shipping browser runtime: a stray console.log is debug residue, so flag it
+      // (and console.debug) while leaving console.warn / console.error available for
+      // genuine runtime diagnostics. Node tooling and tests keep console fully open
+      // via their own blocks.
+      "no-console": ["warn", { allow: ["warn", "error"] }],
     },
   },
 
@@ -153,7 +158,7 @@ export default defineConfig(
   //    breach only; no rule catches determined circumvention.
   //  - Pure helpers at src/ root (util-ids, util-html-escape, util-date-format)
   //    are implicitly allowed. If one grows a DOM/Phaser dep, add its path to
-  //    the ban list below.
+  //    the ban list below (as done for util-analytics).
   //  - src/editor/tools/** imports sim directly — reverse direction, intended.
   {
     files: ["src/**/sim-*.ts"],
@@ -164,6 +169,10 @@ export default defineConfig(
     rules: {
       // Match the browser block's defaults so sim isn't accidentally stricter.
       ...sharedRepoRules,
+      // Same console guardrail as the browser block: sim ships in the browser
+      // bundle too, so flag stray console.log / console.debug while keeping
+      // console.warn / console.error open for diagnostics.
+      "no-console": ["warn", { allow: ["warn", "error"] }],
 
       "no-restricted-imports": [
         "error",
@@ -209,6 +218,11 @@ export default defineConfig(
               message:
                 "Simulation files must not import from src/static-pages/ — these are standalone HTML-page modules with DOM dependencies.",
             },
+            {
+              group: ["**/util-analytics"],
+              message:
+                "Simulation files must not import util-analytics — it injects the Vercel Analytics beacon (writes window.va, appends a script tag), which the headless sim can't run.",
+            },
           ],
         },
       ],
@@ -243,6 +257,29 @@ export default defineConfig(
           name: "fetch",
           message:
             "Simulation files cannot perform browser network I/O — it is outside the sim loop and not deterministic.",
+        },
+      ],
+    },
+  },
+
+  // ui-* modules are DOM panels outside the Phaser canvas — they must stay
+  // loadable without the engine (AGENTS.md §Separation of concerns). Runtime
+  // values cross this boundary through render-* seams or setup-time injection;
+  // type-only imports are erased at compile time and stay legal.
+  {
+    files: ["src/ui-*.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["phaser", "phaser/*", "**/phaser/**"],
+              allowTypeImports: true,
+              message:
+                "ui-* modules must not import Phaser or src/phaser/ values — move shared helpers to a render-* module or inject them where the panel is wired (type-only imports are fine).",
+            },
+          ],
         },
       ],
     },

@@ -24,7 +24,7 @@ export const signal: WareTemplate = {
   productionInputs: [],
 };
 
-// Refined (single input) — medium quantities, 2:1 reduction from raw
+// Refined (single input) — water and metal reduce 2:1 from raw; hyperdata refines signal 1:1
 export const water: WareTemplate = {
   id: "water",
   name: "Water",

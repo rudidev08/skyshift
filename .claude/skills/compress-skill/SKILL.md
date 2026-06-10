@@ -1,15 +1,15 @@
 ---
-name: compact-skill-rewriter
-description: "[rp] Rewrite a skill in place into compact bullet-point instructions while preserving behavior and constraints. User-initiated only; do not trigger on generic mentions of compact-skill-rewriter."
+name: compress-skill
+description: "[rp] Rewrite a skill in place into compact bullet-point instructions while preserving behavior and constraints. User-initiated only; do not trigger on generic mentions of compress-skill."
 ---
 
-# Compact Skill Rewriter
+# Compress Skill
 
 ## Inputs
 
 - Target skill: read its `SKILL.md` fully before rewriting.
-- Sample style: read `compact-skill-rewriter-sample.md` from the same directory as this `SKILL.md`; abort if missing.
-- Edit policy: write the rewrite directly to the target `SKILL.md`; rely on git version control for review or revert.
+- Sample style: read `compress-skill-sample.md` from this skill's directory; abort if missing.
+- Edit policy: write the rewrite directly to the target `SKILL.md`; rely on git for review/revert.
 
 ## Preserve
 
@@ -39,10 +39,10 @@ description: "[rp] Rewrite a skill in place into compact bullet-point instructio
 - Bullets over prose.
 - Use concrete imperative verbs.
 - Put one rule per bullet.
-- Nested bullets are allowed one level deep when needed for compact decision tables or subcases.
+- Nested bullets: one level deep, when needed for decision tables or subcases.
 - Collapse comma-list synonyms to one umbrella term.
 - Use prose only for nuance.
-- Keep only format-defining examples.
+- Keep only examples that define syntax or behavior.
 - Use operational headings.
 - Keep contractual strings, commands, paths, keys, and labels.
 - Do not invent rules, behavior, tools, or files.
@@ -51,7 +51,12 @@ description: "[rp] Rewrite a skill in place into compact bullet-point instructio
 
 1. Read target and sample files; abort if sample is missing.
 2. Identify contractual material per Preserve list.
-3. Rewrite the target: apply Rewrite Style and follow the sample as a worked example, strip items matching Remove, preserve broad rules semantically, keep exact contractual strings verbatim, and leave YAML frontmatter unchanged unless the user asked for frontmatter changes.
+3. Rewrite the target:
+   - Apply Rewrite Style; follow the sample as a worked example.
+   - Strip items matching Remove.
+   - Preserve broad rules semantically.
+   - Keep exact contractual strings verbatim.
+   - Leave YAML frontmatter unchanged unless the user asked for frontmatter changes.
 4. Compare rewritten content against the Preserve list; flag any rule that couldn't be compressed safely.
 5. Validate rewritten YAML frontmatter before writing; abort on parse failure.
 6. Write only the rewritten content in place; never write notes into the file.

@@ -68,7 +68,6 @@ export function makeEmptyTradeShip(): TradeShip {
     flight: null,
     targetStationId: null,
     tradeDirection: null,
-    lastFlightHeadingRadians: null,
     idleSinceTradeTimeSeconds: 0,
     homeStationId: "",
     orbitingShipId: "",

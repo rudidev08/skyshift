@@ -1,7 +1,7 @@
 // URL routing + load-error rendering for the play page. Top-level dispatch
 // in game-entry.ts calls into these — startFreshUniverse for /start/:preset,
-// restoreSavedGame for /universe, and renderLoadError when either path fails
-// or the snapshot can't be validated.
+// resumeSavedUniverse for /universe, and renderLoadError when either path
+// fails or the snapshot can't be validated.
 
 import { X } from "lucide-static";
 import type { GameMap } from "./sim-map-types";
@@ -11,7 +11,7 @@ import { presets } from "../data/map-presets";
 import { getPresetById } from "./util-map-preset";
 import { readSlot } from "./ui-savegame-manager";
 import type { ValidationResult } from "./ui-snapshot-validator";
-import { findLatestSave, clearAllSaves } from "./storage-save-slots";
+import { findLatestSave, findCorruptSlot, clearAllSaves } from "./storage-save-slots";
 import * as saveError from "../data/strings-save";
 import { mountGameRuntime, destroyGameRuntime } from "./game-entry";
 
@@ -166,14 +166,16 @@ export async function startFreshUniverse(presetId: string) {
 /** Handles `/universe` — continue the latest save. No save bounces to landing;
  *  a present-but-invalid save shows the load-error panel so the player sees the
  *  reason instead of silently flickering back. */
-export async function restoreSavedGame() {
-  const latestSave = findLatestSave();
+export async function resumeSavedUniverse() {
+  // A corrupt slot (content present, breadcrumbs unreadable) can't be ranked by
+  // findLatestSave — without the fallback it would read as "no saves" and bounce
+  // silently. Valid saves always win; readSlot then surfaces the corrupt reason.
+  const latestSave = findLatestSave() ?? findCorruptSlot();
   // Absent slot reports as `reason: "empty"` to match the readSlot shape, so
   // the one branch below handles "nothing to resume" and "resume blocked".
-  const result: ValidationResult =
-    !latestSave || latestSave.savedAtMilliseconds === null
-      ? { ok: false, reason: "empty", message: saveError.SLOT_EMPTY }
-      : readSlot(latestSave.kind, latestSave.index);
+  const result: ValidationResult = !latestSave
+    ? { ok: false, reason: "empty", message: saveError.SLOT_EMPTY }
+    : readSlot(latestSave.kind, latestSave.index);
   if (!result.ok) {
     if (result.reason === "empty") {
       // replace (not assign) so Back from the landing doesn't re-enter here.

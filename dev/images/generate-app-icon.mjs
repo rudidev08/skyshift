@@ -1,4 +1,4 @@
-// Rasterizes public/app-icon.svg into the iOS home-screen and PWA icons.
+// Rasterizes dev/images/app-icon.svg into the iOS home-screen and PWA icons.
 //
 // Outputs:
 //   - public/apple-touch-icon.png  (180×180, iOS home-screen)
@@ -27,7 +27,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "../..");
 const publicDir = path.join(root, "public");
 const iconsDir = path.join(publicDir, "icons");
-const svgPath = path.join(publicDir, "app-icon.svg");
+const svgPath = path.join(__dirname, "app-icon.svg");
 const appleTouchPath = path.join(publicDir, "apple-touch-icon.png");
 const icon192Path = path.join(iconsDir, "icon-192.png");
 const icon512Path = path.join(iconsDir, "icon-512.png");

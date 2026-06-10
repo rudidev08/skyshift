@@ -37,3 +37,14 @@ test("getStationWareLevelHealth: ok when station has no required inputs", () => 
   const station = createStation(makePlacedStationWithType("mine"));
   assertEqual(getStationWareLevelHealth(station), "ok", "no inputs means ok");
 });
+
+test("getStationWareLevelHealth: a zero-capacity input slot is skipped, not read as bad", () => {
+  // Pin the `slot.max <= 0` skip guard. A zero-capacity slot has current 0, which
+  // the `current <= 0` check would otherwise read as "bad". Mutating the guard to
+  // `slot.max < 0` stops skipping max===0 slots and reports a phantom "bad".
+  const station = createStation(makePlacedStationWithType("water-processing"));
+  const ice = assertNotUndefined(getInventorySlot(station, "ice"), "ice slot");
+  ice.max = 0;
+  ice.current = 0;
+  assertEqual(getStationWareLevelHealth(station), "ok", "zero-capacity input is ignored, not bad");
+});

@@ -89,7 +89,7 @@ export const settledPreset: MapPreset = {
       stationTypeId: "shipyard",
     },
     {
-      zoneId: "bright-towers-2",
+      zoneId: "new-logic-1",
       stationId: "HUB-E",
       name: "Thin Accord",
       nationId: "hub",
@@ -103,7 +103,7 @@ export const settledPreset: MapPreset = {
       stationTypeId: "habitat",
     },
     {
-      zoneId: "new-logic-2",
+      zoneId: "overgrowth-2",
       stationId: "HUB-G",
       name: "Far Theorem",
       nationId: "hub",
@@ -208,7 +208,7 @@ export const settledPreset: MapPreset = {
       stationTypeId: "observatory",
     },
     {
-      zoneId: "border-03-1",
+      zoneId: "abject-pride-2",
       stationId: "HUB-X",
       name: "Cold Circuit",
       nationId: "hub",
@@ -216,6 +216,13 @@ export const settledPreset: MapPreset = {
     },
     {
       zoneId: "gap-of-calamity-1",
+      stationId: "ORE-H",
+      name: "Cinder",
+      nationId: "ore",
+      stationTypeId: "mine",
+    },
+    {
+      zoneId: "green-silence-4",
       stationId: "FAR-F",
       name: "Quiet Furrow",
       nationId: "far",

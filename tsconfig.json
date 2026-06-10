@@ -13,5 +13,5 @@
     "typeRoots": ["./node_modules/phaser/types", "./node_modules/@types"],
     "types": ["phaser", "vite/client", "node"]
   },
-  "include": ["src", "data", "dev"]
+  "include": ["src", "data", "dev", "vite.config.ts", "eslint.config.mts"]
 }

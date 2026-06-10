@@ -1,4 +1,4 @@
-import { test, assertEqual, assertTrue } from "./test-utils.ts";
+import { test, assertEqual, assertThrows, assertTrue } from "./test-utils.ts";
 import { makeSector, makeStation } from "./factories.ts";
 import {
   largestProximityCluster,
@@ -45,6 +45,22 @@ test("largestProximityCluster is transitive", () => {
   assertEqual(cluster.length, 3, "A-B and B-C links collect A-B-C");
 });
 
+test("largestProximityCluster links a pair sitting at exactly maxDistance", () => {
+  // Pin the inclusive `<= maxDistance` boundary in collectCluster. The pair is
+  // exactly 100 apart with maxDistance 100. A `< maxDistance` mutation would
+  // exclude the boundary, leaving two singleton clusters of length 1 instead of
+  // one cluster of length 2.
+  const onBoundaryA = positionedStation("on-a", 0, 0);
+  const onBoundaryB = positionedStation("on-b", 100, 0);
+  const lone = positionedStation("lone", 10000, 0);
+
+  const cluster = largestProximityCluster([onBoundaryA, onBoundaryB, lone], 100);
+  const clusterIds = new Set(cluster.map((station) => station.id));
+
+  assertEqual(cluster.length, 2, "the exactly-maxDistance pair forms one cluster");
+  assertTrue(clusterIds.has("on-a") && clusterIds.has("on-b"), "both boundary stations cluster together");
+});
+
 test("ore ranks farthest-from-Hearth first", () => {
   const map = fakeMap([makeSector({ id: "hearth", x: 5000, y: 5000 })]);
   const near = positionedStation("near", 5100, 5000);
@@ -70,7 +86,7 @@ test("bio ranks farthest-from-midpoint first", () => {
   assertEqual(stationIds(ranked), "far,middle,near", "bio ranks by distance from landmark midpoint");
 });
 
-test("hub ranks the straggler first and excludes it from the centre", () => {
+test("hub ranks the straggler first and excludes it from the center", () => {
   const coreA = positionedStation("core-a", 0, 0);
   const coreB = positionedStation("core-b", 100, 0);
   const coreC = positionedStation("core-c", 0, 100);
@@ -118,5 +134,15 @@ test("sky ranks non-deep-space stations first", () => {
     stationIds(ranked.slice(0, 2)),
     "frontier-a,frontier-b",
     "frontier stations rank ahead of deep-space stations",
+  );
+});
+
+test("rankStationsForEmigration throws for a nation without a registered ranking", () => {
+  const map = fakeMap([makeSector({ id: "deep", x: 0, y: 0, size: 1000, environment: "deep-space" })]);
+
+  assertThrows(
+    () => rankStationsForEmigration("ghost", [], [], map),
+    "No emigration ranking for nation ghost",
+    "an unregistered participating nation fails loudly, not with a bare TypeError",
   );
 });

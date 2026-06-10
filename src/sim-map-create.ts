@@ -9,8 +9,11 @@ import type { GameMap, Sector } from "./sim-map-types";
 import type { PlacedStation } from "../data/station-types";
 import type { Station } from "./sim-station-types";
 import type { StationZoneTemplate } from "../data/station-zone-types";
+import { sectorEnvironmentById, type SectorEnvironmentId } from "../data/map-sector-environments";
 import { getAllInventorySlots } from "./sim-station";
 import { getNationById } from "./sim-nation";
+import { sectorIdFromZoneId } from "./sim-station-zone";
+import { getPresetById } from "./util-map-preset";
 import type { GameSnapshot } from "./sim-save-types";
 
 interface ZoneOccupant {
@@ -21,22 +24,15 @@ function occupiedZoneIdsFromOccupants(occupants: readonly ZoneOccupant[]): Set<s
   return new Set(occupants.map((occupant) => occupant.zoneId).filter((id): id is string => !!id));
 }
 
-function removeOccupiedZones(
-  zones: readonly StationZoneTemplate[],
-  occupiedZoneIds: ReadonlySet<string>,
-): StationZoneTemplate[] {
-  return zones.filter((zone) => !occupiedZoneIds.has(zone.id));
-}
-
-/** Remove zones whose ids appear on any of the given stations. Used on Continue
- *  so restored saves don't render empty zones under stations the snapshot puts
- *  there. Strict zoneId match — a zoneless station drifting through a zone's
- *  coords doesn't hide it, since its transient position isn't a claim. */
+/** Zones from `zones` not claimed by any of the given occupants. Backs
+ *  `emptyZoneCount`'s zones-with-no-live-station query. Strict zoneId match —
+ *  a zoneless station drifting through a zone's coords isn't a claim. */
 export function filterZonesForOccupants(
   zones: readonly StationZoneTemplate[],
   occupants: readonly ZoneOccupant[],
 ): StationZoneTemplate[] {
-  return removeOccupiedZones(zones, occupiedZoneIdsFromOccupants(occupants));
+  const occupiedZoneIds = occupiedZoneIdsFromOccupants(occupants);
+  return zones.filter((zone) => !occupiedZoneIds.has(zone.id));
 }
 
 /** Sector grid coords are flavor-anchored on the Core at (0, 0) and can be negative; map coords shift them so the minimum grid coord lands at map (0, 0). */
@@ -78,7 +74,6 @@ function computeGridExtent(sectors: SectorTemplate[]): GridExtent {
 interface RuntimeMapSeed {
   presetId: string;
   stations: PlacedStation[];
-  occupiedZoneIds: Set<string>;
   simulationWarmupSeconds?: number;
   initialStaggerDurationSeconds?: number;
   initialInventoryFillRange?: InitialInventoryFillRange;
@@ -94,7 +89,10 @@ function createRuntimeMapFromTemplate(template: MapTemplate, seed: RuntimeMapSee
     initialStaggerDurationSeconds: seed.initialStaggerDurationSeconds,
     nebulas: template.nebulas,
     stations: seed.stations,
-    stationZones: removeOccupiedZones(template.zones, seed.occupiedZoneIds),
+    // Every template zone is tracked for the whole game — occupancy is a live
+    // station's zoneId claim, so a site freed by emigration is buildable again
+    // no matter whether a preset or placeBuild first claimed it.
+    stationZones: [...template.zones],
     gridSizeX,
     gridSizeY,
     sectors: createSectorsFromTemplate(template, minGridX, minGridY),
@@ -109,15 +107,17 @@ function seedInitialInventoryFor(
   return (seedStations) => randomizeInitialInventory(seedStations, fillRange);
 }
 
-/** Create a playable GameMap from the template plus a preset's initial seeding. Preset stations occupy their zones; those zones are dropped from stationZones so the footprint doesn't render twice. */
+/** Create a playable GameMap from the template plus a preset's initial seeding.
+ *  Preset stations claim their zones by zoneId like any later build — the zones
+ *  stay in stationZones, and zone visuals hide while a claim is live. */
 export function createMapFromTemplate(template: MapTemplate, preset: MapPreset): GameMap {
   const zoneById = new Map(template.zones.map((zone) => [zone.id, zone]));
-  const { stations, occupiedZoneIds } = createPresetPlacedStations(preset, zoneById);
+  const sectorEnvByZoneId = buildSectorEnvByZoneId(template);
+  const stations = createPresetPlacedStations(preset, zoneById, sectorEnvByZoneId);
 
   return createRuntimeMapFromTemplate(template, {
     presetId: preset.id,
     stations,
-    occupiedZoneIds,
     simulationWarmupSeconds: preset.simulationWarmupSeconds,
     initialStaggerDurationSeconds: preset.initialStaggerDurationSeconds,
     initialInventoryFillRange: preset.initialInventoryFillRange,
@@ -125,13 +125,19 @@ export function createMapFromTemplate(template: MapTemplate, preset: MapPreset):
 }
 
 /** Recreate the runtime map shell for a saved game. The snapshot owns station
- *  truth, so no preset stations are seeded; occupied zones are hidden before
- *  restoreSavedGame installs the saved station objects. */
+ *  truth, so no preset stations are seeded — restoreSavedGame installs the
+ *  saved station objects, and their zoneId claims drive occupancy exactly as
+ *  in the pre-save session. The seeding preset still resolves, for the warmup
+ *  clock. */
 export function mapFromSnapshot(template: MapTemplate, snapshot: GameSnapshot): GameMap {
+  const preset = getPresetById(snapshot.presetId);
+  if (!preset) {
+    throw new Error(`mapFromSnapshot: snapshot references unknown preset "${snapshot.presetId}".`);
+  }
   return createRuntimeMapFromTemplate(template, {
-    presetId: snapshot.presetId,
+    presetId: preset.id,
     stations: [],
-    occupiedZoneIds: occupiedZoneIdsFromOccupants(snapshot.stations),
+    simulationWarmupSeconds: preset.simulationWarmupSeconds,
   });
 }
 
@@ -145,11 +151,33 @@ function createSectorsFromTemplate(template: MapTemplate, minGridX: number, minG
   }));
 }
 
+/** Map each zone id to its sector's environment, resolved via `sectorIdFromZoneId`
+ *  (the `<sector-id>-<n>` zone-id convention). Lets the preset loader reject a
+ *  station whose type the sector's environment doesn't allow. Throws when a
+ *  zone id names no sector — a typo'd id must not dodge the environment check
+ *  by failing to resolve. */
+function buildSectorEnvByZoneId(template: MapTemplate): Map<string, SectorEnvironmentId> {
+  const environmentBySectorId = new Map(
+    template.sectors.map((sector): [string, SectorEnvironmentId] => [sector.id, sector.environment]),
+  );
+  const byZoneId = new Map<string, SectorEnvironmentId>();
+  for (const zone of template.zones) {
+    const sectorId = sectorIdFromZoneId(zone.id);
+    const environment = environmentBySectorId.get(sectorId);
+    if (environment === undefined) {
+      throw new Error(`Zone "${zone.id}" names unknown sector "${sectorId}" — can't resolve its environment.`);
+    }
+    byZoneId.set(zone.id, environment);
+  }
+  return byZoneId;
+}
+
 interface PresetValidationContext {
   preset: MapPreset;
   zoneById: Map<string, StationZoneTemplate>;
   occupiedZoneIds: ReadonlySet<string>;
   usedStationIds: ReadonlySet<string>;
+  sectorEnvByZoneId: ReadonlyMap<string, SectorEnvironmentId>;
 }
 
 function validatePresetStation(
@@ -172,6 +200,15 @@ function validatePresetStation(
       `Preset "${ctx.preset.id}" defines duplicate stationId "${presetStation.stationId}" — each preset station needs a unique id.`,
     );
   }
+  // Present for every template zone — buildSectorEnvByZoneId throws on a zone
+  // id naming no sector, and the unknown-zone check above already ran.
+  const environment = ctx.sectorEnvByZoneId.get(presetStation.zoneId)!;
+  const allowedTypeIds = sectorEnvironmentById[environment].allowedStationTypeIds;
+  if (!allowedTypeIds.includes(presetStation.stationTypeId)) {
+    throw new Error(
+      `Preset "${ctx.preset.id}" places ${presetStation.stationTypeId} station ${presetStation.stationId} in zone "${presetStation.zoneId}", but its sector environment "${environment}" allows only [${allowedTypeIds.join(", ")}].`,
+    );
+  }
   return zone;
 }
 
@@ -179,7 +216,8 @@ function validatePresetStation(
 function createPresetPlacedStations(
   preset: MapPreset,
   zoneById: Map<string, StationZoneTemplate>,
-): { stations: PlacedStation[]; occupiedZoneIds: Set<string> } {
+  sectorEnvByZoneId: ReadonlyMap<string, SectorEnvironmentId>,
+): PlacedStation[] {
   const occupiedZoneIds = new Set<string>();
   const usedStationIds = new Set<string>();
   const stations: PlacedStation[] = [];
@@ -189,6 +227,7 @@ function createPresetPlacedStations(
       zoneById,
       occupiedZoneIds,
       usedStationIds,
+      sectorEnvByZoneId,
     });
     const nation = getNationById(presetStation.nationId);
     occupiedZoneIds.add(presetStation.zoneId);
@@ -204,7 +243,7 @@ function createPresetPlacedStations(
       zoneId: presetStation.zoneId,
     });
   }
-  return { stations, occupiedZoneIds };
+  return stations;
 }
 
 /** Randomize each station inventory slot's starting fill to a random ratio of its max, drawn uniformly from [lower, upper]. */

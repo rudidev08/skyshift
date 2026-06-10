@@ -41,11 +41,15 @@ export function isTradeShipIdle(ship: TradeShip): boolean {
   return ship.actionQueue.length === 0;
 }
 
-/** Waiting to deploy (stagger timer not yet fired). */
+/** In the deploy phase — waiting out the stagger timer or flying the
+ *  surface→orbit takeoff. */
 export function isTradeShipDeploying(ship: TradeShip): boolean {
   if (isTradeShipIdle(ship)) return false;
   const current = ship.actionQueue[0];
-  return current.type === "fly" && current.deploying === true;
+  // Until the stagger timer fires, the enrollment queue's sacrificial wait
+  // placeholder sits ahead of the deploy fly.
+  const action = current.type === "wait" ? ship.actionQueue[1] : current;
+  return action?.type === "fly" && action.deploying === true;
 }
 
 /** "BIO Bloomreach" with only the nation code tinted. */
@@ -93,20 +97,22 @@ function formatEmptyCargoBar(capacity: number): string {
   return formatCargoBar({ wareName: "No Cargo", current: 0, max: capacity });
 }
 
-/** Seconds since the ship's last trade, or 0 if it has never traded
- *  (`idleSinceTradeTimeSeconds` stays 0 until the first trade completes). */
+/** Seconds since the ship last went idle, or 0 before the first stamp.
+ *  `idleSinceTradeTimeSeconds` is stamped on every queue drain — including the
+ *  initial deploy queue's — so this is idle duration, not time since a
+ *  completed trade. */
 function idleElapsedSeconds(ship: TradeShip, currentTimeSeconds: number): number {
   return ship.idleSinceTradeTimeSeconds > 0 ? currentTimeSeconds - ship.idleSinceTradeTimeSeconds : 0;
 }
 
-/** Idle ship — empty cargo bar plus "last trade Xs ago" when a previous trade has occurred. */
+/** Idle ship — empty cargo bar plus an "Idle Ns" status row once an idle stamp exists. */
 function formatIdleTradeShipDescription(ship: TradeShip, capacity: number, currentTimeSeconds: number): string {
   const cargoBar = formatEmptyCargoBar(capacity);
   const idleElapsed = idleElapsedSeconds(ship, currentTimeSeconds);
   if (idleElapsed <= 0) return cargoBar;
   const statusRow = buildCargoNote(
     "Status",
-    `<span class="cargo-note-dim">Last trade ${formatDuration(idleElapsed)} ago</span>`,
+    `<span class="cargo-note-dim">Idle ${formatDuration(idleElapsed)}</span>`,
   );
   return `${cargoBar}${statusRow}`;
 }

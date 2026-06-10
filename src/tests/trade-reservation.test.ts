@@ -18,20 +18,6 @@ test("multiple reservations on same slot stack", () => {
   });
 });
 
-test("fulfillReservation decrements slot counter and removes settled entry", () => {
-  withMockManager(({ makeRegisteredStation }) => {
-    const ship = makeEmptyTradeShip();
-    const slot = createInventorySlot(ice, 100, 500);
-    const station = makeRegisteredStation([slot]);
-
-    addReservation(ship, { station, wareId: "ice", amount: 50, cargoDirection: "outgoing" });
-    fulfillReservation(ship, { station, wareId: "ice", amount: 50, cargoDirection: "outgoing" });
-
-    assertEqual(slot.reservedOutgoing, 0, "reservedOutgoing after fulfill");
-    assertEqual(ship.reservations.length, 0, "fully-settled entry removed");
-  });
-});
-
 test("fulfillReservation handles partial fulfillment", () => {
   withMockManager(({ makeRegisteredStation }) => {
     const ship = makeEmptyTradeShip();

@@ -26,9 +26,9 @@ export const zoomAnimationDurationMilliseconds = 300;
 /** Display-level slack so pressing +/- while sitting just off a stop doesn't re-select that same stop. */
 export const zoomStopReselectMargin = 0.05;
 
-/** Zoom level where station detail (labels, icons, planet disc) starts fading in. */
+/** Phaser camera.zoom where station detail (labels, icons, planet disc) starts fading in. */
 export const closeViewFadeStart = 0.6;
-/** Zoom level where station detail is fully visible. */
+/** Phaser camera.zoom where station detail is fully visible. */
 export const closeViewFadeEnd = 0.7;
 
 /** Per-frame velocity multiplier after a drag-pan releases — lower stops faster, higher glides longer. */

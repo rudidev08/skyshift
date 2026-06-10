@@ -12,7 +12,6 @@ import { morseBarGradient } from "./render-morse-bar";
 import { enableAudio, disableAudio, isAudioEnabled } from "./audio-announcer";
 import { savePreference } from "./storage-preferences";
 import type { SectorGridMode } from "./sector-grid-mode";
-import { acquireScopedPause } from "./phaser/auto-release-pause";
 import { shieldDomSurfaceFromPhaserInput } from "./ui-dom-input-shield";
 import { showToast } from "./ui-toast";
 import { SlotSelector } from "./ui-slot-selector";
@@ -28,12 +27,15 @@ export interface SettingsHandle {
   shieldFromPhaserInput(): () => void;
 }
 
+/** `acquireScopedPause` is injected at wiring time — the pause helper lives in
+ *  src/phaser/, which ui-* modules must not import. */
 export function createSettingsPanel(
   getScene: () => Game | null,
   remountWithSnapshot: (snapshot: GameSnapshot) => void,
+  acquireScopedPause: () => () => void,
 ): SettingsHandle {
   const overlay = buildSettingsOverlay();
-  const autoPause = createAutoPause();
+  const autoPause = createAutoPause(acquireScopedPause);
 
   const close = () => {
     slotSelector.clear();
@@ -81,7 +83,10 @@ export function createSettingsPanel(
 
 /** Auto-pause while the panel is open; resume on close (does nothing if we
  *  weren't the one who paused). */
-function createAutoPause(): { acquireIfNeeded: () => void; release: () => void } {
+function createAutoPause(acquireScopedPause: () => () => void): {
+  acquireIfNeeded: () => void;
+  release: () => void;
+} {
   let releasePause: (() => void) | null = null;
   return {
     acquireIfNeeded() {
@@ -122,11 +127,11 @@ function buildSettingsOverlay(): HTMLDivElement {
   overlay.innerHTML = `
     <div class="settings-modal id-card">
       <div class="settings-head">
-        <span>Settings</span>
+        <span>Settings <span class="settings-build-date">build ${__BUILD_DATE__}</span></span>
         <button class="settings-close hud-btn hud-btn-icon" aria-label="Close"></button>
       </div>
       <div class="settings-section">
-        <h3>» View</h3>
+        <h3>// View</h3>
         <div class="settings-row">
           <span class="settings-row-label">Show sector grid</span>
           <div class="hud-segment" data-role="grid-mode">
@@ -137,19 +142,19 @@ function buildSettingsOverlay(): HTMLDivElement {
         </div>
       </div>
       <div class="settings-section">
-        <h3>» Audio</h3>
+        <h3>// Audio</h3>
         <div class="settings-row">
           <span class="settings-row-label">Announce station and ship names</span>
           <button class="hud-btn" data-role="audio-toggle" aria-pressed="false"></button>
         </div>
       </div>
       <div class="settings-section">
-        <h3>» Browser Savegame</h3>
+        <h3>// Browser Savegame</h3>
         <div class="slot-list" data-role="slot-list"></div>
         <div class="slot-action-bar" data-role="slot-action-bar"></div>
       </div>
       <div class="settings-section">
-        <h3>» File Savegame</h3>
+        <h3>// File Savegame</h3>
         <div class="settings-actions">
           <button class="hud-btn" data-action="export">Download</button>
           <button class="hud-btn" data-action="import">Restore</button>

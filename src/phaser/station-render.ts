@@ -80,6 +80,13 @@ function renderOverviewStation(bundle: StationVisualBundle): void {
   bundle.ringImage.setVisible(false);
   bundle.graphics.setVisible(false);
   hideInventoryLabels(bundle);
+  // A hidden station body means the rewind overlay has the whole live bundle
+  // hidden (player scrubbed to a past moment) — keep the badge hidden too
+  // instead of re-showing it over the past station set.
+  if (!bundle.baseImage.visible) {
+    hideStatusBadge(bundle);
+    return;
+  }
   updateStatusBadge(bundle);
 }
 

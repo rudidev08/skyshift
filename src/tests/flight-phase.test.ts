@@ -185,10 +185,6 @@ test("createFlightData starts with phase='departing', progress 0, totalElapsedSe
   assertEqual(flight.progress, 0, "starts at progress 0");
   assertEqual(flight.totalElapsedSeconds, 0, "starts at totalElapsedSeconds 0");
   assertEqual(flight.phaseStartSeconds, 0, "starts at phaseStartSeconds 0");
-  // Pin null default for previousHeadingRadians. Render reads `flight.previousHeadingRadians !== null`
-  // to gate smooth turning at flight start; mutating `?? null` to `?? 0` would
-  // trigger turn-blending against a fake zero heading on first-flight ships.
-  assertEqual(flight.previousHeadingRadians, null, "starts with previousHeadingRadians null");
 });
 
 test("tickFlightData: totalElapsedSeconds accumulates monotonically without reset between phases", () => {

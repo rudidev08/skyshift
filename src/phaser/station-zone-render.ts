@@ -3,6 +3,7 @@ import { CircleDashed } from "lucide-static";
 import type { StationZone } from "../sim-station-zone-types";
 import type { Selection, SelectionLabel, SelectionTarget } from "./selection-input";
 import { longNameBySize } from "../../data/stations";
+import { Layer } from "../../data/visuals-layers";
 import { closeViewAlpha } from "./camera-fade";
 import { LABEL_STYLE } from "./text-styles";
 import { getStationZoneHudIcon } from "../render-hud-icon";
@@ -19,6 +20,8 @@ export type StationZoneVisualBundle = {
   zone: StationZone;
   image: Phaser.GameObjects.Image;
   label: Phaser.GameObjects.Text;
+  /** A live station claims this zone — visuals stay hidden and unselectable while set. */
+  occupiedByStation: boolean;
 };
 
 /** Call during Phaser preload — textures loaded outside preload aren't available in create. */
@@ -49,8 +52,8 @@ export class StationZoneSelectionTarget implements SelectionTarget {
   }
 
   canSelect(): boolean {
-    // Selectable only in zones view — prevents clicking invisible zones.
-    return this.isZonesViewActive();
+    // Selectable only in zones view and while unclaimed — prevents clicking invisible zones.
+    return this.isZonesViewActive() && !this.visualBundle.occupiedByStation;
   }
 
   showRingAtCloseZoom(): boolean {
@@ -96,6 +99,7 @@ export function createStationZoneVisualBundles(
     const image = scene.add.image(zone.x, zone.y, ZONE_ICON_TEXTURE_KEY);
     image.setDisplaySize(ZONE_ICON_MAP_PIXELS, ZONE_ICON_MAP_PIXELS);
     image.setTint(ZONE_ICON_TINT);
+    image.setDepth(Layer.StationBase);
     image.setVisible(false);
 
     const label = scene.add.text(zone.x, zone.y + ZONE_LABEL_Y_OFFSET_PIXELS, zone.name, {
@@ -103,9 +107,10 @@ export function createStationZoneVisualBundles(
       fontSize: `${ZONE_LABEL_FONT_PIXELS}px`,
     });
     label.setOrigin(0.5, 0);
+    label.setDepth(Layer.StationLabel);
     label.setVisible(false);
 
-    const visualBundle: StationZoneVisualBundle = { zone, image, label };
+    const visualBundle: StationZoneVisualBundle = { zone, image, label, occupiedByStation: false };
     const target = new StationZoneSelectionTarget(visualBundle, isZonesViewActive);
     selection.register(target);
 
@@ -116,7 +121,8 @@ export function createStationZoneVisualBundles(
   return { visualBundles, selectionTargets };
 }
 
-/** Hide zone icons + labels when toggle is off. Turning on shows icons
+/** Hide zone icons + labels when the toggle is off, and keep zones claimed by
+ *  a live station hidden even when it's on. Turning on shows unclaimed icons
  *  immediately; labels stay hidden until updateStationZoneLabels reveals them
  *  by zoom level. */
 export function updateStationZoneVisibility(
@@ -124,7 +130,7 @@ export function updateStationZoneVisibility(
   zonesViewActive: boolean,
 ): void {
   for (const visualBundle of visualBundles) {
-    if (!zonesViewActive) {
+    if (!zonesViewActive || visualBundle.occupiedByStation) {
       visualBundle.image.setVisible(false);
       visualBundle.label.setVisible(false);
       continue;
@@ -134,7 +140,8 @@ export function updateStationZoneVisibility(
 }
 
 /** Fade zone labels in at close zoom. Icons are unaffected so zones stay
- *  identifiable at any zoom. */
+ *  identifiable at any zoom. Claimed zones are skipped — the per-frame fade
+ *  must not re-show what occupancy hid. */
 export function updateStationZoneLabels(
   visualBundles: StationZoneVisualBundle[],
   zoom: number,
@@ -145,6 +152,7 @@ export function updateStationZoneLabels(
   const labelAlpha = closeViewAlpha(zoom);
 
   for (const visualBundle of visualBundles) {
+    if (visualBundle.occupiedByStation) continue;
     if (labelAlpha > 0) {
       visualBundle.label.setVisible(true);
       visualBundle.label.setAlpha(labelAlpha);
@@ -152,4 +160,22 @@ export function updateStationZoneLabels(
       visualBundle.label.setVisible(false);
     }
   }
+}
+
+/** Mark a zone claimed or freed by a live station. Claiming (placeBuild puts
+ *  a station on top of the zone mid-session) hides the icon + label and makes
+ *  the zone unselectable; freeing (emigration) re-shows the icon when the
+ *  zones view is active — the label fades back in via updateStationZoneLabels. */
+export function setStationZoneOccupied(
+  visualBundle: StationZoneVisualBundle,
+  occupiedByStation: boolean,
+  zonesViewActive: boolean,
+): void {
+  visualBundle.occupiedByStation = occupiedByStation;
+  if (occupiedByStation) {
+    visualBundle.image.setVisible(false);
+    visualBundle.label.setVisible(false);
+    return;
+  }
+  if (zonesViewActive) visualBundle.image.setVisible(true);
 }

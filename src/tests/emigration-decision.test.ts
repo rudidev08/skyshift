@@ -5,6 +5,10 @@ import {
   emptyZoneCount,
   drawAndRecordDestination,
 } from "../sim-emigration-decision.ts";
+import { createSimulation } from "../sim-lifecycle.ts";
+import { createMapFromTemplate } from "../sim-map-create.ts";
+import { map as settledUniverse } from "../../data/map.ts";
+import { settledPreset } from "../../data/map-preset-settled.ts";
 import { hubNation, bioNation, oreNation } from "../../data/nations.ts";
 import { createStation } from "../sim-station.ts";
 import type { PlacedStation, StationState, StationTypeId } from "../../data/station-types.ts";
@@ -549,16 +553,67 @@ test("emptyZoneCount returns count of zones not occupied by any live station", (
   assertEqual(emptyZoneCount(map, stationManager), 2, "two zones empty; zoneless transient ignored");
 });
 
-test("emptyZoneCount clamps to zero when somehow more stations claim zones than zones exist", () => {
-  // Defensive Math.max(0, …) in source. A 1-zone map with 2 station-claims
-  // shouldn't return -1.
+test("emptyZoneCount ignores claims on zones outside the tracked list", () => {
+  // A claim naming a zone that isn't tracked must not subtract — a 1-zone map
+  // with 2 station-claims counts 0 empty, not -1.
   const map = {
     stationZones: [{ id: "a-1", x: 0, y: 0, size: "M" as const }],
   } as unknown as GameMap;
   const stationA = makeZonedStation("BIO-1", "a-1");
   const stationB = makeZonedStation("BIO-2", "a-2");
   const stationManager = fakeStationManager([stationA, stationB]);
-  assertEqual(emptyZoneCount(map, stationManager), 0, "clamps to 0 instead of returning -1");
+  assertEqual(emptyZoneCount(map, stationManager), 0, "out-of-list claim doesn't drive the count negative");
+});
+
+test("emptyZoneCount on the settled boot counts each tracked zone without a live station exactly once", () => {
+  // Every template zone is tracked and every live claim (preset-seeded or
+  // initial build) targets a tracked zone, so empty = tracked minus claims.
+  const map = createMapFromTemplate(settledUniverse, settledPreset);
+  const simulation = createSimulation(map, {
+    ignoreCargoCompatibility: true,
+    initialStaggerDurationSeconds: 0,
+  });
+  const trackedZoneIds = new Set(map.stationZones.map((zone) => zone.id));
+  const stations = simulation.stationManager.getStations();
+  const zonedClaims = stations.filter((station) => station.zoneId).length;
+  assertTrue(
+    stations.every((station) => !station.zoneId || trackedZoneIds.has(station.zoneId)),
+    "every live claim targets a tracked zone — preset and built sites are equals",
+  );
+  assertEqual(
+    emptyZoneCount(map, simulation.stationManager),
+    map.stationZones.length - zonedClaims,
+    "tracked zones minus live claims",
+  );
+  simulation.destroy();
+});
+
+test("a preset-seeded station's zone returns to the buildable pool when the station leaves", () => {
+  // Once the map is initialized all sites get equal treatment: removing a
+  // preset-seeded station (emigration) must free its site for rebuilding
+  // exactly like a runtime-built station's site. Pre-fix, preset zones were
+  // stripped from the tracked list at map creation and retired forever.
+  const map = createMapFromTemplate(settledUniverse, settledPreset);
+  const simulation = createSimulation(map, {
+    ignoreCargoCompatibility: true,
+    initialStaggerDurationSeconds: 0,
+  });
+  const presetStationIds = new Set(settledPreset.presetStations.map((entry) => entry.stationId));
+  const presetStation = simulation.stationManager
+    .getStations()
+    .find((station) => presetStationIds.has(station.id))!;
+  const before = emptyZoneCount(map, simulation.stationManager);
+  assertTrue(
+    map.stationZones.some((zone) => zone.id === presetStation.zoneId),
+    "preset station's zone is in the tracked list",
+  );
+  simulation.stationManager.removeStation(presetStation.id);
+  assertEqual(
+    emptyZoneCount(map, simulation.stationManager),
+    before + 1,
+    "the freed preset site counts as empty/buildable",
+  );
+  simulation.destroy();
 });
 
 test("drawAndRecordDestination does not pick the same destination twice within a pool cycle", () => {

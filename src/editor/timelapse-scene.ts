@@ -31,6 +31,8 @@ export class TimelapseScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.events.once("shutdown", this.destroyScene, this);
+    this.events.once("destroy", this.destroyScene, this);
     this.cameras.main.setBackgroundColor("#050709");
     this.stationPool = new StationDiscPool(this);
     this.fitCameraToMapBounds();
@@ -45,7 +47,7 @@ export class TimelapseScene extends Phaser.Scene {
     this.stationPool.draw(frame.stations);
   }
 
-  shutdown(): void {
+  private destroyScene(): void {
     this.stationPool?.destroy();
   }
 

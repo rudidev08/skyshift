@@ -3,11 +3,16 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: start-zellij-iterate.sh [--session NAME] [--cwd DIR] [--claude COMMAND] [-- CLAUDE_ARG...]
+Usage: start-zellij-iterate.sh [SESSION_NAME] [--cwd DIR] [--claude COMMAND]
 
 Start or attach a zellij session for an iterate-skill run. When creating a new
 session, start Claude in the current directory so checkpoint automation can
 target the Claude pane later.
+
+SESSION_NAME is a positional shorthand for --session NAME (-s NAME also works).
+Without a session name, the script derives a per-repo default and attaches to
+that session if it exists — the resume path. To start a parallel session in
+the same repo (e.g. iterating a different target skill), pass an explicit name.
 USAGE
 }
 
@@ -70,15 +75,13 @@ while [[ $# -gt 0 ]]; do
       usage
       exit 0
       ;;
-    --)
-      shift
-      break
-      ;;
     -*)
       fail "unknown option: $1"
       ;;
     *)
-      break
+      [[ -z "$session_name" ]] || fail "unexpected extra argument: $1"
+      session_name=$1
+      shift
       ;;
   esac
 done
@@ -98,7 +101,7 @@ if [[ -n "${ZELLIJ:-}" ]]; then
   # Rename the current pane so name-based pane targeting matches the
   # outside-zellij path (which sets pane name="claude" via the layout).
   zellij action rename-pane claude >/dev/null 2>&1 || true
-  exec "$claude_path" "$@"
+  exec "$claude_path"
 fi
 
 # Filter EXITED (resurrectable) sessions out of the live-session check —
@@ -108,46 +111,31 @@ fi
 sessions=$(zellij list-sessions --no-formatting 2>/dev/null || true)
 
 if printf '%s\n' "$sessions" \
-    | awk -v name="$session_name" '$1 == name && !/EXITED/ { found=1 } END { exit !found }'; then
+    | awk -v name="$session_name" '$1 == name && index($0, "(EXITED") == 0 { found=1 } END { exit !found }'; then
   exec zellij attach "$session_name"
 fi
 
 # A dead/EXITED session with the same name blocks --new-session-with-layout —
 # zellij refuses to create a session whose name collides. Delete it first.
 if printf '%s\n' "$sessions" \
-    | awk -v name="$session_name" '$1 == name && /EXITED/ { found=1 } END { exit !found }'; then
+    | awk -v name="$session_name" '$1 == name && index($0, "(EXITED") > 0 { found=1 } END { exit !found }'; then
   zellij delete-session "$session_name" >/dev/null 2>&1 \
     || fail "could not delete exited session: $session_name"
 fi
 
-quoted_args=""
-for arg in "$@"; do
-  quoted_args+=" $(kdl_quote "$arg")"
-done
-
-if [[ -n "$quoted_args" ]]; then
-  layout_string=$(cat <<EOF
-layout {
-    pane name="claude" cwd=$(kdl_quote "$cwd") command=$(kdl_quote "$claude_path") {
-        args$quoted_args
-    }
-}
-EOF
-)
-else
-  layout_string=$(cat <<EOF
+layout_string=$(cat <<EOF
 layout {
     pane name="claude" cwd=$(kdl_quote "$cwd") command=$(kdl_quote "$claude_path")
 }
 EOF
 )
-fi
 
 # Use --new-session-with-layout so create-session semantics are guaranteed
 # even if a session named $session_name appears between the check above and
 # this exec; `--session NAME --layout-string ...` would silently add the
 # layout as new tabs to that pre-existing session instead of starting fresh.
-layout_file=${TMPDIR:-/tmp}/start-zellij-iterate-layout.kdl
-printf '%s\n' "$layout_string" >"$layout_file" \
-  || fail "could not write layout file: $layout_file"
+# Per-session fixed path: one file per named session, overwritten on reuse.
+# Parallel runs use different session names so there is no clobber risk.
+layout_file="${TMPDIR:-/tmp}/start-zellij-iterate-layout-${session_name}.kdl"
+printf '%s\n' "$layout_string" >"$layout_file" || fail "could not write layout file: $layout_file"
 exec zellij --session "$session_name" --new-session-with-layout "$layout_file"

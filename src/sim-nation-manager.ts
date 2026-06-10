@@ -4,7 +4,9 @@
 //
 // Build type is picked by ware scarcity + nation personality, pre-filtered to
 // types with a legal free zone. Sector scoring uses the chosen typeId so
-// contracted off-roster builds land in legal sectors.
+// contracted off-roster builds land in legal sectors. Placement carries
+// personality noise (PERSONALITY_PICK_CHANCE): most builds take the scorer's
+// preferred sector, the rest a uniform-random legal zone.
 
 import type { Sector } from "./sim-map-types";
 import type { StationTypeId } from "../data/station-types";
@@ -16,7 +18,8 @@ import { allowedStationTypesForZone } from "./sim-map-sector-environments";
 import { allNations } from "../data/nations";
 import { getStationTypeTemplate } from "./sim-station-template";
 import { getWareTemplate } from "./sim-ware-template";
-import { sectorScorerByNation, type SectorScorer } from "../data/nation-personality";
+import { sectorScorerByNation, type SectorScorer } from "./sim-nation-personality";
+import { economyConfig } from "../data/economy-config";
 import { isStationProducing } from "./sim-station";
 import type { NamePool } from "./sim-name-pool";
 import type { StationManager } from "./sim-station-manager";
@@ -26,6 +29,16 @@ import { allWares } from "../data/wares";
 // build-ware demand across time so scarcity scoring isn't spiked by the
 // instantaneous `waresRequired` total.
 const NOMINAL_BUILD_DURATION_SECONDS = 40 * 60; // 40 sim-minutes
+
+// Chance a build takes the personality-preferred sector rather than a
+// uniform-random legal zone — the build-side sibling of the emigration dial in
+// sim-emigration-decision.ts. 1 reproduces the old always-argmax placement;
+// at 0.8, roughly one station in five is founded somewhere off-pattern.
+//
+// Those off-pattern stations are what give the emigration rankings something
+// to find: a station founded out of step with its nation is exactly the site a
+// later emigration event preferentially abandons.
+const PERSONALITY_PICK_CHANCE = 0.8;
 
 // All station types any nation can ever build, deduped across sector environments.
 // Computed once at module load since sectorEnvironmentById never changes at runtime.
@@ -129,24 +142,28 @@ export class NationManager {
     });
   }
 
-  /** Score sectors via the nation's personality scorer and return the highest-
-   *  scoring zone. The first zone of the winning sector is picked since zones
-   *  inside a sector are equivalent for scoring purposes. */
+  /** Score sectors via the nation's personality scorer and return a random
+   *  zone of the highest-scoring sector — zones inside a sector are equivalent
+   *  for scoring purposes. The personality roll comes first: the remaining
+   *  1 - PERSONALITY_PICK_CHANCE of builds skip scoring entirely and take a
+   *  uniform-random zone from the whole legal candidate list. */
   private pickPreferredBuildZone(
     nation: Nation,
     typeId: StationTypeId,
     occupiedZoneIds: Set<string>,
   ): StationZone | null {
     const scorer = (sectorScorerByNation as Record<string, SectorScorer | undefined>)[nation.id];
-    if (!scorer) return null;
+    if (!scorer) throw new Error(`No sector scorer for nation ${nation.id}`);
 
     const ownStations = this.ownStations(nation);
     const candidateZones = this.freeZonesAllowingType(typeId, occupiedZoneIds);
     if (candidateZones.length === 0) return null;
 
+    if (Math.random() >= PERSONALITY_PICK_CHANCE) return pickUniformRandomZone(candidateZones);
+
     const zonesBySectorId = groupZonesBySectorId(candidateZones);
 
-    const candidates: { zone: StationZone; score: number }[] = [];
+    const candidates: { zonesInSector: StationZone[]; score: number }[] = [];
     for (const sector of this.sectors) {
       // Skip sectors with no candidate zones before paying for the scorer.
       const zonesInSector = zonesBySectorId.get(sector.id);
@@ -161,11 +178,11 @@ export class NationManager {
         tieBreak: Math.random(),
       });
       if (score === -Infinity) continue;
-      candidates.push({ zone: zonesInSector[0], score });
+      candidates.push({ zonesInSector, score });
     }
     if (candidates.length === 0) return null;
     candidates.sort((leftCandidate, rightCandidate) => rightCandidate.score - leftCandidate.score);
-    return candidates[0].zone;
+    return pickUniformRandomZone(candidates[0].zonesInSector);
   }
 
   /** Every live station owned by the given nation. */
@@ -326,8 +343,9 @@ export class NationManager {
 }
 
 /** Group candidate zones by sector id once so the per-sector scoring loop
- *  does O(1) lookups instead of re-filtering. Each bucket is sorted by zone id
- *  so the chosen zone (first in the bucket) is deterministic across runs. */
+ *  does O(1) lookups instead of re-filtering. Bucket order doesn't matter —
+ *  zones inside a sector are score-equivalent and the winner's zone is drawn
+ *  at random. */
 function groupZonesBySectorId(candidateZones: StationZone[]): Map<string, StationZone[]> {
   const zonesBySectorId = new Map<string, StationZone[]>();
   for (const zone of candidateZones) {
@@ -335,10 +353,12 @@ function groupZonesBySectorId(candidateZones: StationZone[]): Map<string, Statio
     if (list) list.push(zone);
     else zonesBySectorId.set(zone.sector.id, [zone]);
   }
-  for (const list of zonesBySectorId.values()) {
-    list.sort((leftZone, rightZone) => leftZone.id.localeCompare(rightZone.id));
-  }
   return zonesBySectorId;
+}
+
+/** Uniform-random draw from a non-empty zone list. */
+function pickUniformRandomZone(zones: StationZone[]): StationZone {
+  return zones[Math.floor(Math.random() * zones.length)];
 }
 
 function addStationProduction(station: Station, production: Map<string, number>): void {
@@ -365,13 +385,15 @@ function addStationInputConsumption(station: Station, consumption: Map<string, n
   }
 }
 
-/** Spread `waresRequired` across NOMINAL_BUILD_DURATION_SECONDS so scarcity scoring isn't spiked by the instantaneous total. */
+/** Spread `waresRequired` across NOMINAL_BUILD_DURATION_SECONDS so scarcity
+ *  scoring isn't spiked by the instantaneous total. Converted to per-tick units
+ *  at this boundary — the map's other contributors add per-tick rates
+ *  (`unitsPerTick`, `productionOutput`). */
 function addTransientBuildConsumption(station: Station, consumption: Map<string, number>): void {
   if (!station.build) return;
   for (const [buildWareId, amount] of Object.entries(station.build.waresRequired)) {
-    consumption.set(
-      buildWareId,
-      (consumption.get(buildWareId) ?? 0) + amount / NOMINAL_BUILD_DURATION_SECONDS,
-    );
+    const unitsPerTick =
+      (amount / NOMINAL_BUILD_DURATION_SECONDS) * economyConfig.simulationIntervalSeconds;
+    consumption.set(buildWareId, (consumption.get(buildWareId) ?? 0) + unitsPerTick);
   }
 }

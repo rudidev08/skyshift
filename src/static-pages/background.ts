@@ -3,8 +3,8 @@
  * every "outside the game" page a consistent backdrop. */
 
 import { PIXEL_RATIO } from "./device";
-
-const ASSET_ROOT = "/index/";
+import starsFarUrl from "../assets/backgrounds/stars-far.png";
+import starsNearUrl from "../assets/backgrounds/stars-near.png";
 
 /** Position/size of one dark-nebula overlay; xRatio/yRatio are 0-1 fractions of viewport. */
 interface DarkNebula {
@@ -39,11 +39,11 @@ const STARS_NEAR_OFFSETS: Array<[number, number]> = [
   [100, 600],
 ];
 
-/** Resolves `name` against `/index/`; fires `onload` when the bitmap is decoded. */
-function loadImage(name: string, onload: () => void): HTMLImageElement {
+/** Loads the bitmap at `src`; fires `onload` when it's decoded. */
+function loadImage(src: string, onload: () => void): HTMLImageElement {
   const image = new Image();
   image.onload = onload;
-  image.src = ASSET_ROOT + name;
+  image.src = src;
   return image;
 }
 
@@ -52,12 +52,12 @@ export function mountPageBackground(canvas: HTMLCanvasElement): void {
 
   const draw = () => drawBackground(context, farLayer, nearLayer);
   const farLayer: StarLayer = {
-    image: loadImage("stars-far.png", () => draw()),
+    image: loadImage(starsFarUrl, () => draw()),
     alpha: 0.7,
     offsets: STARS_FAR_OFFSETS,
   };
   const nearLayer: StarLayer = {
-    image: loadImage("stars-near.png", () => draw()),
+    image: loadImage(starsNearUrl, () => draw()),
     alpha: 0.85,
     offsets: STARS_NEAR_OFFSETS,
   };

@@ -26,6 +26,7 @@ import {
   ICON_TECH,
   NATION_COLORS,
 } from "./scene-presets";
+import { injectAnalyticsUnlessDev } from "../util-analytics";
 
 // Bright nebulas — dark-void variants don't show up under the "lighter"
 // composite, so pick colorful ones (the game's own PNGs).
@@ -35,6 +36,8 @@ import nebulaMining from "../assets/backgrounds/nebula-mining.png";
 import nebulaPurple1 from "../assets/backgrounds/nebula-purple1.png";
 import nebulaPurple2 from "../assets/backgrounds/nebula-purple2.png";
 import nebulaDust1 from "../assets/backgrounds/nebula-dust1.png";
+
+injectAnalyticsUnlessDev();
 
 type HelpSceneName = "trade" | "build" | "emigrate";
 

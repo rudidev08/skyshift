@@ -228,7 +228,8 @@ export interface DraftDependencies {
 function resetEditableStationsToBaseline(mapState: MapEditorState, removedStationIds: string[]): void {
   mapState.editableStations.length = 0;
   for (const station of mapState.baselineMap.stations) {
-    if (!removedStationIds.includes(station.id)) mapState.editableStations.push(station);
+    // Clone so later edits can't mutate the baseline used for revert/dirty comparisons.
+    if (!removedStationIds.includes(station.id)) mapState.editableStations.push({ ...station });
   }
 }
 

@@ -26,7 +26,7 @@ export const ABJECT_PRIDE =
 export const BORDER_02 =
   "A thin corridor connecting Core territory to the mining sectors. Trade convoys pass through daily but nobody stays.";
 export const HEARTH =
-  "Primary operations base of the 20th Miner Fleet. Two planets strip-mined and rebuilt into industrial powerhouses. A Farshift mine operates nearby, trading prospecting data from the deep sectors for the supplies to keep going.";
+  "Primary operations base of the 20th Mining Fleet. Two planets strip-mined and rebuilt into industrial powerhouses. A Farshift mine operates nearby, trading prospecting data from the deep sectors for the supplies to keep going.";
 export const CAUTIOUS_TRAILS =
   "Navigation hazards make this sector a slow crawl. Pilots who know the safe routes charge a premium for escort.";
 export const BLIND_STUDY =

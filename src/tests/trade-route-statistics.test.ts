@@ -70,6 +70,52 @@ test("event at exactly the cutoff is kept (window is half-open)", () => {
   assertEqual(totalActivity(fromInfinity[0]), 0.75, "boundary event survived insert-time prune");
 });
 
+test("insert-side prune physically drops events past the finite default window", () => {
+  // Pin that the finite-window insert prune actually runs. The events array is
+  // private, so observe the prune's effect through a wider (Infinity) query:
+  // an event strictly older than the default-window cutoff must be physically
+  // gone after a later insert triggers the prune, even when a no-cutoff query
+  // would otherwise still include it. Inverting the `!Number.isFinite(...)`
+  // early-return guard (or dropping the pruneEventsOutsideDefaultWindow call)
+  // would skip the prune for finite windows, so the stale 0.6 event would
+  // resurface here — 1.0 total (0.6 + 0.4) instead of 0.4.
+  const routeStatistics = makeRouteStatistics();
+  // Stale event at t=0; default window is 600s.
+  routeStatistics.recordDelivery(createDeliveryEvent({ timeSeconds: 0, fillFraction: 0.6 }));
+  // Insert at t=700 sets cutoff=100, and t=0 < 100 → the stale event is dropped
+  // from the underlying store on this insert.
+  routeStatistics.recordDelivery(createDeliveryEvent({ timeSeconds: 700, fillFraction: 0.4 }));
+
+  // Infinity query has no cutoff filter, so it would surface the t=0 event if it
+  // were still stored. It must not be — only the t=700 event remains.
+  const fromInfinity = routeStatistics.getRouteStatsInWindow(700, Infinity);
+  assertEqual(totalActivity(fromInfinity[0]), 0.4, "stale pre-window event was pruned on insert, not retained");
+});
+
+test("query window narrower than retention excludes still-stored events", () => {
+  // Pin the in-window cutoff filter in getRouteStatsInWindow for the case the
+  // production overview actually hits: the live query window (2h) is narrower
+  // than the retention window (3h), so events older than the query window are
+  // still in the store but must be filtered out of the result. The insert-side
+  // prune can't mask this — it only trims to the wider retention window.
+  // Dropping the `if (event.timeSeconds < cutoff) continue;` line (or flipping
+  // its comparison) would let the older event leak into the narrow window.
+  const routeStatistics = makeRouteStatistics(); // retention 600s
+  // Event at t=100 stays in the store (insert prune at t=700 sets cutoff=100,
+  // and 100 is not < 100, so it survives retention).
+  routeStatistics.recordDelivery(createDeliveryEvent({ timeSeconds: 100, fillFraction: 0.5 }));
+  routeStatistics.recordDelivery(createDeliveryEvent({ timeSeconds: 700, fillFraction: 0.25 }));
+
+  // Narrow query: window 100 at now=700 → cutoff 600. The t=100 event is in the
+  // store but outside this window; only the t=700 event counts.
+  const narrow = routeStatistics.getRouteStatsInWindow(700, 100);
+  assertEqual(totalActivity(narrow[0]), 0.25, "narrow query excludes the still-stored older event");
+
+  // Sanity: the t=100 event really is still stored — a wide query surfaces it.
+  const wide = routeStatistics.getRouteStatsInWindow(700, Infinity);
+  assertEqual(totalActivity(wide[0]), 0.75, "older event remains in the store for a wider window");
+});
+
 test("never prunes when window is Infinity", () => {
   const routeStatistics = createTradeRouteStatistics({ windowSeconds: Infinity });
   routeStatistics.recordDelivery(createDeliveryEvent({ timeSeconds: 0, fillFraction: 1 }));

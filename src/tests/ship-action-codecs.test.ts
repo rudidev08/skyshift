@@ -135,10 +135,16 @@ test("fly action: isTradeFlight is unset on snapshot for non-trade legs", () => 
   };
   const snapshot = shipFlyActionToSnapshot(action);
   assertEqual(snapshot.isTradeFlight, undefined, "no isTradeFlight on snapshot when action has none");
+  // Pin the deploying flag's unset case through encode. This action carries no
+  // deploying field, so the snapshot must not invent one. Hardcoding
+  // `deploying: true` in shipFlyActionToSnapshot would mislabel a plain trade
+  // leg as deploying post-load (sim-trade-log's isTradeShipDeploying reads it).
+  assertEqual(snapshot.deploying, undefined, "no deploying on snapshot when action has none");
   const restored = shipFlyActionFromSnapshot(snapshot, stationsById([origin, destination]));
   assertTrue(restored.type === "fly", "type preserved");
   if (restored.type !== "fly") return;
   assertEqual(restored.isTradeFlight, undefined, "no isTradeFlight on restored when snapshot has none");
+  assertEqual(restored.deploying, undefined, "no deploying on restored when snapshot has none");
 });
 
 test("fly action note: trade flight renders the Route card, ferry renders the Status card", () => {

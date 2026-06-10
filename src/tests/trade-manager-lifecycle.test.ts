@@ -5,14 +5,12 @@
 // tests exercise only transitively.
 
 import { test, assertEqual, assertNotUndefined, assertTrue } from "./test-utils.ts";
-import { createMapFromTemplate } from "../sim-map-create.ts";
-import { map as settledUniverse } from "../../data/map.ts";
-import { settledPreset } from "../../data/map-preset-settled.ts";
 import { tradeShipFromSnapshot, tradeShipToSnapshot, type SnapshotContext } from "../sim-trade-save-snapshot.ts";
 import { advanceQueue } from "../sim-trade-queue.ts";
 import type { ShipAction, TravelEndpoint, TravelMode } from "../sim-travel-types.ts";
 import type { FlightData } from "../sim-travel.ts";
 import { type TradeShip } from "../sim-trade-types.ts";
+import { isTradeShipDeploying } from "../sim-trade-log.ts";
 import { createSettledSimulation } from "./sim-test-fixtures.ts";
 
 /** Near-complete arriving flight: progress 0.99 so the next tick finishes it. Only the endpoints + travel mode vary between the completion tests. */
@@ -33,35 +31,31 @@ function makeArrivingFlight(parts: {
     flightDistanceFraction: 0.8,
     arriveDistanceFraction: 0.1,
     travelMode: parts.travelMode,
-    previousHeadingRadians: null,
   };
 }
 
-// --- createMapFromTemplate: zone deduplication ---
-
-test("createMapFromTemplate strips zones that preset stations occupy", () => {
-  // Pin the occupiedZoneIds.add call in createPresetPlacedStations. Without it,
-  // the returned set stays empty so the stationZones filter passes every zone
-  // through — each preset station would render its zone footprint twice (once
-  // for the station, once for the still-present empty zone underneath).
-  const map = createMapFromTemplate(settledUniverse, settledPreset);
-  const presetZoneIds = new Set(settledPreset.presetStations.map((p) => p.zoneId));
-  const remainingZoneIds = new Set(map.stationZones.map((zone) => zone.id));
-
-  assertTrue(presetZoneIds.size > 0, "fixture: preset has at least one station");
-  for (const presetZoneId of presetZoneIds) {
-    assertTrue(
-      !remainingZoneIds.has(presetZoneId),
-      `zone ${presetZoneId} occupied by a preset station must not appear in map.stationZones`,
-    );
-  }
-  // And every preset station's zoneId survives onto the placement itself.
-  for (const station of map.stations) {
-    assertNotUndefined(station.zoneId, `preset station ${station.id} retains its zoneId`);
-  }
-});
-
 // --- update() and queue dispatch ---
+
+test("enrollment queue survives the stagger wake-up — the deploy flight actually starts", () => {
+  // Pin the sacrificial wait placeholder ahead of the enrollment queue's deploy
+  // fly. advanceQueue shifts the head as "just completed" on every wake-up, so
+  // without the placeholder the stagger timer would consume the surface→orbit
+  // deploy action unexecuted — no ship would ever take off.
+  const simulation = createSettledSimulation();
+  const ship = simulation.tradeManager.tradeShips[0]!;
+  assertTrue(isTradeShipDeploying(ship), "ship reads as deploying while the stagger timer is pending");
+
+  // Fixture stagger is 0, so the first tick fires every deploy timer.
+  simulation.tradeManager.tick(0.5);
+
+  assertTrue(ship.flight !== null, "deploy flight started when the stagger timer fired");
+  const current = ship.actionQueue[0];
+  assertTrue(
+    current?.type === "fly" && current.deploying === true,
+    "queue head is the deploying fly while the takeoff is in flight",
+  );
+  simulation.tradeManager.destroy();
+});
 
 test("advanceQueue bursts through instant actions until a blocker", () => {
   const simulation = createSettledSimulation();
@@ -102,12 +96,16 @@ test("timer firing at exactly tradeTimeSeconds fires this tick (boundary is <=, 
   // its wake-up at tradeTimeSeconds+delta, ticking by exactly delta, and checking
   // that the queue head was consumed (advanceQueue ran).
   const simulation = createSettledSimulation();
-  // Drain one tick so most ships have moved past their initial deploy timer.
+  // Drain one tick so every ship's deploy timer has fired (ships are mid-takeoff).
   simulation.tradeManager.tick(0.5);
   const ship = simulation.tradeManager.tradeShips[0]!;
-  // Replace the queue head with a synthetic placeholder we can detect; cancel
-  // any existing timer for this ship by clearing then rescheduling at exact
-  // tradeTimeSeconds + 1.
+  // Ground the ship and cancel its pending timers so the boundary timer below
+  // is the only thing that can advance the queue.
+  simulation.tradeManager.activeTradeShips.cancelTimersFor(ship);
+  simulation.tradeManager.activeTradeShips.clearFlight(ship);
+  ship.flight = null;
+  // Replace the queue head with a synthetic placeholder we can detect, and
+  // schedule its wake-up at exactly tradeTimeSeconds + 1.
   ship.actionQueue = [{ type: "wait", durationSeconds: 0, label: "boundary-marker" }];
   simulation.tradeManager.scheduleTimer(ship, 1);
   simulation.tradeManager.tick(1);
@@ -140,7 +138,6 @@ test("cancelTimersFor at index === timerHead does not surface a consumed timer i
       tradeDirection: null,
       cargoAmountByWareId: new Map(),
       reservations: [],
-      lastFlightHeadingRadians: null,
       idleSinceTradeTimeSeconds: 0,
     };
   }
@@ -658,6 +655,26 @@ test("destroy followed by snapshot rehydration on a fresh sim restores trade tim
     expectedTimerCount,
     "scheduled timer count restored",
   );
+  // Pin each restored timer's fireTimeSeconds, not just the count. A
+  // tradeManagerToSnapshot mutation that wrote a constant (e.g. fireTimeSeconds: 0)
+  // into the captured timer would keep the count green but make every reloaded
+  // ship's wake-up fire on the next tick — corrupting the staggered re-launch and
+  // any pending post-load trade delays. restoreTimers also sorts by fireTimeSeconds,
+  // so a zeroed value reorders the queue too.
+  const expectedFireTimeByShipId = new Map(
+    moduleSnapshot.scheduledTimers.map((timer) => [timer.shipId, timer.fireTimeSeconds]),
+  );
+  assertTrue(
+    moduleSnapshot.scheduledTimers.some((timer) => timer.fireTimeSeconds > 0),
+    "fixture: at least one captured timer has a non-zero fire time (so the fidelity check isn't vacuous)",
+  );
+  for (const restoredTimer of replay.tradeManager.toSnapshot().scheduledTimers) {
+    assertEqual(
+      restoredTimer.fireTimeSeconds,
+      expectedFireTimeByShipId.get(restoredTimer.shipId),
+      `fireTimeSeconds restored for ${restoredTimer.shipId}`,
+    );
+  }
   // Pin the post-restore flight set wiring.
   let restoredInFlightCount = 0;
   for (const tradeShip of replay.tradeManager.tradeShips) {
@@ -737,7 +754,6 @@ test("snapshot restore replaces fly with placeholder when origin station is demo
       targetStationId: null,
       tradeDirection: null,
       reservations: [],
-      lastFlightHeadingRadians: null,
       idleSinceTradeTimeSeconds: 0,
     },
     snapshotContext,
@@ -786,7 +802,6 @@ test("snapshot restore preserves reservations when station and slot still exist"
           cargoDirection: "incoming",
         },
       ],
-      lastFlightHeadingRadians: null,
       idleSinceTradeTimeSeconds: 0,
     },
     snapshotContext,
@@ -824,7 +839,6 @@ test("snapshot restore replaces deposit with placeholder when station is demolis
       targetStationId: null,
       tradeDirection: null,
       reservations: [],
-      lastFlightHeadingRadians: null,
       idleSinceTradeTimeSeconds: 0,
     },
     snapshotContext,
@@ -894,74 +908,6 @@ test("flight completion clears ship.flight and advances the queue even when the 
   simulation.tradeManager.destroy();
 });
 
-test("flight completion sets lastFlightHeadingRadians to atan2(dy, dx) of origin → destination, not the swapped form", () => {
-  // Pin Math.atan2's argument order in the post-completion lastFlightHeadingRadians update.
-  // atan2(dx, dy) instead of atan2(dy, dx) computes the complementary angle —
-  // departing flights then lerp from the wrong starting heading and the
-  // smooth-turn render breaks. Tests that don't observe lastFlightHeadingRadians miss this.
-  const simulation = createSettledSimulation();
-  const tradeShip = simulation.tradeManager.tradeShips[0]!;
-  const originStation = simulation.stationManager.getStation(tradeShip.homeStationId)!;
-  // Pick a destination at a different position so dx/dy disambiguate the angle.
-  // Use the station with the largest combined |dx|+|dy| from origin to make the
-  // expected angle distinct from 0 / π/2 / π / -π/2 (where swapping args could
-  // coincidentally land on the right value).
-  let destinationStation: typeof originStation | null = null;
-  let bestDistanceSquared = 0;
-  for (const candidate of simulation.stations) {
-    if (candidate.id === originStation.id) continue;
-    const deltaX = candidate.x - originStation.x;
-    const deltaY = candidate.y - originStation.y;
-    const distanceSquared = deltaX * deltaX + deltaY * deltaY;
-    if (Math.abs(deltaX) > 0 && Math.abs(deltaY) > 0 && distanceSquared > bestDistanceSquared) {
-      bestDistanceSquared = distanceSquared;
-      destinationStation = candidate;
-    }
-  }
-  assertTrue(destinationStation !== null, "found a destination station with non-trivial dx/dy");
-
-  // Cancel the deploy timer and stage a fly + completed flight by hand so the
-  // assertion isolates the post-completion lastFlightHeadingRadians update.
-  simulation.tradeManager.activeTradeShips.cancelTimersFor(tradeShip);
-  tradeShip.actionQueue = [
-    {
-      type: "fly",
-      origin: { stationId: originStation.id, surfaceOrOrbit: "orbit" },
-      originStation,
-      destination: { stationId: destinationStation!.id, surfaceOrOrbit: "orbit" },
-      destinationStation: destinationStation!,
-      travelMode: "interStation",
-      deploying: false,
-      label: "leg",
-    },
-    { type: "wait", durationSeconds: 999, label: "blocker" },
-  ];
-  tradeShip.flight = makeArrivingFlight({
-    origin: { stationId: originStation.id, surfaceOrOrbit: "orbit" },
-    destination: { stationId: destinationStation!.id, surfaceOrOrbit: "orbit" },
-    travelMode: "interStation",
-  });
-  simulation.tradeManager.activeTradeShips.setInFlight(tradeShip);
-  // Sentinel value so we can detect "lastFlightHeadingRadians not written at all" vs "wrong value".
-  tradeShip.lastFlightHeadingRadians = 9999;
-
-  simulation.tradeManager.tick(2);
-
-  // The right value is atan2(dy, dx). atan2(dx, dy) (arg-swap) and any drop
-  // (sentinel survives) both fail this assertion.
-  const expectedHeading = Math.atan2(
-    destinationStation!.y - originStation.y,
-    destinationStation!.x - originStation.x,
-  );
-  assertEqual(
-    tradeShip.lastFlightHeadingRadians,
-    expectedHeading,
-    "lastFlightHeadingRadians equals atan2(dy, dx) of origin → destination",
-  );
-
-  simulation.tradeManager.destroy();
-});
-
 test("flight completion does not throw when origin or destination station is demolished", () => {
   // Build a ship whose flight references a station id not in the manager's
   // roster, then drive the flight to completion. Pre-fix this threw on the
@@ -972,6 +918,10 @@ test("flight completion does not throw when origin or destination station is dem
     "fixture has at least one trade ship",
   );
 
+  // Cancel the deploy timer and empty the queue so completing the synthetic
+  // flight is the only thing this ship does.
+  simulation.tradeManager.activeTradeShips.cancelTimersFor(tradeShip);
+  tradeShip.actionQueue = [];
   // Replace the ship's flight with one whose origin id is missing from the
   // station roster. Phase already at "arriving" and progress near 1 so the
   // next tick completes it.
@@ -980,6 +930,7 @@ test("flight completion does not throw when origin or destination station is dem
     destination: { stationId: "ALSO-GONE", surfaceOrOrbit: "orbit" },
     travelMode: "interStation",
   });
+  simulation.tradeManager.activeTradeShips.setInFlight(tradeShip);
   // Tick twice — flight transitions complete on the second pass.
   simulation.tradeManager.tick(2);
   simulation.tradeManager.tick(0.1);

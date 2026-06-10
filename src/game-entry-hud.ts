@@ -19,6 +19,7 @@ import { loadPreference, savePreference } from "./storage-preferences";
 import { uiPreferenceDefaults } from "../data/ui-preference-defaults";
 import type { BindEventWithDestroyFunction } from "./ui-dom-input-shield";
 import { createSettingsPanel, type SettingsHandle } from "./ui-settings-panel";
+import { acquireScopedPause } from "./phaser/auto-release-pause";
 import { captureSnapshot } from "./ui-savegame-manager";
 import type { GameSnapshot } from "./sim-save-types";
 
@@ -314,7 +315,11 @@ export function setupSettingsPanel(dependencies: {
   bindEventWithDestroy: BindEventWithDestroyFunction;
   remountWithSnapshot: (snapshot: GameSnapshot) => void;
 }): SettingsHandle {
-  const panel = createSettingsPanel(dependencies.getScene, dependencies.remountWithSnapshot);
+  const panel = createSettingsPanel(
+    dependencies.getScene,
+    dependencies.remountWithSnapshot,
+    acquireScopedPause,
+  );
   // The destroy callback closes the panel (releasing pause) and detaches it
   // from the DOM, so the next mount doesn't inherit a paused sim or stacked overlay.
   dependencies.destroyCallbacks.push(() => panel.destroy());

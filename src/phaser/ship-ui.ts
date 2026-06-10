@@ -20,7 +20,7 @@ const TOP_SEGMENT_ARCS = [getSegmentArcsForSlotCount(3)[0]];
 // Gap between the orbit ring and the cargo label above the ship.
 const cargoLabelGapPixels = 22;
 // Gap below the ship sprite to the selection name label.
-const cargoLabelStackGapPixels = 4;
+const nameLabelGapPixels = 4;
 
 export interface ShipUiBundle {
   label: Phaser.GameObjects.Text;
@@ -84,7 +84,7 @@ function updateShipLabel(update: ShipUiUpdate) {
   const labelAlpha = closeViewAlpha(frame.zoom);
   const labelVisible = labelAlpha > 0;
   if (labelVisible) {
-    shipUi.label.setPosition(positionX, positionY + SHIP_SQUARE + cargoLabelStackGapPixels);
+    shipUi.label.setPosition(positionX, positionY + SHIP_SQUARE + nameLabelGapPixels);
     shipUi.label.setAlpha(labelAlpha);
   }
   shipUi.label.setVisible(labelVisible);
